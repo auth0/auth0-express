@@ -33,7 +33,7 @@ async function requireSession(req: Request, res: Response, next: NextFunction) {
   const session = await req.auth0.client.getSession();
 
   if (!session) {
-    return res.redirect(`/auth/login?returnTo=${req.url}`);
+    return res.redirect(`/auth/login?returnTo=${encodeURIComponent(req.url)}`);
   }
 
   next();
