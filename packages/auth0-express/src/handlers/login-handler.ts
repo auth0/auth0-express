@@ -7,13 +7,10 @@ export async function handleLogin(req: Request, res: Response, options: Auth0Exp
     const dangerousReturnTo = req.query.returnTo as string | undefined;
     const sanitizedReturnTo = toSafeRedirect(dangerousReturnTo || '/', options.appBaseUrl);
 
-    const authorizationUrl = await req.auth0.client.startInteractiveLogin(
-      {
-        pushedAuthorizationRequests: options.pushedAuthorizationRequests,
-        appState: { returnTo: sanitizedReturnTo },
-      },
-      { request: req, response: res }
-    );
+    const authorizationUrl = await req.auth0.client.startInteractiveLogin({
+      pushedAuthorizationRequests: options.pushedAuthorizationRequests,
+      appState: { returnTo: sanitizedReturnTo },
+    });
 
     res.redirect(authorizationUrl.href);
   } catch (error) {

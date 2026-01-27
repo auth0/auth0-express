@@ -5,8 +5,7 @@ import { Auth0ExpressOptions } from 'src/types.js';
 export async function handleCallback(req: Request, res: Response, options: Auth0ExpressOptions): Promise<void> {
   try {
     const { appState } = await req.auth0.client.completeInteractiveLogin<{ returnTo: string } | undefined>(
-      createRouteUrl(req.url, options.appBaseUrl),
-      { request: req, response: res }
+      createRouteUrl(req.url, options.appBaseUrl)
     );
 
     res.redirect(appState?.returnTo ?? options.appBaseUrl);

@@ -6,15 +6,21 @@ import { handleLogin } from './handlers/login-handler.js';
 import { handleCallback } from './handlers/callback-handler.js';
 import { handleLogout } from './handlers/logout-handler.js';
 import { handleBackchannelLogout } from './handlers/backchannel-logout-handler.js';
+import { runWithContext } from './store/request-context.js';
 import './types/express.js';
 
 export function createAuth0Router(options: Auth0ExpressOptions): Router {
   const router = Router();
 
-  // 1. Cookie parsing
+  // Cookie parsing
   router.use(cookieParser());
 
-  // 2. Initialize auth0Client
+  // Establish AsyncLocalStorage context for the request lifecycle
+  router.use((request: Request, response: Response, next: NextFunction) => {
+    runWithContext({ request, response }, () => next());
+  });
+
+  // Initialize auth0Client
   const auth0Client = createServerClientInstance(options);
 
   // Attach to request

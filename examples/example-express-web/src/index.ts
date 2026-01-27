@@ -30,7 +30,7 @@ app.use(
 
 // Middleware to check for session
 async function requireSession(req: Request, res: Response, next: NextFunction) {
-  const session = await req.auth0.client.getSession({ request: req, response: res });
+  const session = await req.auth0.client.getSession();
 
   if (!session) {
     return res.redirect(`/auth/login?returnTo=${req.url}`);
@@ -41,13 +41,13 @@ async function requireSession(req: Request, res: Response, next: NextFunction) {
 
 // Routes
 app.get('/', async (req: Request, res: Response) => {
-  const user = await req.auth0.client.getUser({ request: req, response: res });
+  const user = await req.auth0.client.getUser();
 
   res.render('index', { isLoggedIn: !!user, user: user, layout: 'layout' });
 });
 
 app.get('/public', async (req: Request, res: Response) => {
-  const user = await req.auth0.client.getUser({ request: req, response: res });
+  const user = await req.auth0.client.getUser();
 
   res.render('public', {
     isLoggedIn: !!user,
@@ -57,7 +57,7 @@ app.get('/public', async (req: Request, res: Response) => {
 });
 
 app.get('/private', requireSession, async (req: Request, res: Response) => {
-  const user = await req.auth0.client.getUser({ request: req, response: res });
+  const user = await req.auth0.client.getUser();
 
   res.render('private', {
     isLoggedIn: !!user,

@@ -9,7 +9,7 @@ export async function handleBackchannelLogout(req: Request, res: Response): Prom
   }
 
   try {
-    await req.auth0.client.handleBackchannelLogout(logoutToken, { request: req, response: res });
+    await req.auth0.client.handleBackchannelLogout(logoutToken);
     res.status(204).send(null);
   } catch (e) {
     res.status(400).send((e as Error).message);
