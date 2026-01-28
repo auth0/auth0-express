@@ -14,16 +14,14 @@ concurrency:
   group: ${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
 
-env:
-  CACHE_KEY: "${{ github.ref }}-${{ github.run_id }}-${{ github.run_attempt }}"
-
 jobs:
   test:
     strategy:
       matrix:
         node: [ 20, 22, 24 ]
     name: Build Package
-    runs-on: ubuntu-latest
+    runs-on:
+      labels: ubuntu-22.04-2cpu-8ram-75ssd
 
     steps:
       - name: Checkout code
@@ -55,7 +53,8 @@ jobs:
 
   lint:
     name: Lint
-    runs-on: ubuntu-latest
+    runs-on:
+      labels: ubuntu-22.04-2cpu-8ram-75ssd
 
     steps:
       - name: Checkout code
