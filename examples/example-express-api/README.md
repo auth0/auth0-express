@@ -1,6 +1,6 @@
-# Fastify Example
+# Express API Example
 
-This example demonstrates how to use the `auth0-fastify` package to protect API's in a Fastify application.
+This example demonstrates how to use the `auth0-express` package to protect API's in an Express application.
 
 ## Install dependencies
 
