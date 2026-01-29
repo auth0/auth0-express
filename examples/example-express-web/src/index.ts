@@ -1,5 +1,5 @@
 import express, { Request, Response, NextFunction } from 'express';
-import { createAuth0Router } from '@auth0/auth0-express';
+import { createAuth0 } from '@auth0/auth0-express';
 import 'dotenv/config';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -19,7 +19,7 @@ app.set('views', path.join(__dirname, '../views'));
 
 // Mount Auth0 router
 app.use(
-  createAuth0Router({
+  createAuth0({
     domain: process.env.AUTH0_DOMAIN as string,
     clientId: process.env.AUTH0_CLIENT_ID as string,
     clientSecret: process.env.AUTH0_CLIENT_SECRET as string,

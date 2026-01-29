@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { createAuth0ApiRouter, requireAuth } from '@auth0/auth0-express-api';
+import { createAuth0Api, requireAuth } from '@auth0/auth0-express-api';
 import 'dotenv/config';
 
 const app = express();
@@ -7,7 +7,7 @@ const app = express();
 app.use(express.json());
 
 // Mount Auth0 API router
-const auth0Router = createAuth0ApiRouter({
+const auth0Router = createAuth0Api({
   domain: process.env.AUTH0_DOMAIN as string,
   audience: process.env.AUTH0_AUDIENCE as string,
 });
