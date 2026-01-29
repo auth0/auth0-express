@@ -12,724 +12,879 @@ This guide will help you migrate your Express.js API from `express-oauth2-jwt-be
 - **Improved developer experience** - More explicit middleware usage
 - **Audit trail support** - Built-in request context tracking with AsyncLocalStorage
 
-## Installation
+## Quick Migration Summary
 
-First, install the new package:
+**Migration Time:** 20-40 minutes for basic setup, 1-2 hours for advanced features
+
+### Key Changes at a Glance
+
+| Aspect | express-oauth2-jwt-bearer | @auth0/auth0-express-api |
+|--------|---------------------------|--------------------------|
+| **Import** | `auth()` | `createAuth0ApiRouter()`, `requireAuth()` |
+| **Configuration** | `issuerBaseURL`, `audience` | `domain`, `audience` |
+| **Token Info** | `req.auth` | `req.auth0.user` |
+| **Protection Pattern** | Global | Per-route middleware |
+| **Scopes** | `requiredScopes()` | `requireAuth({ scopes })` |
+| **Default Behavior** | Global auth required | All routes public |
+
+### Migration Checklist
+
+- [ ] **Install** new package: `npm install @auth0/auth0-express-api`
+- [ ] **Update imports**: `auth()` → `createAuth0ApiRouter()`
+- [ ] **Rename config** (`issuerBaseURL` → `domain`)
+- [ ] **Replace middleware** (factory pattern instead of global)
+- [ ] **Update token access** (`req.auth` → `req.auth0.user`)
+- [ ] **Update scope validation** (factory pattern)
+- [ ] **Update error handling** (RFC 6750 format)
+- [ ] **Update tests** (mock factory function)
+
+### Breaking Changes
+
+1. **Per-route middleware** - `requireAuth()` imported and used per-route instead of global middleware
+2. **All routes public by default** - Must explicitly protect each route with `requireAuth()`
+3. **Token info location** - `req.auth0.user` instead of `req.auth`
+4. **RFC 6750 errors** - Standard error format required
+5. **No global protection** - Per-route protection only
+
+### Top 3 Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| **"requireAuth is not a function"** | Import and call: `import { requireAuth } from '@auth0/auth0-express-api'` |
+| **Routes unprotected** | Add middleware to each protected route: `app.get('/api', requireAuth(), handler)` |
+| **Token info undefined** | Use `req.auth0.user` (includes claims) not `req.auth.payload` |
+
+---
+
+## Installation & Basic Setup
 
 ```bash
 npm uninstall express-oauth2-jwt-bearer
 npm install @auth0/auth0-express-api
 ```
 
-## Basic Configuration Migration
+### Configuration (Before → After)
 
-### express-oauth2-jwt-bearer (Before)
-
+**Before:**
 ```javascript
-const express = require('express');
-const { auth } = require('express-oauth2-jwt-bearer');
-
-const app = express();
-
-app.use(
-  auth({
-    issuerBaseURL: 'https://YOUR_DOMAIN',
-    audience: 'https://myapi.com',
-  })
-);
-
-app.get('/api/messages', (req, res) => {
-  res.json({ message: 'Protected API' });
-});
+app.use(auth({
+  issuerBaseURL: 'https://YOUR_DOMAIN',
+  audience: 'https://your-api-identifier',
+}));
 ```
 
-### @auth0/auth0-express-api (After)
-
+**After:**
 ```javascript
-const express = require('express');
-const { createAuth0ApiRouter } = require('@auth0/auth0-express-api');
-
-const app = express();
-
-app.use(
-  createAuth0ApiRouter({
-    domain: 'YOUR_DOMAIN', // Without https:// prefix
-    audience: 'https://myapi.com',
-  })
-);
-
-app.get('/api/messages', (req, res, next) => {
-  res.locals.requireAuth()(req, res, next);
-}, (req, res) => {
-  res.json({ message: 'Protected API' });
-});
+app.use(createAuth0ApiRouter({
+  domain: 'YOUR_DOMAIN', // No https://
+  audience: 'https://your-api-identifier',
+}));
 ```
 
-## Key Configuration Changes
+### Configuration Mapping
 
-### 1. Configuration Property Mapping
-
-| express-oauth2-jwt-bearer | @auth0/auth0-express-api | Notes |
-|---------------------------|--------------------------|-------|
-| `issuerBaseURL` | `domain` | Remove `https://` prefix |
+| Old | New | Notes |
+|-----|-----|-------|
+| `issuerBaseURL` | `domain` | Remove `https://` |
 | `audience` | `audience` | Same |
-| `authRequired` | *(middleware-based)* | Use `requireAuth()` middleware per route |
-| `jwksUri` | *(auto-discovered)* | Automatically discovered from domain |
-| `issuer` | *(auto-discovered)* | Automatically discovered from domain |
+| — | `tokenSigningAlg` | Optional, defaults to RS256 |
 
-### 2. Environment Variables
+### Environment Variables
 
-#### express-oauth2-jwt-bearer (Before)
 ```bash
+# Before
 ISSUER_BASE_URL=https://YOUR_DOMAIN
-AUDIENCE=https://myapi.com
-```
+API_AUDIENCE=https://your-api-identifier
 
-#### @auth0/auth0-express-api (After)
-```bash
+# After
 AUTH0_DOMAIN=YOUR_DOMAIN
-AUTH0_AUDIENCE=https://myapi.com
+AUTH0_AUDIENCE=https://your-api-identifier
 ```
 
-## Global vs Per-Route Authentication
+---
 
-### express-oauth2-jwt-bearer (Before)
+## Per-Route Protection Pattern
 
-In the old SDK, authentication was applied globally by default:
+This is the most important concept to understand. The new SDK uses **per-route middleware** instead of global middleware.
+
+### Before (Global Middleware)
 
 ```javascript
-// All routes require authentication
+// All routes globally protected
 app.use(auth({
   issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
+  audience: 'https://your-api',
+  authRequired: true, // Global
 }));
 
-app.get('/api/public', (req, res) => {
-  res.json({ message: 'This is actually protected!' });
+app.get('/data', (req, res) => {
+  res.json({ data: 'protected' });
 });
 ```
 
-To make routes optional:
+### After (Per-Route Middleware)
 
 ```javascript
-// Make authentication optional
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-  authRequired: false, // Makes all routes optional
+import { createAuth0ApiRouter, requireAuth } from '@auth0/auth0-express-api';
+
+// Routes are public by default
+app.use(createAuth0ApiRouter({
+  domain: 'YOUR_DOMAIN',
+  audience: 'https://your-api',
 }));
 
-app.get('/api/public', (req, res) => {
-  if (req.auth) {
-    res.json({ message: `Hello ${req.auth.payload.sub}` });
-  } else {
-    res.json({ message: 'Hello guest' });
-  }
+// Explicitly protect routes with requireAuth middleware
+app.get('/data', requireAuth(), async (req, res) => {
+  res.json({ data: 'protected' });
 });
 ```
 
-### @auth0/auth0-express-api (After)
+### Why Per-Route?
 
-In the new SDK, **all routes are public by default**. You must explicitly protect routes:
+The per-route pattern provides benefits:
+
+1. **Explicit protection** - You see exactly which routes are protected
+2. **Flexible scoping** - Different routes can require different scopes
+3. **Composable** - Mix and match middleware
+4. **Testable** - Easier to mock in tests
+
+### Example: Mixed Public and Protected Routes
 
 ```javascript
-app.use(
-  createAuth0ApiRouter({
-    domain: 'YOUR_DOMAIN',
-    audience: 'https://myapi.com',
-  })
-);
+import { createAuth0ApiRouter, requireAuth } from '@auth0/auth0-express-api';
 
-// Public route - no authentication required
-app.get('/api/public', (req, res) => {
-  res.json({ message: 'Hello guest' });
+app.use(createAuth0ApiRouter({
+  domain: 'YOUR_DOMAIN',
+  audience: 'https://your-api',
+}));
+
+// Public route
+app.get('/public', (req, res) => {
+  res.json({ data: 'public' });
 });
 
-// Protected route - requires authentication
-app.get('/api/private', (req, res, next) => {
-  res.locals.requireAuth()(req, res, next);
-}, (req, res) => {
-  res.json({ message: `Hello ${req.auth0.user.sub}` });
+// Protected route
+app.get('/protected', requireAuth(), (req, res) => {
+  res.json({ data: 'protected' });
+});
+
+// Route requiring specific scope
+app.get('/admin', requireAuth({ scopes: 'admin' }), (req, res) => {
+  res.json({ data: 'admin only' });
 });
 ```
 
-**Key Difference:** The default behavior is reversed. This makes it more explicit which routes are protected.
+---
 
-## Accessing Token Information
+## Token Information & Claims
 
-### express-oauth2-jwt-bearer (Before)
+### Before
 
 ```javascript
-app.get('/api/profile', (req, res) => {
-  const auth = req.auth;
+app.get('/me', (req, res) => {
+  const claims = req.auth.payload;
+  const token = req.auth.token;
 
   res.json({
-    header: auth.header,   // JWT header
-    payload: auth.payload, // JWT payload (claims)
-    token: auth.token,     // Raw JWT string
+    sub: claims.sub,
+    email: claims.email,
   });
 });
 ```
 
-### @auth0/auth0-express-api (After)
+### After
 
 ```javascript
-app.get('/api/profile', (req, res, next) => {
-  res.locals.requireAuth()(req, res, next);
-}, (req, res) => {
+import { requireAuth } from '@auth0/auth0-express-api';
+
+app.get('/me', requireAuth(), (req, res) => {
   const user = req.auth0.user;
 
   res.json({
-    user: user, // User claims (same as auth.payload in old SDK)
+    sub: user.sub,
+    email: user.email,
   });
 });
 ```
 
-**Key Differences:**
-- `req.auth` becomes `req.auth0.user`
-- `req.auth.payload` becomes `req.auth0.user`
-- The raw token and header are not directly exposed
-- User object contains all JWT claims
+### Token Structure
 
-## Protecting Routes with Scopes
-
-### express-oauth2-jwt-bearer (Before)
+The token is a JWT with standard claims:
 
 ```javascript
-const { auth, requiredScopes } = require('express-oauth2-jwt-bearer');
+const user = req.auth0.user;
 
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-}));
+// Standard claims
+user.sub;        // User ID
+user.aud;        // Audience
+user.iat;        // Issued at
+user.exp;        // Expiration
+user.iss;        // Issuer
 
-// Requires ALL specified scopes
-app.get('/api/admin',
-  requiredScopes('read:admin write:admin'),
+// Custom claims
+user['https://myapp/roles'];
+user['https://myapp/permissions'];
+```
+
+---
+
+## Scope Validation
+
+### Before
+
+```javascript
+const { requiredScopes } = require('express-oauth2-jwt-bearer');
+
+app.get('/data', requiredScopes('read:data'), (req, res) => {
+  res.json({ data: 'sensitive' });
+});
+
+// Multiple scopes (requires ALL)
+app.get('/admin', requiredScopes('admin', 'write:all'), (req, res) => {
+  res.json({ data: 'admin' });
+});
+```
+
+### After
+
+```javascript
+import { requireAuth } from '@auth0/auth0-express-api';
+
+// Single scope
+app.get(
+  '/data',
+  requireAuth({ scopes: 'read:data' }),
   (req, res) => {
-    res.json({ message: 'Admin content' });
+    res.json({ data: 'sensitive' });
+  }
+);
+
+// Multiple scopes (requires ALL by default)
+app.get(
+  '/admin',
+  requireAuth({ scopes: ['admin', 'write:all'] }),
+  (req, res) => {
+    res.json({ data: 'admin' });
   }
 );
 ```
 
-### @auth0/auth0-express-api (After)
+### Extracting Scopes from Token
 
 ```javascript
-const { createAuth0ApiRouter } = require('@auth0/auth0-express-api');
+import { requireAuth } from '@auth0/auth0-express-api';
 
-const auth0Router = createAuth0ApiRouter({
-  domain: 'YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-});
+app.get('/scopes', requireAuth(), (req, res) => {
+  const scopes = req.auth0.user.scope; // Space-separated string
+  const scopeArray = scopes.split(' ');
 
-app.use(auth0Router);
-
-// Requires ALL specified scopes (space-separated or array)
-app.get('/api/admin', (req, res, next) => {
-  res.locals.requireAuth({ scopes: 'read:admin write:admin' })(req, res, next);
-}, (req, res) => {
-  res.json({ message: 'Admin content' });
-});
-
-// Or using array syntax
-app.get('/api/admin', (req, res, next) => {
-  res.locals.requireAuth({ scopes: ['read:admin', 'write:admin'] })(req, res, next);
-}, (req, res) => {
-  res.json({ message: 'Admin content' });
+  res.json({ scopes: scopeArray });
 });
 ```
 
-**Key Differences:**
-- No separate `requiredScopes()` function
-- Scopes are passed as options to `requireAuth()`
-- Can use space-separated string or array
-
-## Scope Validation: Any vs All
-
-### express-oauth2-jwt-bearer (Before)
-
-```javascript
-const { auth, requiredScopes, scopeIncludesAny } = require('express-oauth2-jwt-bearer');
-
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-}));
-
-// Requires ALL scopes
-app.get('/api/admin-full',
-  requiredScopes('read:admin write:admin'),
-  (req, res) => {
-    res.json({ message: 'Full admin' });
-  }
-);
-
-// Requires ANY of the scopes
-app.get('/api/admin-any',
-  scopeIncludesAny('read:admin write:admin'),
-  (req, res) => {
-    res.json({ message: 'Partial admin' });
-  }
-);
-```
-
-### @auth0/auth0-express-api (After)
-
-```javascript
-const auth0Router = createAuth0ApiRouter({
-  domain: 'YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-});
-
-app.use(auth0Router);
-
-// Requires ALL scopes (default behavior)
-app.get('/api/admin-full', (req, res, next) => {
-  res.locals.requireAuth({ scopes: 'read:admin write:admin' })(req, res, next);
-}, (req, res) => {
-  res.json({ message: 'Full admin' });
-});
-
-// For ANY scope behavior, create custom middleware
-function requireAnyScope(...scopes) {
-  return (req, res, next) => {
-    // First ensure authentication
-    res.locals.requireAuth()(req, res, (err) => {
-      if (err) return next(err);
-
-      const userScopes = req.auth0.user.scope?.split(' ') || [];
-      const hasAnyScope = scopes.some(scope => userScopes.includes(scope));
-
-      if (!hasAnyScope) {
-        return res.status(403).json({
-          error: 'insufficient_scope',
-          error_description: 'Insufficient scopes',
-        });
-      }
-
-      next();
-    });
-  };
-}
-
-app.get('/api/admin-any',
-  requireAnyScope('read:admin', 'write:admin'),
-  (req, res) => {
-    res.json({ message: 'Partial admin' });
-  }
-);
-```
-
-**Key Differences:**
-- Only "require all scopes" is built-in
-- "Any scope" requires custom middleware
-- More explicit control over scope validation
+---
 
 ## Claim Validation
 
-### express-oauth2-jwt-bearer (Before)
+Validate custom claims in tokens:
 
 ```javascript
-const { auth, claimEquals, claimIncludes, claimCheck } = require('express-oauth2-jwt-bearer');
+import { requireAuth } from '@auth0/auth0-express-api';
 
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-}));
-
-// Check if claim equals a value
-app.get('/api/admin', claimEquals('role', 'admin'), (req, res) => {
-  res.json({ message: 'Admin content' });
-});
-
-// Check if claim includes values
-app.get('/api/editor', claimIncludes('permissions', 'edit', 'publish'), (req, res) => {
-  res.json({ message: 'Editor content' });
-});
-
-// Custom claim check
-app.get('/api/premium', claimCheck((payload) => {
-  return payload.subscription === 'premium' && payload.isActive;
-}, 'Invalid subscription'), (req, res) => {
-  res.json({ message: 'Premium content' });
-});
-```
-
-### @auth0/auth0-express-api (After)
-
-```javascript
-const auth0Router = createAuth0ApiRouter({
-  domain: 'YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-});
-
-app.use(auth0Router);
-
-// Create custom middleware for claim validation
-function claimEquals(claim, expectedValue) {
+function requireClaim(claimName, expectedValue) {
   return (req, res, next) => {
-    res.locals.requireAuth()(req, res, (err) => {
-      if (err) return next(err);
+    const user = req.auth0.user;
 
-      if (req.auth0.user[claim] !== expectedValue) {
-        return res.status(401).json({
-          error: 'invalid_token',
-          error_description: `Unexpected '${claim}' value`,
-        });
-      }
+    if (!user || user[claimName] !== expectedValue) {
+      return res.status(403).json({
+        error: 'insufficient_scope',
+        error_description: `Missing required claim: ${claimName}`,
+      });
+    }
 
-      next();
-    });
+    next();
   };
 }
 
-function claimIncludes(claim, ...expectedValues) {
-  return (req, res, next) => {
-    res.locals.requireAuth()(req, res, (err) => {
-      if (err) return next(err);
-
-      let claimValue = req.auth0.user[claim];
-      if (typeof claimValue === 'string') {
-        claimValue = claimValue.split(' ');
-      }
-
-      if (!Array.isArray(claimValue)) {
-        return res.status(401).json({
-          error: 'invalid_token',
-          error_description: `Unexpected '${claim}' value`,
-        });
-      }
-
-      const hasAllValues = expectedValues.every(v => claimValue.includes(v));
-      if (!hasAllValues) {
-        return res.status(401).json({
-          error: 'invalid_token',
-          error_description: `Unexpected '${claim}' value`,
-        });
-      }
-
-      next();
-    });
-  };
-}
-
-function claimCheck(fn, errorMessage = 'Invalid token') {
-  return (req, res, next) => {
-    res.locals.requireAuth()(req, res, (err) => {
-      if (err) return next(err);
-
-      if (!fn(req.auth0.user)) {
-        return res.status(401).json({
-          error: 'invalid_token',
-          error_description: errorMessage,
-        });
-      }
-
-      next();
-    });
-  };
-}
-
-// Usage examples
-app.get('/api/admin', claimEquals('role', 'admin'), (req, res) => {
-  res.json({ message: 'Admin content' });
-});
-
-app.get('/api/editor', claimIncludes('permissions', 'edit', 'publish'), (req, res) => {
-  res.json({ message: 'Editor content' });
-});
-
-app.get('/api/premium', claimCheck((user) => {
-  return user.subscription === 'premium' && user.isActive;
-}, 'Invalid subscription'), (req, res) => {
-  res.json({ message: 'Premium content' });
-});
-```
-
-**Key Differences:**
-- No built-in claim validation middleware
-- Create your own middleware functions
-- More flexible but requires more code
-- All custom middleware should call `requireAuth()` first
-
-## Optional Authentication (Public Routes with Optional Auth)
-
-### express-oauth2-jwt-bearer (Before)
-
-```javascript
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-  authRequired: false,
-}));
-
-app.get('/api/content', (req, res) => {
-  if (req.auth) {
-    res.json({
-      message: 'Personalized content',
-      user: req.auth.payload.sub,
-    });
-  } else {
-    res.json({ message: 'Generic content' });
+// Usage
+app.get(
+  '/admin',
+  requireAuth(),
+  requireClaim('https://myapp/role', 'admin'),
+  (req, res) => {
+    res.json({ data: 'admin' });
   }
-});
+);
 ```
 
-### @auth0/auth0-express-api (After)
-
-```javascript
-const auth0Router = createAuth0ApiRouter({
-  domain: 'YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-});
-
-app.use(auth0Router);
-
-app.get('/api/content', (req, res) => {
-  // Try to get user, but don't require it
-  const user = req.auth0.user;
-
-  if (user) {
-    res.json({
-      message: 'Personalized content',
-      user: user.sub,
-    });
-  } else {
-    res.json({ message: 'Generic content' });
-  }
-});
-```
-
-**Key Differences:**
-- Check `req.auth0.user` directly (it will be `undefined` if not authenticated)
-- No need for `authRequired: false` option
-- Simpler and more explicit
+---
 
 ## Error Handling
 
-### express-oauth2-jwt-bearer (Before)
+### RFC 6750 Standard Format
 
 ```javascript
-const {
-  auth,
-  UnauthorizedError,
-  InvalidTokenError,
-  InsufficientScopeError
-} = require('express-oauth2-jwt-bearer');
-
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-}));
-
-// Error handler
+// Global error handler
 app.use((err, req, res, next) => {
-  if (err instanceof UnauthorizedError) {
-    res.status(err.status).json({
-      error: err.code,
-      message: err.message,
+  console.error('Auth error:', err);
+
+  // RFC 6750 error format
+  if (err.status === 401) {
+    return res.status(401).json({
+      error: 'invalid_token',
+      error_description: 'Access token is invalid or expired',
     });
-  } else {
-    next(err);
+  }
+
+  if (err.status === 403) {
+    return res.status(403).json({
+      error: 'insufficient_scope',
+      error_description: 'The request requires higher privileges than provided',
+    });
+  }
+
+  res.status(err.status || 500).json({
+    error: 'invalid_request',
+    error_description: process.env.NODE_ENV === 'production'
+      ? 'An error occurred'
+      : err.message,
+  });
+});
+```
+
+### RFC 6750 Error Codes
+
+| Code | HTTP | Meaning | Example |
+|------|------|---------|---------|
+| `invalid_token` | 401 | Token is invalid or expired | Tampered token |
+| `insufficient_scope` | 403 | Token lacks required scopes | Missing `admin` scope |
+| `invalid_request` | 400 | Request malformed | No Authorization header |
+
+### Per-Route Error Handling
+
+```javascript
+import { requireAuth } from '@auth0/auth0-express-api';
+
+app.get('/protected', requireAuth(), (req, res, next) => {
+  try {
+    const user = req.auth0.user;
+
+    if (!user) {
+      return res.status(401).json({
+        error: 'invalid_token',
+        error_description: 'Token not provided',
+      });
+    }
+
+    res.json({ user });
+  } catch (error) {
+    next(error);
   }
 });
 ```
 
-### @auth0/auth0-express-api (After)
+---
+
+## Testing
+
+Mock the `requireAuth` middleware:
 
 ```javascript
-const auth0Router = createAuth0ApiRouter({
-  domain: 'YOUR_DOMAIN',
-  audience: 'https://myapi.com',
+import { requireAuth } from '@auth0/auth0-express-api';
+
+// Mock requireAuth for testing
+jest.mock('@auth0/auth0-express-api', () => ({
+  createAuth0ApiRouter: jest.fn(() => (req, res, next) => {
+    req.auth0.client = {}; // Mock API client
+    next();
+  }),
+  requireAuth: jest.fn((options = {}) => {
+    return (req, res, next) => {
+      // Mock authenticated user
+      req.auth0 = {
+        user: {
+          sub: 'user123',
+          aud: 'https://your-api',
+          scope: 'read:data write:data',
+          'https://myapp/role': 'user',
+        },
+      };
+      next();
+    };
+  }),
+}));
+
+// Test protected route
+it('returns data when authenticated', async () => {
+  const response = await request(app)
+    .get('/protected')
+    .set('Authorization', `Bearer ${mockToken}`);
+
+  expect(response.status).toBe(200);
 });
 
-app.use(auth0Router);
+// Test 401 when not authenticated
+it('returns 401 when no token', async () => {
+  const response = await request(app).get('/protected');
 
-// Error handler (same pattern)
-app.use((err, req, res, next) => {
-  if (err.status === 401 || err.status === 403) {
-    res.status(err.status).json({
-      error: err.error || 'unauthorized',
-      error_description: err.error_description || err.message,
-    });
+  expect(response.status).toBe(401);
+  expect(response.body.error).toBe('invalid_token');
+});
+```
+
+**Test Helper:**
+```javascript
+export function createMockAuth(overrides = {}) {
+  return {
+    sub: 'user123',
+    aud: 'https://your-api',
+    iat: Math.floor(Date.now() / 1000),
+    exp: Math.floor(Date.now() / 1000) + 3600,
+    scope: 'read:data',
+    ...overrides,
+  };
+}
+```
+
+<details>
+<summary><strong>Advanced Testing Topics</strong></summary>
+
+### Creating Test JWTs
+
+```javascript
+const jwt = require('jsonwebtoken');
+
+function createTestJWT(claims, secret = 'test-secret') {
+  return jwt.sign(claims, secret, {
+    algorithm: 'HS256',
+    expiresIn: '1h',
+  });
+}
+
+// Use in tests
+const token = createTestJWT({
+  sub: 'user123',
+  aud: 'https://your-api',
+  scope: 'read:data',
+});
+
+const response = await request(app)
+  .get('/protected')
+  .set('Authorization', `Bearer ${token}`);
+```
+
+### Testing Scope Requirements
+
+```javascript
+it('returns 403 when scope is missing', async () => {
+  const token = createTestJWT({
+    sub: 'user123',
+    scope: 'read:data', // Missing 'admin' scope
+  });
+
+  const response = await request(app)
+    .get('/admin')
+    .set('Authorization', `Bearer ${token}`);
+
+  expect(response.status).toBe(403);
+  expect(response.body.error).toBe('insufficient_scope');
+});
+```
+
+### TypeScript Testing
+
+```typescript
+interface MockUser {
+  sub: string;
+  aud: string;
+  scope: string;
+  [key: string]: any;
+}
+
+function createMockAuth(overrides: Partial<MockUser> = {}): MockUser {
+  return {
+    sub: 'user123',
+    aud: 'https://your-api',
+    scope: 'read:data',
+    ...overrides,
+  };
+}
+```
+
+</details>
+
+---
+
+## Common Patterns
+
+### Pattern 1: Create Reusable Middleware
+
+```javascript
+import { requireAuth } from '@auth0/auth0-express-api';
+
+const requireAuthMiddleware = requireAuth();
+
+app.get('/api/users', requireAuthMiddleware, (req, res) => {
+  res.json({ users: [] });
+});
+
+app.get('/api/posts', requireAuthMiddleware, (req, res) => {
+  res.json({ posts: [] });
+});
+```
+
+### Pattern 2: Scope-Specific Routes
+
+```javascript
+import { requireAuth } from '@auth0/auth0-express-api';
+
+const readRoute = requireAuth({ scopes: 'read:data' });
+const writeRoute = requireAuth({ scopes: 'write:data' });
+const adminRoute = requireAuth({ scopes: 'admin' });
+
+app.get('/api/data', readRoute, (req, res) => {
+  res.json({ data: [] });
+});
+
+app.post('/api/data', writeRoute, (req, res) => {
+  res.json({ created: true });
+});
+
+app.delete('/api/data/:id', adminRoute, (req, res) => {
+  res.json({ deleted: true });
+});
+```
+
+### Pattern 3: Router-Level Protection
+
+```javascript
+import { requireAuth } from '@auth0/auth0-express-api';
+
+const router = express.Router();
+
+// Protect entire router
+router.use(requireAuth({ scopes: 'admin' }));
+
+router.get('/users', (req, res) => {
+  res.json({ users: [] });
+});
+
+router.post('/users', (req, res) => {
+  res.json({ created: true });
+});
+
+app.use('/admin', router);
+```
+
+---
+
+## Optional Authentication (Public Routes with Optional Auth)
+
+Allow routes to work with or without authentication:
+
+```javascript
+import { requireAuth } from '@auth0/auth0-express-api';
+
+// Public route - works without token
+app.get('/public', (req, res) => {
+  res.json({ data: 'public' });
+});
+
+// Optional auth - works with or without token
+app.get('/optional', (req, res) => {
+  const user = req.auth0?.user;
+
+  if (user) {
+    res.json({ data: 'personalized', user });
   } else {
-    next(err);
+    res.json({ data: 'generic' });
+  }
+});
+
+// Protected route - requires token
+app.get('/protected', requireAuth(), (req, res) => {
+  res.json({ data: req.auth0.user });
+});
+```
+
+---
+
+## Multiple Audiences Support
+
+Route requests to different APIs based on audience:
+
+```javascript
+import { createAuth0ApiRouter, requireAuth } from '@auth0/auth0-express-api';
+
+app.use(createAuth0ApiRouter({
+  domain: 'YOUR_DOMAIN',
+  audience: 'https://api-1', // Single audience
+}));
+
+app.get('/api1-data', requireAuth(), (req, res) => {
+  const user = req.auth0.user;
+
+  if (user.aud === 'https://api-1') {
+    res.json({ data: 'api-1 data' });
+  } else {
+    res.status(403).json({ error: 'wrong audience' });
   }
 });
 ```
 
-**Key Differences:**
-- Error structure is similar
-- Check `err.status` instead of `instanceof`
-- Error properties: `error` and `error_description`
+---
 
-## TypeScript Support
-
-### express-oauth2-jwt-bearer (Before)
-
-```typescript
-import express, { Request, Response } from 'express';
-import { auth, AuthResult } from 'express-oauth2-jwt-bearer';
-
-const app = express();
-
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-}));
-
-app.get('/api/profile', (req: Request, res: Response) => {
-  const auth: AuthResult = req.auth!;
-  res.json({ user: auth.payload });
-});
-```
-
-### @auth0/auth0-express-api (After)
-
-```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import { createAuth0ApiRouter } from '@auth0/auth0-express-api';
-
-const app = express();
-
-const auth0Router = createAuth0ApiRouter({
-  domain: process.env.AUTH0_DOMAIN as string,
-  audience: process.env.AUTH0_AUDIENCE as string,
-});
-
-app.use(auth0Router);
-
-app.get('/api/profile', (req: Request, res: Response, next: NextFunction) => {
-  res.locals.requireAuth()(req, res, next);
-}, (req: Request, res: Response) => {
-  const user = req.auth0.user!;
-  res.json({ user });
-});
-```
-
-**Key Differences:**
-- Full TypeScript types included out of the box
-- `req.auth0.user` is properly typed
-- Better IDE autocomplete support
-
-## Manual JWKS Configuration
-
-### express-oauth2-jwt-bearer (Before)
+## CORS Setup
 
 ```javascript
-// Skip discovery and provide JWKS URI directly
-app.use(auth({
-  jwksUri: 'https://YOUR_DOMAIN/.well-known/jwks.json',
-  issuer: 'https://YOUR_DOMAIN/',
-  audience: 'https://myapi.com',
+const cors = require('cors');
+
+// Allow preflight for API calls
+app.use(cors({
+  origin: ['http://localhost:3000', 'https://app.example.com'],
+  credentials: true,
 }));
-```
 
-### @auth0/auth0-express-api (After)
+// Options handler for preflight
+app.options('*', cors());
 
-Manual JWKS configuration is not currently supported. The SDK automatically discovers the JWKS endpoint from the domain:
-
-```javascript
-// Automatic discovery from domain
-const auth0Router = createAuth0ApiRouter({
+app.use(createAuth0ApiRouter({
   domain: 'YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-});
+  audience: 'https://your-api',
+}));
 
-app.use(auth0Router);
+app.get('/data', requireAuth(), (req, res) => {
+  res.json({ data: 'protected' });
+});
 ```
 
-## Advanced Token Validation
+<details>
+<summary><strong>Handling Preflight Errors</strong></summary>
 
-### express-oauth2-jwt-bearer (Before)
+If preflight requests fail, ensure:
+
+1. CORS middleware is registered before auth middleware
+2. OPTIONS method is allowed for all routes
+3. Required headers are allowed
 
 ```javascript
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-  clockTolerance: 10, // seconds
-  maxTokenAge: 3600, // seconds
-  strict: true,
-  allowedSigningAlgs: ['RS256'],
+app.use(cors({
+  origin: true,
+  methods: ['GET', 'POST', 'PUT', 'DELETE', 'OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization'],
+  credentials: true,
 }));
 ```
 
-### @auth0/auth0-express-api (After)
+</details>
 
-Advanced validation options are handled automatically:
+---
+
+## Troubleshooting
+
+### "requireAuth is not a function"
+
+**Problem:** Not importing `requireAuth` from the package.
+
+**Solution:**
+```javascript
+// Wrong - not importing requireAuth
+app.get('/api', requireAuth(), handler);
+
+// Correct - import requireAuth
+import { requireAuth } from '@auth0/auth0-express-api';
+app.get('/api', requireAuth(), handler);
+
+// Also correct - with options
+app.get('/api', requireAuth({ scopes: ['read'] }), handler);
+```
+
+### Route not protected - user is undefined
+
+**Problem:** Route is public but should be protected.
+
+**Solution:** Make sure to add `requireAuth()` middleware to each protected route:
 
 ```javascript
-const auth0Router = createAuth0ApiRouter({
+import { requireAuth } from '@auth0/auth0-express-api';
+
+// Wrong - route not protected
+app.get('/api', (req, res) => {
+  const user = req.auth0.user; // undefined!
+});
+
+// Correct - route protected
+app.get('/api', requireAuth(), (req, res) => {
+  const user = req.auth0.user; // Defined
+});
+```
+
+### 401 Unauthorized with valid token
+
+**Problem:** Valid token but still getting 401.
+
+**Solution:**
+1. Check token expiration: `user.exp > Date.now() / 1000`
+2. Verify audience matches: `user.aud === 'https://your-api'`
+3. Check issuer: `user.iss === 'https://YOUR_DOMAIN/'`
+
+```javascript
+import { requireAuth } from '@auth0/auth0-express-api';
+
+app.get('/debug', requireAuth(), (req, res) => {
+  const now = Math.floor(Date.now() / 1000);
+  res.json({
+    token: req.auth0.user,
+    expires_in: req.auth0.user.exp - now,
+    is_expired: req.auth0.user.exp < now,
+  });
+});
+```
+
+### 403 Forbidden - insufficient_scope
+
+**Problem:** Token is valid but doesn't have required scopes.
+
+**Solution:**
+1. Check token scopes: `user.scope.split(' ')`
+2. Verify scopes match route requirements
+3. Request new token with required scopes
+
+```javascript
+import { requireAuth } from '@auth0/auth0-express-api';
+
+app.get('/scopes', requireAuth(), (req, res) => {
+  const scopes = req.auth0.user.scope.split(' ');
+  res.json({ scopes });
+});
+```
+
+### Cannot access custom claims
+
+**Problem:** Custom claims are undefined.
+
+**Solution:** Custom claims use the format `https://yourapp/claim`:
+
+```javascript
+// Wrong - missing namespace
+const role = req.auth0.user.role; // undefined
+
+// Correct - with namespace
+const role = req.auth0.user['https://myapp/role']; // Defined
+```
+
+<details>
+<summary><strong>Top 5 Issues (Quickfix)</strong></summary>
+
+1. **"requireAuth is not a function"** → Import: `import { requireAuth } from '@auth0/auth0-express-api'`
+2. **Routes unprotected** → Add middleware: `requireAuth()` on each route
+3. **Token info undefined** → Use `req.auth0.user` not `req.auth.payload`
+4. **CORS preflight fails** → Register cors middleware BEFORE auth router
+5. **Custom claims undefined** → Use full namespace: `user['https://myapp/role']`
+
+</details>
+
+---
+
+## Advanced Features
+
+<details>
+<summary><strong>Advanced Scope Patterns</strong></summary>
+
+### Hierarchical Scopes
+
+```javascript
+// Organize scopes hierarchically
+const scopes = {
+  read: 'read:data',
+  write: 'write:data',
+  admin: 'admin:all',
+};
+
+// Route requiring write implies read
+function hasWriteAccess(req, res, next) {
+  const userScopes = req.auth0.user.scope.split(' ');
+  if (userScopes.includes(scopes.write)) {
+    next();
+  } else {
+    res.status(403).json({
+      error: 'insufficient_scope',
+      error_description: 'This operation requires write access',
+    });
+  }
+}
+```
+
+### Resource-Specific Scopes
+
+```javascript
+// Scopes tied to specific resources
+app.get('/api/documents/:id', requireAuth(), (req, res) => {
+  const docId = req.params.id;
+  const required = `read:document:${docId}`;
+
+  if (req.auth0.user.scope.split(' ').includes(required)) {
+    res.json({ document: 'data' });
+  } else {
+    res.status(403).json({ error: 'insufficient_scope' });
+  }
+});
+```
+
+</details>
+
+<details>
+<summary><strong>DPoP Support</strong></summary>
+
+Demonstration of Proof-of-Possession (DPoP) adds extra security:
+
+```javascript
+app.use(createAuth0ApiRouter({
   domain: 'YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-  // Other options are configured with sensible defaults
-});
-
-app.use(auth0Router);
-```
-
-**Note:** Custom validation options like `clockTolerance`, `maxTokenAge`, and `strict` are not currently configurable in the new SDK. They use secure defaults.
-
-## DPoP Support
-
-### express-oauth2-jwt-bearer (Before)
-
-```javascript
-app.use(auth({
-  issuerBaseURL: 'https://YOUR_DOMAIN',
-  audience: 'https://myapi.com',
-  dpop: {
-    mode: 'required', // or 'optional', 'disabled'
-    iatOffset: 0,
-    iatLeeway: 60,
-  },
+  audience: 'https://your-api',
+  supportDPoP: true, // Enable DPoP
 }));
 ```
 
-### @auth0/auth0-express-api (After)
+Clients must provide DPoP proof with each request.
 
-DPoP (Demonstration of Proof-of-Possession) is not currently supported in `@auth0/auth0-express-api`.
+</details>
+
+---
 
 ## Summary of Breaking Changes
 
-1. **Package name** - `express-oauth2-jwt-bearer` → `@auth0/auth0-express-api`
-2. **Import** - `auth` function → `createAuth0ApiRouter` function
-3. **Configuration**:
-   - `issuerBaseURL` → `domain` (remove https:// prefix)
-   - No `authRequired` option (routes are public by default)
-   - No `jwksUri` / `issuer` options (auto-discovered)
-4. **Request object** - `req.auth` → `req.auth0.user`
-5. **Authentication approach**:
-   - Old: Global authentication by default
-   - New: Per-route authentication with `res.locals.requireAuth()`
-6. **Middleware functions** - No built-in `requiredScopes()`, `claimEquals()`, `claimIncludes()`, `claimCheck()` - create custom middleware
-7. **Scope validation** - Only "require all" is built-in, "any scope" needs custom middleware
-8. **Token access** - No direct access to raw token or JWT header
+| Feature | Before | After | Migration |
+|---------|--------|-------|-----------|
+| **Protection** | Global | Per-route | Import and use `requireAuth()` middleware |
+| **Token info** | `req.auth.payload` | `req.auth0.user` | Change property |
+| **Scopes** | `requiredScopes()` middleware | `requireAuth({ scopes })` option | Pass scopes to `requireAuth()` |
+| **Default behavior** | Protected globally | Public by default | Add `requireAuth()` to protect |
+| **Error format** | Custom | RFC 6750 standard | Update error responses |
 
-## Not Migrated (Features Not Available)
-
-The following features from `express-oauth2-jwt-bearer` are not currently available in `@auth0/auth0-express-api`:
-
-1. **DPoP Authentication** - Not supported
-2. **Manual JWKS/Issuer Configuration** - Automatic discovery only
-3. **Custom Validation Options** - `clockTolerance`, `maxTokenAge`, `strict`, `allowedSigningAlgs` use defaults
-4. **scopeIncludesAny** - Requires custom middleware
-5. **Claim validation helpers** - `claimEquals`, `claimIncludes`, `claimCheck` require custom implementation
-
-## Getting Help
-
-- [Auth0 Community](https://community.auth0.com)
-- [GitHub Issues](https://github.com/auth0/auth0-express/issues)
-- [Documentation](https://github.com/auth0/auth0-express)
+---
 
 ## Next Steps
 
-After migrating your basic configuration:
+1. **Quick migration** (20 min):
+   - [ ] Install package
+   - [ ] Update config
+   - [ ] Test basic protected route
 
-1. Test authentication with valid and invalid tokens
-2. Verify scope protection works correctly
-3. Test custom claim validation if you implemented it
-4. Update your tests to work with the new API
-5. Gradually migrate advanced features
+2. **Complete migration** (1-2 hours):
+   - [ ] Protect all routes with factory
+   - [ ] Update error handling (RFC 6750)
+   - [ ] Update tests
+   - [ ] Add scope validation
 
-Remember to thoroughly test your API authentication in a development environment before deploying to production.
+3. **Deploy**:
+   - [ ] Staging environment
+   - [ ] Production
+
+---
+
+## Getting Help
+
+- **Documentation:** [Auth0 Express API SDK docs](https://github.com/auth0/auth0-express)
+- **Issues:** [GitHub Issues](https://github.com/auth0/auth0-express/issues)
+- **Community:** [Auth0 Community](https://community.auth0.com)

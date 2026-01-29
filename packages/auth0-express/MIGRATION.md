@@ -12,80 +12,100 @@ This guide will help you migrate your Express.js application from `express-openi
 - **Improved developer experience** - Cleaner APIs and better async/await support
 - **Audit trail support** - Built-in AsyncLocalStorage for tracking request context
 
-## Installation
+## Quick Migration Summary
 
-First, install the new package:
+**Migration Time:** 30-60 minutes for basic setup, 2-4 hours for advanced features
+
+### Key Changes at a Glance
+
+| Aspect | express-openid-connect | @auth0/auth0-express |
+|--------|------------------------|----------------------|
+| **Import** | `auth()` | `createAuth0Router()` |
+| **Configuration** | `issuerBaseURL`, `baseURL`, `clientID`, `secret` | `domain`, `appBaseUrl`, `clientId`, `sessionSecret` |
+| **User Access** | `req.oidc.user` | `await req.auth0.client.getUser()` |
+| **Async/Await** | Mostly sync | All methods async |
+| **Route Protection** | Global `authRequired` | Custom middleware |
+| **Token Access** | `req.oidc.accessToken` | `await req.auth0.client.getAccessToken()` |
+
+### Migration Checklist
+
+- [ ] **Install** new package: `npm install @auth0/auth0-express`
+- [ ] **Update imports**: `auth()` → `createAuth0Router()`
+- [ ] **Rename config properties** (see table below)
+- [ ] **Add clientSecret** (now required)
+- [ ] **Add `await`** to user/session/token access
+- [ ] **Create route protection middleware** (no global `authRequired`)
+- [ ] **Update custom session stores** (add StoreOptions pattern)
+- [ ] **Update tests** (mock async methods)
+
+### Breaking Changes
+
+1. **All methods are async** - Must use `await`
+2. **No global auth** - Must explicitly protect routes
+3. **StoreOptions required** - Custom session stores need `{ request, response }` parameter
+4. **clientSecret required** - Previously optional
+5. **No built-in route middleware** - `requiresAuth()` must be custom
+
+### Top 3 Common Issues
+
+| Issue | Solution |
+|-------|----------|
+| **Missing `await`** | `const user = await req.auth0.client.getUser()` |
+| **Custom store missing options** | Add `async set(id, data, options) { const { request, response } = options; }` |
+| **Routes not protected** | Create middleware: `if (!await req.auth0.client.getSession()) res.redirect('/auth/login')` |
+
+---
+
+## Installation & Basic Setup
 
 ```bash
 npm uninstall express-openid-connect
 npm install @auth0/auth0-express
 ```
 
-## Basic Configuration Migration
+### Configuration (Before → After)
 
-### express-openid-connect (Before)
-
+**Before:**
 ```javascript
-const express = require('express');
-const { auth } = require('express-openid-connect');
-
-const app = express();
-
-app.use(
-  auth({
-    issuerBaseURL: 'https://YOUR_DOMAIN',
-    baseURL: 'https://YOUR_APPLICATION_ROOT_URL',
-    clientID: 'YOUR_CLIENT_ID',
-    secret: 'LONG_RANDOM_STRING',
-    idpLogout: true,
-  })
-);
+app.use(auth({
+  issuerBaseURL: 'https://YOUR_DOMAIN',
+  baseURL: 'https://YOUR_APPLICATION_ROOT_URL',
+  clientID: 'YOUR_CLIENT_ID',
+  secret: 'LONG_RANDOM_STRING',
+}));
 ```
 
-### @auth0/auth0-express (After)
-
+**After:**
 ```javascript
-const express = require('express');
-const { createAuth0Router } = require('@auth0/auth0-express');
-
-const app = express();
-
-app.use(
-  createAuth0Router({
-    domain: 'YOUR_DOMAIN', // Without https:// prefix
-    clientId: 'YOUR_CLIENT_ID',
-    clientSecret: 'YOUR_CLIENT_SECRET',
-    appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
-    sessionSecret: 'LONG_RANDOM_STRING',
-  })
-);
+app.use(createAuth0Router({
+  domain: 'YOUR_DOMAIN', // No https://
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET', // Now required
+  appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
+  sessionSecret: 'LONG_RANDOM_STRING',
+}));
 ```
 
-## Key Configuration Changes
+### Configuration Mapping
 
-### 1. Configuration Property Mapping
-
-| express-openid-connect | @auth0/auth0-express | Notes |
-|------------------------|----------------------|-------|
-| `issuerBaseURL` | `domain` | Remove `https://` prefix in new SDK |
-| `baseURL` | `appBaseUrl` | Renamed for clarity |
+| Old | New | Notes |
+|-----|-----|-------|
+| `issuerBaseURL` | `domain` | Remove `https://` |
+| `baseURL` | `appBaseUrl` | Renamed |
 | `clientID` | `clientId` | Camel case |
-| `secret` | `sessionSecret` | Renamed for clarity |
-| `clientSecret` | `clientSecret` | Required in new SDK |
-| `idpLogout` | *(built-in)* | IDP logout is now default behavior |
+| `secret` | `sessionSecret` | Renamed |
+| — | `clientSecret` | Required (was optional) |
 
-### 2. Environment Variables
+### Environment Variables
 
-#### express-openid-connect (Before)
 ```bash
+# Before
 ISSUER_BASE_URL=https://YOUR_DOMAIN
 BASE_URL=https://YOUR_APPLICATION_ROOT_URL
 CLIENT_ID=YOUR_CLIENT_ID
 SECRET=LONG_RANDOM_VALUE
-```
 
-#### @auth0/auth0-express (After)
-```bash
+# After
 AUTH0_DOMAIN=YOUR_DOMAIN
 APP_BASE_URL=https://YOUR_APPLICATION_ROOT_URL
 AUTH0_CLIENT_ID=YOUR_CLIENT_ID
@@ -93,107 +113,52 @@ AUTH0_CLIENT_SECRET=YOUR_CLIENT_SECRET
 AUTH0_SESSION_SECRET=LONG_RANDOM_VALUE
 ```
 
-## Routes Migration
+---
+
+## Routes
 
 ### Default Routes
 
-Both SDKs provide default routes, but the naming conventions differ:
-
-| express-openid-connect | @auth0/auth0-express |
-|------------------------|----------------------|
-| `/login` | `/auth/login` |
-| `/logout` | `/auth/logout` |
-| `/callback` | `/auth/callback` |
-| *(not available)* | `/auth/backchannel-logout` |
+| Path | Before | After |
+|------|--------|-------|
+| Login | `/login` | `/auth/login` |
+| Logout | `/logout` | `/auth/logout` |
+| Callback | `/callback` | `/auth/callback` |
+| Backchannel | — | `/auth/backchannel-logout` |
 
 ### Custom Routes
 
-#### express-openid-connect (Before)
-
 ```javascript
-app.use(
-  auth({
-    routes: {
-      login: '/custom/login',
-      logout: '/custom/logout',
-      callback: '/custom/callback',
-      postLogoutRedirect: '/custom/post-logout',
-    },
-  })
-);
+app.use(createAuth0Router({
+  // ... other config
+  routes: {
+    login: '/custom/login',
+    logout: '/custom/logout',
+    callback: '/custom/callback',
+  },
+  mountRoutes: false, // Disable all routes
+}));
 ```
 
-#### @auth0/auth0-express (After)
+Note: `postLogoutRedirect` is gone. After logout, users redirect to `appBaseUrl`.
 
-```javascript
-app.use(
-  createAuth0Router({
-    routes: {
-      login: '/custom/login',
-      logout: '/custom/logout',
-      callback: '/custom/callback',
-      backchannelLogout: '/custom/backchannel-logout',
-    },
-  })
-);
-```
+---
 
-**Note**: The new SDK doesn't have a `postLogoutRedirect` route option. After logout, users are redirected to the `appBaseUrl`.
+## User Access
 
-### Disabling Default Routes
-
-#### express-openid-connect (Before)
-
-```javascript
-app.use(
-  auth({
-    routes: {
-      login: false,
-      logout: false,
-      callback: false,
-    },
-  })
-);
-```
-
-#### @auth0/auth0-express (After)
-
-```javascript
-app.use(
-  createAuth0Router({
-    domain: 'YOUR_DOMAIN',
-    clientId: 'YOUR_CLIENT_ID',
-    clientSecret: 'YOUR_CLIENT_SECRET',
-    appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
-    sessionSecret: 'LONG_RANDOM_STRING',
-    mountRoutes: false, // Disable all routes
-  })
-);
-```
-
-## Accessing User Information
-
-### express-openid-connect (Before)
-
+**Before:**
 ```javascript
 app.get('/profile', (req, res) => {
   if (req.oidc.isAuthenticated()) {
-    const user = req.oidc.user;
-    const idTokenClaims = req.oidc.idTokenClaims;
-
-    res.json({ user, claims: idTokenClaims });
-  } else {
-    res.status(401).send('Not authenticated');
+    res.json({ user: req.oidc.user });
   }
 });
 ```
 
-### @auth0/auth0-express (After)
-
+**After:**
 ```javascript
 app.get('/profile', async (req, res) => {
   const user = await req.auth0.client.getUser();
-
   if (user) {
     res.json({ user });
   } else {
@@ -202,63 +167,21 @@ app.get('/profile', async (req, res) => {
 });
 ```
 
-**Key Differences:**
-- `getUser()` is now async and returns a Promise
-- `req.oidc` becomes `req.auth0.client`
-- `isAuthenticated()` is replaced by checking if `getUser()` returns a user
-- User object directly contains the claims (no separate `idTokenClaims`)
+Key change: Add `await`, `getUser()` returns null when not authenticated.
 
-## Protecting Routes
+---
 
-### express-openid-connect (Before)
+## Route Protection
 
-#### Option 1: Global Authentication
-```javascript
-app.use(
-  auth({
-    authRequired: true, // Default
-  })
-);
-```
-
-#### Option 2: Route-specific with requiresAuth
-```javascript
-const { requiresAuth } = require('express-openid-connect');
-
-app.use(
-  auth({
-    authRequired: false,
-  })
-);
-
-app.get('/protected', requiresAuth(), (req, res) => {
-  res.send('Protected content');
-});
-```
-
-### @auth0/auth0-express (After)
+**All routes are public by default.** Create custom middleware to protect them:
 
 ```javascript
-const { createAuth0Router } = require('@auth0/auth0-express');
-
-app.use(
-  createAuth0Router({
-    domain: 'YOUR_DOMAIN',
-    clientId: 'YOUR_CLIENT_ID',
-    clientSecret: 'YOUR_CLIENT_SECRET',
-    appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
-    sessionSecret: 'LONG_RANDOM_STRING',
-  })
-);
-
-// Create a middleware to protect routes
+// Create a protection middleware
 async function requireSession(req, res, next) {
   const session = await req.auth0.client.getSession();
-
   if (!session) {
     return res.redirect(`/auth/login?returnTo=${encodeURIComponent(req.url)}`);
   }
-
   next();
 }
 
@@ -275,498 +198,623 @@ app.get('/protected', requireSession, async (req, res) => {
 });
 ```
 
-**Key Differences:**
-- No global `authRequired` option - all routes are public by default
-- Create your own middleware for route protection
-- More explicit and flexible route protection
+No more global `authRequired`. More explicit, more flexible.
+
+---
+
+## Error Handling
+
+```javascript
+// Global error handler
+app.use((err, req, res, next) => {
+  console.error('Auth error:', err);
+
+  if (err.status === 401) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+  if (err.status === 403) {
+    return res.status(403).json({ error: 'Forbidden' });
+  }
+
+  res.status(err.status || 500).json({
+    error: process.env.NODE_ENV === 'production' ? 'Error' : err.message
+  });
+});
+
+// Per-route with try-catch
+app.get('/protected', async (req, res, next) => {
+  try {
+    const user = await req.auth0.client.getUser();
+    if (!user) return res.status(401).json({ error: 'Not authenticated' });
+    res.json({ user });
+  } catch (error) {
+    next(error);
+  }
+});
+```
+
+**Remember:** All methods are async, always use try-catch or pass to error handler.
+
+---
+
+## Testing
+
+The new SDK is async throughout. Mock the client methods:
+
+```javascript
+// Mock Auth0 client
+app.use((req, res, next) => {
+  req.auth0 = {
+    client: {
+      getUser: jest.fn(),
+      getSession: jest.fn(),
+      getAccessToken: jest.fn(),
+    },
+  };
+  next();
+});
+
+// Test protected route
+it('returns user profile when authenticated', async () => {
+  const mockUser = { sub: 'user123', name: 'Test User' };
+
+  app.use((req, res, next) => {
+    req.auth0.client.getUser.mockResolvedValue(mockUser);
+    next();
+  });
+
+  const response = await request(app).get('/profile');
+  expect(response.status).toBe(200);
+  expect(response.body.user.name).toBe('Test User');
+});
+
+// Test unauthorized
+it('returns 401 when not authenticated', async () => {
+  app.use((req, res, next) => {
+    req.auth0.client.getUser.mockResolvedValue(null);
+    next();
+  });
+
+  const response = await request(app).get('/profile');
+  expect(response.status).toBe(401);
+});
+```
+
+**Test Helper:**
+```javascript
+export function createAuthMock(overrides = {}) {
+  return {
+    getUser: jest.fn().mockResolvedValue(null),
+    getSession: jest.fn().mockResolvedValue(null),
+    getAccessToken: jest.fn().mockResolvedValue(null),
+    ...overrides,
+  };
+}
+```
+
+<details>
+<summary><strong>Advanced Testing Topics</strong></summary>
+
+### Testing Custom Session Stores
+
+Custom stores must accept `options` with `{ request, response }`:
+
+```javascript
+class CustomStore {
+  async set(key, value, options) {
+    const { request, response } = options;
+    // Save to database
+  }
+  async delete(key) {
+    // Delete from database
+  }
+}
+
+it('stores and retrieves session data', async () => {
+  const store = new CustomStore();
+  const sessionData = { user: { sub: 'user123' } };
+
+  await store.set('session-key', sessionData, { request: {}, response: {} });
+  const retrieved = await store.get('session-key');
+
+  expect(retrieved).toEqual(sessionData);
+});
+```
+
+### Integration Testing
+
+```javascript
+it('logs in user with real Auth0', async () => {
+  const response = await request(app)
+    .get('/auth/login')
+    .expect(302);
+
+  expect(response.headers.location).toContain('https://YOUR_DOMAIN');
+});
+```
+
+### TypeScript Testing
+
+```typescript
+interface MockAuth0Client {
+  getUser: jest.Mock;
+  getSession: jest.Mock;
+}
+
+function createAuthMock(): MockAuth0Client {
+  return {
+    getUser: jest.fn(),
+    getSession: jest.fn(),
+  };
+}
+```
+
+</details>
+
+---
+
+## Token Access
+
+**Before:**
+```javascript
+const token = req.oidc.accessToken;
+```
+
+**After:**
+```javascript
+const token = await req.auth0.client.getAccessToken();
+```
+
+```javascript
+app.get('/api', async (req, res, next) => {
+  try {
+    const token = await req.auth0.client.getAccessToken();
+    if (!token) {
+      return res.status(401).json({ error: 'No access token' });
+    }
+
+    // Use token to call API
+    const response = await fetch('https://api.example.com/data', {
+      headers: { Authorization: `Bearer ${token}` },
+    });
+
+    res.json(await response.json());
+  } catch (error) {
+    next(error);
+  }
+});
+```
+
+---
+
+## Session Configuration
+
+### Default Session Store
+
+```javascript
+app.use(createAuth0Router({
+  domain: 'YOUR_DOMAIN',
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET',
+  appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
+  sessionSecret: 'LONG_RANDOM_STRING',
+  // Session configuration
+  sessionConfig: {
+    name: 'appSession',
+    absoluteDuration: 604800000, // 7 days
+    rolling: true,
+    rollingDuration: 86400000, // 1 day
+  },
+}));
+```
+
+### Custom Session Store
+
+Custom stores must implement:
+
+```javascript
+class CustomStore {
+  async set(key, value, options) {
+    const { request, response } = options; // Use if needed
+    // Save to database
+  }
+
+  async get(key) {
+    // Retrieve from database
+  }
+
+  async delete(key) {
+    // Delete from database (was destroy)
+  }
+}
+
+app.use(createAuth0Router({
+  sessionStore: new CustomStore(),
+  // ... other config
+}));
+```
+
+Key change: `delete()` replaces `destroy()`, and `set()` receives StoreOptions.
+
+<details>
+<summary><strong>StoreOptions Pattern</strong></summary>
+
+The new SDK passes `{ request, response }` to session store methods. Use this when you need request/response context:
+
+```javascript
+class DatabaseStore {
+  async set(key, value, options) {
+    const { request, response } = options;
+
+    // Access request headers, IP, etc.
+    const ip = request.ip;
+    const userAgent = request.get('user-agent');
+
+    // Store session with context
+    await db.sessions.create({
+      id: key,
+      data: value,
+      ip,
+      userAgent,
+      createdAt: new Date(),
+    });
+  }
+
+  async get(key) {
+    const session = await db.sessions.findById(key);
+    return session?.data || null;
+  }
+
+  async delete(key) {
+    await db.sessions.deleteOne({ id: key });
+  }
+}
+```
+
+</details>
+
+---
 
 ## Custom Login Parameters
 
-### express-openid-connect (Before)
+### Basic Example
 
 ```javascript
-app.get('/login-with-google', (req, res) => {
-  res.oidc.login({
-    returnTo: '/profile',
-    authorizationParams: {
-      connection: 'google-oauth2',
-      prompt: 'login',
-    },
-  });
+app.get('/login-with-redirect', (req, res) => {
+  res.redirect(
+    `/auth/login?returnTo=${encodeURIComponent(req.query.returnTo || '/dashboard')}`
+  );
 });
 ```
 
-### @auth0/auth0-express (After)
+### Force Re-authentication
 
 ```javascript
-app.get('/login-with-google', async (req, res) => {
-  const redirectUrl = await req.auth0.client.startInteractiveLogin({
-    returnTo: '/profile',
-    authorizationParams: {
-      connection: 'google-oauth2',
-      prompt: 'login',
-    },
-  });
-
-  res.redirect(redirectUrl);
-});
+// Require user to re-authenticate
+res.redirect('/auth/login?prompt=login');
 ```
 
-**Key Differences:**
-- Method is now async
-- Returns a URL that you redirect to explicitly
-- Parameters structure is similar but method name changed
+### Pre-fill Username
+
+```javascript
+// Pre-fill login_hint parameter
+res.redirect(`/auth/login?login_hint=${encodeURIComponent(email)}`);
+```
+
+### Localize UI
+
+```javascript
+// Set UI language
+res.redirect('/auth/login?ui_locales=es');
+```
+
+### Combine Multiple Parameters
+
+```javascript
+const params = new URLSearchParams({
+  returnTo: encodeURIComponent('/dashboard'),
+  prompt: 'login',
+  login_hint: 'user@example.com',
+  ui_locales: 'es',
+});
+res.redirect(`/auth/login?${params.toString()}`);
+```
+
+<details>
+<summary><strong>All Supported Authorization Parameters</strong></summary>
+
+| Parameter | Purpose | Example |
+|-----------|---------|---------|
+| `returnTo` | Redirect after login | `/dashboard` |
+| `prompt` | `login` forces re-auth | `prompt=login` |
+| `login_hint` | Pre-fill username | `user@example.com` |
+| `ui_locales` | UI language | `es`, `fr` |
+| `screen_hint` | Skip login/signup UI | `signup` |
+| `max_age` | Max age in seconds | `3600` |
+
+</details>
+
+---
 
 ## Custom Logout
 
-### express-openid-connect (Before)
-
 ```javascript
-app.get('/custom-logout', (req, res) => {
-  res.oidc.logout({
-    returnTo: '/goodbye',
-  });
+app.get('/logout', (req, res) => {
+  res.redirect('/auth/logout');
 });
 ```
 
-### @auth0/auth0-express (After)
-
-```javascript
-app.get('/custom-logout', async (req, res) => {
-  const logoutUrl = await req.auth0.client.logout({
-    returnTo: process.env.APP_BASE_URL + '/goodbye',
-  });
-
-  res.redirect(logoutUrl);
-});
-```
-
-**Key Differences:**
-- Method is now async
-- Returns a URL that you redirect to explicitly
-- `returnTo` must be a full URL
+---
 
 ## Claim Validation
 
-### express-openid-connect (Before)
-
 ```javascript
-const { claimEquals, claimIncludes, claimCheck } = require('express-openid-connect');
-
-// Check if claim equals a value
-app.get('/admin', claimEquals('role', 'admin'), (req, res) => {
-  res.send('Admin content');
-});
-
-// Check if claim includes a value
-app.get('/editor', claimIncludes('roles', 'editor'), (req, res) => {
-  res.send('Editor content');
-});
-
-// Custom claim check
-app.get('/premium', claimCheck((req, claims) => {
-  return claims.subscription === 'premium';
-}), (req, res) => {
-  res.send('Premium content');
-});
-```
-
-### @auth0/auth0-express (After)
-
-```javascript
-// Create custom middleware for claim validation
 async function requireClaim(claimName, expectedValue) {
   return async (req, res, next) => {
-    const user = await req.auth0.client.getUser();
+    try {
+      const user = await req.auth0.client.getUser();
 
-    if (!user || user[claimName] !== expectedValue) {
-      return res.status(403).send('Forbidden');
+      if (!user || user[claimName] !== expectedValue) {
+        return res.status(403).json({
+          error: `Missing required claim: ${claimName}`,
+        });
+      }
+
+      next();
+    } catch (error) {
+      next(error);
     }
-
-    next();
-  };
-}
-
-async function requireClaimIncludes(claimName, expectedValue) {
-  return async (req, res, next) => {
-    const user = await req.auth0.client.getUser();
-
-    if (!user || !Array.isArray(user[claimName]) || !user[claimName].includes(expectedValue)) {
-      return res.status(403).send('Forbidden');
-    }
-
-    next();
   };
 }
 
 // Usage
-app.get('/admin', await requireClaim('role', 'admin'), (req, res) => {
+app.get('/admin', requireClaim('role', 'admin'), async (req, res) => {
   res.send('Admin content');
 });
-
-app.get('/editor', await requireClaimIncludes('roles', 'editor'), (req, res) => {
-  res.send('Editor content');
-});
 ```
 
-**Key Differences:**
-- No built-in claim validation middleware
-- Create your own middleware functions
-- More flexible but requires more code
-
-## Session Configuration
-
-### express-openid-connect (Before)
-
-```javascript
-app.use(
-  auth({
-    session: {
-      name: 'myapp_session',
-      rolling: true,
-      rollingDuration: 86400,
-      absoluteDuration: 604800,
-      cookie: {
-        domain: '.example.com',
-        path: '/',
-        secure: true,
-        httpOnly: true,
-        sameSite: 'lax',
-      },
-    },
-  })
-);
-```
-
-### @auth0/auth0-express (After)
-
-```javascript
-app.use(
-  createAuth0Router({
-    domain: 'YOUR_DOMAIN',
-    clientId: 'YOUR_CLIENT_ID',
-    clientSecret: 'YOUR_CLIENT_SECRET',
-    appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
-    sessionSecret: 'LONG_RANDOM_STRING',
-    sessionConfiguration: {
-      name: 'myapp_session',
-      rolling: true,
-      rollingDuration: 86400,
-      absoluteDuration: 604800,
-      cookie: {
-        domain: '.example.com',
-        path: '/',
-        secure: true,
-        httpOnly: true,
-        sameSite: 'lax',
-      },
-    },
-  })
-);
-```
-
-**Key Differences:**
-- Wrapped in `sessionConfiguration` object
-- Same properties are supported
-
-## Custom Session Store (Stateful Sessions)
-
-### express-openid-connect (Before)
-
-```javascript
-const { auth } = require('express-openid-connect');
-
-class MySessionStore {
-  async get(sid) {
-    // Retrieve session from database
-  }
-
-  async set(sid, val) {
-    // Store session in database
-  }
-
-  async destroy(sid) {
-    // Delete session from database
-  }
-}
-
-app.use(
-  auth({
-    session: {
-      store: new MySessionStore(),
-    },
-  })
-);
-```
-
-### @auth0/auth0-express (After)
-
-```javascript
-const { createAuth0Router } = require('@auth0/auth0-express');
-
-class MySessionStore {
-  async get(identifier) {
-    // Retrieve session from database
-  }
-
-  async set(identifier, stateData) {
-    // Store session in database
-  }
-
-  async delete(identifier) {
-    // Delete session from database
-  }
-
-  async deleteByLogoutToken(claims, options) {
-    // Handle backchannel logout
-    // Delete sessions matching the sub/sid in claims
-  }
-}
-
-app.use(
-  createAuth0Router({
-    domain: 'YOUR_DOMAIN',
-    clientId: 'YOUR_CLIENT_ID',
-    clientSecret: 'YOUR_CLIENT_SECRET',
-    appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
-    sessionSecret: 'LONG_RANDOM_STRING',
-    sessionStore: new MySessionStore(),
-  })
-);
-```
-
-**Key Differences:**
-- Method name `destroy` becomes `delete`
-- Added `deleteByLogoutToken` method for backchannel logout support
-- Parameter names differ slightly
-
-## Accessing APIs with Access Tokens
-
-### express-openid-connect (Before)
-
-```javascript
-const { auth } = require('express-openid-connect');
-const axios = require('axios');
-
-app.use(
-  auth({
-    authorizationParams: {
-      audience: 'https://api.example.com',
-      scope: 'openid profile email read:products',
-    },
-  })
-);
-
-app.get('/products', async (req, res) => {
-  const { access_token } = req.oidc.accessToken;
-
-  const response = await axios.get('https://api.example.com/products', {
-    headers: {
-      Authorization: `Bearer ${access_token}`,
-    },
-  });
-
-  res.json(response.data);
-});
-```
-
-### @auth0/auth0-express (After)
-
-```javascript
-const { createAuth0Router } = require('@auth0/auth0-express');
-const axios = require('axios');
-
-app.use(
-  createAuth0Router({
-    domain: 'YOUR_DOMAIN',
-    clientId: 'YOUR_CLIENT_ID',
-    clientSecret: 'YOUR_CLIENT_SECRET',
-    appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
-    sessionSecret: 'LONG_RANDOM_STRING',
-    audience: 'https://api.example.com',
-  })
-);
-
-app.get('/products', async (req, res) => {
-  const session = await req.auth0.client.getSession();
-
-  if (!session || !session.tokenSets || session.tokenSets.length === 0) {
-    return res.redirect('/auth/login');
-  }
-
-  // Access tokens are stored in tokenSets array
-  const accessToken = session.tokenSets[0].accessToken;
-
-  const response = await axios.get('https://api.example.com/products', {
-    headers: {
-      Authorization: `Bearer ${accessToken}`,
-    },
-  });
-
-  res.json(response.data);
-});
-```
-
-**Key Differences:**
-- Configure `audience` at the root level
-- Access tokens are retrieved from `session.tokenSets[0].accessToken`
-- Each token set contains an `accessToken`, `audience`, `scope`, and `expiresAt`
-- Access token refresh is handled automatically by the SDK
+---
 
 ## Backchannel Logout
 
-Backchannel logout is supported in both SDKs but with different configurations.
-
-### express-openid-connect (Before)
+Backchannel logout allows Auth0 to notify your app when a user logs out from another application.
 
 ```javascript
-app.use(
-  auth({
-    backchannelLogout: {
-      store: myCustomStore,
-    },
-  })
-);
+// No configuration needed - automatically available at /auth/backchannel-logout
+// The SDK handles the POST request and clears the session
 ```
 
-### @auth0/auth0-express (After)
-
-Backchannel logout is automatically enabled when you provide a custom session store with the `deleteByLogoutToken` method:
-
-```javascript
-class MySessionStore {
-  async get(identifier) { /* ... */ }
-  async set(identifier, stateData) { /* ... */ }
-  async delete(identifier) { /* ... */ }
-
-  async deleteByLogoutToken(claims, options) {
-    // Handle backchannel logout by deleting sessions
-    // matching the sub/sid in the logout token claims
-    const { sub, sid } = claims;
-
-    // Delete sessions for this user
-    await this.deleteSessionsBySubAndSid(sub, sid);
-  }
-}
-
-app.use(
-  createAuth0Router({
-    domain: 'YOUR_DOMAIN',
-    clientId: 'YOUR_CLIENT_ID',
-    clientSecret: 'YOUR_CLIENT_SECRET',
-    appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
-    sessionSecret: 'LONG_RANDOM_STRING',
-    sessionStore: new MySessionStore(),
-  })
-);
-```
-
-The backchannel logout endpoint is available at `/auth/backchannel-logout` by default (or configure with `routes.backchannelLogout`).
+---
 
 ## Silent Authentication
 
-### express-openid-connect (Before)
+Silent authentication (checking if user has a session without redirect) is not built-in. Use this workaround:
 
 ```javascript
-const { attemptSilentLogin } = require('express-openid-connect');
+// Check session without redirect
+app.get('/api/check-session', async (req, res) => {
+  try {
+    const session = await req.auth0.client.getSession();
+    const user = await req.auth0.client.getUser();
 
-app.use(
-  auth({
-    authRequired: false,
-  })
-);
-
-app.get('/', attemptSilentLogin(), (req, res) => {
-  if (req.oidc.isAuthenticated()) {
-    res.send(`Hello ${req.oidc.user.name}`);
-  } else {
-    res.send('Hello guest');
+    if (user) {
+      res.json({ authenticated: true, user });
+    } else {
+      res.json({ authenticated: false });
+    }
+  } catch (error) {
+    res.json({ authenticated: false });
   }
 });
 ```
 
-### @auth0/auth0-express (After)
+---
 
-Silent authentication is not currently available as a built-in feature. For similar functionality, you would need to implement it using the Auth0 API directly with `prompt=none`.
+## Troubleshooting
 
-## Not Migrated (Advanced Features)
+### getUser() returns undefined
 
-The following features from `express-openid-connect` are not currently available in `@auth0/auth0-express`:
+**Problem:** `getUser()` returns undefined even when user is logged in.
 
-1. **attemptSilentLogin** - Silent authentication middleware
-2. **Pushed Authorization Requests (PAR)** - Configured via `pushedAuthorizationRequests` option but behavior may differ
-3. **Transient cookies** - Different cookie management approach
-4. **afterCallback hook** - Use Express middleware after the callback route instead
+**Solution:** Make sure you're using `await`:
+```javascript
+const user = await req.auth0.client.getUser(); // Correct
+const user = req.auth0.client.getUser(); // Wrong!
+```
 
-## TypeScript Support
+### Cannot read property 'client' of undefined
 
-`@auth0/auth0-express` is built with TypeScript and provides full type definitions out of the box.
+**Problem:** `req.auth0` is undefined.
 
-### TypeScript Example
+**Solution:** Ensure `createAuth0Router` middleware is registered before your route handlers:
+```javascript
+// Correct order
+app.use(createAuth0Router({ ... }));
+app.get('/profile', async (req, res) => { ... });
 
-```typescript
-import express, { Request, Response, NextFunction } from 'express';
-import { createAuth0Router } from '@auth0/auth0-express';
+// Wrong order - auth router comes after route definitions
+app.get('/profile', async (req, res) => { ... });
+app.use(createAuth0Router({ ... }));
+```
 
-const app = express();
+### Custom Session Store Errors
 
-app.use(
-  createAuth0Router({
-    domain: process.env.AUTH0_DOMAIN as string,
-    clientId: process.env.AUTH0_CLIENT_ID as string,
-    clientSecret: process.env.AUTH0_CLIENT_SECRET as string,
-    appBaseUrl: process.env.APP_BASE_URL as string,
-    sessionSecret: process.env.AUTH0_SESSION_SECRET as string,
-  })
-);
+**Problem:** "StoreOptions is not defined" or store methods fail.
 
-async function requireSession(req: Request, res: Response, next: NextFunction) {
-  const session = await req.auth0.client.getSession();
+**Solution:** Ensure your store methods accept the `options` parameter:
+```javascript
+// Wrong
+async set(key, value) { ... }
 
-  if (!session) {
-    return res.redirect(`/auth/login?returnTo=${encodeURIComponent(req.url)}`);
-  }
-
-  next();
+// Correct
+async set(key, value, options) {
+  const { request, response } = options;
+  // ...
 }
-
-app.get('/profile', requireSession, async (req: Request, res: Response) => {
-  const user = await req.auth0.client.getUser();
-  res.json({ user });
-});
 ```
+
+### Token refresh failed
+
+**Problem:** Access token is expired and cannot be refreshed.
+
+**Solution:**
+1. Ensure `clientSecret` is configured correctly
+2. Check token expiration and re-authenticate if needed
+3. Verify API credentials in Auth0 dashboard
+
+### Infinite redirect loop
+
+**Problem:** Login redirects to login, logout redirects to logout.
+
+**Solution:** Make sure middleware is properly registered and check `returnTo` parameter values.
+
+### Session not persisting
+
+**Problem:** Session is lost after page reload.
+
+**Solution:**
+1. Check `sessionSecret` is set and consistent
+2. Verify session store is configured correctly
+3. Check browser cookies are allowed
+
+### "TypeError: fetch is not defined"
+
+**Problem:** In Node.js < 18, fetch is not available globally.
+
+**Solution:**
+```javascript
+// Option 1: Use node-fetch
+npm install node-fetch
+
+// Option 2: Update to Node.js 18+
+
+// Option 3: Use custom HTTP client
+app.use(createAuth0Router({
+  httpClient: customHttpClient,
+  // ... other config
+}));
+```
+
+### CORS errors during authentication
+
+**Problem:** Cross-origin requests fail during callback.
+
+**Solution:**
+1. Verify `appBaseUrl` is correct
+2. Check Auth0 application allowed callback URLs
+3. Ensure `Access-Control-Allow-Credentials: true` header is set
+
+<details>
+<summary><strong>Top 5 Issues (Quickfix)</strong></summary>
+
+1. **Missing `await`** → Add `await` before all client method calls
+2. **Routes unprotected** → Create `requireSession` middleware
+3. **StoreOptions missing** → Add `options` parameter to store methods
+4. **req.auth0 undefined** → Move `createAuth0Router()` before route definitions
+5. **Token access fails** → Check `clientSecret` and token expiration
+
+</details>
+
+---
+
+## Advanced Features
+
+<details>
+<summary><strong>Client Authentication Methods (private_key_jwt)</strong></summary>
+
+For production, use `private_key_jwt` instead of `client_secret`:
+
+```javascript
+app.use(createAuth0Router({
+  domain: 'YOUR_DOMAIN',
+  clientId: 'YOUR_CLIENT_ID',
+  clientAuthMethod: 'private_key_jwt',
+  clientSecret: fs.readFileSync('./private-key.pem', 'utf8'),
+  appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
+  sessionSecret: 'LONG_RANDOM_STRING',
+}));
+```
+
+Generate key:
+```bash
+openssl genrsa -out private-key.pem 2048
+```
+
+Upload public key to Auth0 dashboard.
+
+</details>
+
+<details>
+<summary><strong>Pushed Authorization Requests (PAR)</strong></summary>
+
+PAR improves security by sending sensitive parameters directly to Auth0 instead of through the URL.
+
+```javascript
+app.use(createAuth0Router({
+  // ... config
+  pushedAuthorizationRequests: true,
+}));
+```
+
+Benefits:
+- Sensitive data not in URL
+- Shorter authorization URLs
+- Better security for mobile apps
+
+</details>
+
+<details>
+<summary><strong>Custom HTTP Configuration</strong></summary>
+
+Use custom HTTP client or proxy:
+
+```javascript
+app.use(createAuth0Router({
+  // ... config
+  httpClient: {
+    fetch: customFetchFunction,
+    timeout: 5000,
+  },
+}));
+```
+
+</details>
+
+---
 
 ## Summary of Breaking Changes
 
-1. **Package name** - `express-openid-connect` → `@auth0/auth0-express`
-2. **Import** - `auth` function → `createAuth0Router` function
-3. **Configuration**:
-   - `issuerBaseURL` → `domain` (remove https:// prefix)
-   - `baseURL` → `appBaseUrl`
-   - `clientID` → `clientId`
-   - `secret` → `sessionSecret`
-   - `clientSecret` is now required
-4. **Request object** - `req.oidc` → `req.auth0.client`
-5. **Methods are async** - Most methods now return Promises
-6. **No built-in middlewares** - `requiresAuth()`, `claimCheck()`, etc. need to be implemented manually
-7. **Route protection** - No global `authRequired` option, create custom middleware
-8. **Default routes** - Prefixed with `/auth/` instead of root level
-9. **No response helpers** - `res.oidc.login()`, `res.oidc.logout()`, `res.oidc.callback()` are removed
+| Feature | Before | After | Migration |
+|---------|--------|-------|-----------|
+| **User access** | Sync | Async | Add `await` |
+| **Route protection** | Global | Per-route | Create middleware |
+| **Session store** | `destroy()` | `delete()` + options | Update method names |
+| **Error handling** | Implicit | Explicit | Add try-catch |
+| **Config** | Multiple options | Minimal | Rename properties |
 
-## Getting Help
-
-- [Auth0 Community](https://community.auth0.com)
-- [GitHub Issues](https://github.com/auth0/auth0-express/issues)
-- [Documentation](https://github.com/auth0/auth0-express)
+---
 
 ## Next Steps
 
-After migrating your basic configuration:
+1. **Quick migration** (30 min):
+   - [ ] Install package
+   - [ ] Update config
+   - [ ] Test basic flow
 
-1. Test your login and logout flows
-2. Verify protected routes work correctly
-3. Test any custom session store implementation
-4. Update your tests to work with the new async API
-5. Gradually migrate advanced features
+2. **Complete migration** (2-4 hours):
+   - [ ] Update all routes
+   - [ ] Add error handling
+   - [ ] Update tests
+   - [ ] Custom session store (if needed)
 
-Remember to thoroughly test your authentication flows in a development environment before deploying to production.
+3. **Deploy**:
+   - [ ] Staging environment
+   - [ ] Production
+
+---
+
+## Getting Help
+
+- **Documentation:** [Auth0 Express SDK docs](https://github.com/auth0/auth0-express)
+- **Issues:** [GitHub Issues](https://github.com/auth0/auth0-express/issues)
+- **Community:** [Auth0 Community](https://community.auth0.com)
