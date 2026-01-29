@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw';
 import { generateToken, jwks } from './test-utils/tokens.js';
 import express from 'express';
 import request from 'supertest';
-import { createAuth0ApiRouter } from './index.js';
+import { createAuth0ApiRouter, requireAuth } from './index.js';
 
 const domain = 'auth0.local';
 let mockOpenIdConfiguration = {
@@ -63,9 +63,7 @@ test('should return 400 when no token', async () => {
     audience: '<audience>',
   });
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -89,9 +87,7 @@ test('should return 200 when valid token', async () => {
 
   const accessToken = await generateToken(domain, 'user_123', '<audience>');
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -114,9 +110,7 @@ test('should return 401 when no issuer in token', async () => {
 
   const accessToken = await generateToken(domain, 'user_123', undefined, false);
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -140,9 +134,7 @@ test('should return 401 when invalid issuer in token', async () => {
 
   const accessToken = await generateToken(domain, 'user_123', '<audience>', 'https://invalid-issuer.local');
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -166,9 +158,7 @@ test('should return 401 when no audience in token', async () => {
 
   const accessToken = await generateToken(domain, 'user_123');
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -194,9 +184,7 @@ test('should return 401 when no iat in token', async () => {
     scope: 'valid',
   });
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -220,9 +208,7 @@ test('should return 401 when no exp in token', async () => {
 
   const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, false);
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -246,9 +232,7 @@ test('should return 401 when invalid audience in token', async () => {
 
   const accessToken = await generateToken(domain, 'user_123', '<invalid_audience>');
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -283,9 +267,7 @@ test('should return 403 when invalid scope in token', async () => {
     scope: 'invalid',
   });
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth({ scopes: 'valid' })(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth({ scopes: 'valid' }), async (req, res) => {
     res.send('OK');
   });
 
@@ -309,9 +291,7 @@ test('should return 200 when valid audience in token', async () => {
 
   const accessToken = await generateToken(domain, 'user_123', '<audience>');
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth()(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth(), async (req, res) => {
     res.json({ message: 'OK' });
   });
 
@@ -336,9 +316,7 @@ test('should return 200 when valid scope in token', async () => {
     scope: 'valid',
   });
 
-  router.get('/test', (req, res, next) => {
-    res.locals.requireAuth({ scopes: 'valid' })(req, res, next);
-  }, async (req, res) => {
+  router.get('/test', requireAuth({ scopes: 'valid' }), async (req, res) => {
     res.json({ message: 'OK' });
   });
 

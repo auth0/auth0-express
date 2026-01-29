@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { createAuth0ApiRouter } from '@auth0/auth0-express-api';
+import { createAuth0ApiRouter, requireAuth } from '@auth0/auth0-express-api';
 import 'dotenv/config';
 
 const app = express();
@@ -15,16 +15,12 @@ const auth0Router = createAuth0ApiRouter({
 app.use(auth0Router);
 
 // Protected route requiring authentication
-app.get('/api/private', (req, res, next) => {
-  res.locals.requireAuth()(req, res, next);
-}, async (req: Request, res: Response) => {
+app.get('/api/private', requireAuth(), async (req: Request, res: Response) => {
   res.send(`Hello, ${req.auth0.user?.sub}`);
 });
 
 // Protected route requiring specific scope
-app.get('/api/private-scope', (req, res, next) => {
-  res.locals.requireAuth({ scopes: ['read:private'] })(req, res, next);
-}, async (req: Request, res: Response) => {
+app.get('/api/private-scope', requireAuth({ scopes: ['read:private'] }), async (req: Request, res: Response) => {
   res.send(`Hello, ${req.auth0.user?.sub}`);
 });
 

@@ -34,35 +34,43 @@ function getToken(req: Request): string | undefined {
   return parts?.length === 2 && parts[0]?.toLowerCase() === 'bearer' ? parts[1] : undefined;
 }
 
-export function createRequireAuthMiddleware(apiClient: ApiClient) {
-  return (opts: AuthRouteOptions = {}) => {
-    return async (req: Request, res: Response, next: NextFunction) => {
-      const accessToken = getToken(req);
+/**
+ * Middleware factory to require authentication on a route
+ * @param options AuthRouteOptions
+ * @returns Express middleware function
+ */
+export function requireAuth(options: AuthRouteOptions = {}) {
+  return async (req: Request, res: Response, next: NextFunction) => {
+    const apiClient = req.auth0?.client;
 
-      if (!accessToken) {
-        return replyWithError(res, 400, 'invalid_request', 'No Authorization provided');
+    if (!apiClient) {
+      throw new Error('Auth0 ApiClient not found on request. Make sure the Auth0 Express API router is registered.');
+    }
+
+    const accessToken = getToken(req);
+
+    if (!accessToken) {
+      return replyWithError(res, 400, 'invalid_request', 'No Authorization provided');
+    }
+
+    try {
+      const token = (await apiClient.verifyAccessToken({ accessToken })) as Token;
+
+      if (options.scopes && !validateScopes(token, options.scopes)) {
+        return replyWithError(res, 403, 'insufficient_scope', 'Insufficient scopes');
       }
 
-      try {
-        const token = (await apiClient.verifyAccessToken({ accessToken })) as Token;
-
-        if (opts.scopes && !validateScopes(token, opts.scopes)) {
-          return replyWithError(res, 403, 'insufficient_scope', 'Insufficient scopes');
-        }
-
-        req.auth0 = req.auth0 || {};
-        req.auth0.user = token;
-        req.auth0.token = accessToken;
-        next();
-      } catch (error) {
+      req.auth0 = req.auth0 || {};
+      req.auth0.user = token;
+      next();
+    } catch (error) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      if ((error as any).code === 'verify_access_token_error') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        if ((error as any).code === 'verify_access_token_error') {
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return replyWithError(res, 401, 'invalid_token', (error as any).message);
-        }
-
-        return replyWithError(res, 401, 'invalid_token', 'Invalid token');
+        return replyWithError(res, 401, 'invalid_token', (error as any).message);
       }
-    };
+
+      return replyWithError(res, 401, 'invalid_token', 'Invalid token');
+    }
   };
 }

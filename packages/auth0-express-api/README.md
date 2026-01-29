@@ -21,36 +21,34 @@ npm i @auth0/auth0-express-api
 
 This library requires Node.js 20 LTS and newer LTS versions.
 
-### 3. Register the Auth0 Express middleware for APIs
+### 3. Register the Auth0 Express API router
 
-Register the Auth0 Express middleware for API's with your Express instance.
+Register the Auth0 Express API router with your Express instance.
 
 ```ts
 import express from 'express';
-import { createRequireAuthMiddleware } from '@auth0/auth0-express-api';
+import { createAuth0ApiRouter } from '@auth0/auth0-express-api';
 
 const app = express();
 
-app.use(createRequireAuthMiddleware({
+app.use(createAuth0ApiRouter({
   domain: '<AUTH0_DOMAIN>',
   audience: '<AUTH0_AUDIENCE>',
 }));
 ```
-The `AUTH0_DOMAIN` can be obtained from the [Auth0 Dashboard](https://manage.auth0.com) once you've created an API. 
+The `AUTH0_DOMAIN` can be obtained from the [Auth0 Dashboard](https://manage.auth0.com) once you've created an API.
 The `AUTH0_AUDIENCE` is the identifier of the API that is being called. You can find this in the API section of the Auth0 dashboard.
 
 #### Protecting API Routes
 
-In order to protect an API route, you can use the SDK's middleware in your route handler:
+In order to protect an API route, you can use the `requireAuth` middleware:
 
 ```ts
-import { createRequireAuthMiddleware } from '@auth0/auth0-express-api';
-
-const app = express();
+import { requireAuth } from '@auth0/auth0-express-api';
 
 app.get(
   '/protected-api',
-  createRequireAuthMiddleware(),
+  requireAuth(),
   async (req, res) => {
     res.json({ message: `Hello, ${req.auth0.user.sub}` });
   }
@@ -75,7 +73,7 @@ Doing so will change the user type on the `req.auth0.user` object automatically:
 ```ts
 app.get(
   '/protected-api',
-  createRequireAuthMiddleware(),
+  requireAuth(),
   async (req, res) => {
     res.json({ message: `Hello, ${req.auth0.user.name}` });
   }

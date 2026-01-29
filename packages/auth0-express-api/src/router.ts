@@ -1,7 +1,6 @@
 import { Router } from 'express';
 import { ApiClient } from '@auth0/auth0-api-js';
 import type { Auth0ExpressApiOptions } from './types.js';
-import { createRequireAuthMiddleware } from './middleware/require-auth.js';
 import './types/express.js';
 
 export function createAuth0ApiRouter(options: Auth0ExpressApiOptions): Router {
@@ -24,8 +23,6 @@ export function createAuth0ApiRouter(options: Auth0ExpressApiOptions): Router {
   router.use((req, res, next) => {
     req.auth0 = req.auth0 || {};
     req.auth0.client = apiClient;
-    res.locals.apiClient = apiClient;
-    res.locals.requireAuth = createRequireAuthMiddleware(apiClient);
     next();
   });
 
