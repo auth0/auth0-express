@@ -1,6 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ApiClient } from '@auth0/auth0-api-js';
-import type { AuthRouteOptions, Token } from '../types.js';
+import type { RequireAuthOptions, Token } from '../types.js';
 
 function validateScopes(token: Token, requiredScopes: string | string[]): boolean {
   const scopes = Array.isArray(requiredScopes) ? requiredScopes : [requiredScopes];
@@ -36,10 +35,10 @@ function getToken(req: Request): string | undefined {
 
 /**
  * Middleware factory to require authentication on a route
- * @param options AuthRouteOptions
+ * @param options RequireAuthOptions
  * @returns Express middleware function
  */
-export function requireAuth(options: AuthRouteOptions = {}) {
+export function requireAuth(options: RequireAuthOptions = {}) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const apiClient = req.auth0?.client;
 

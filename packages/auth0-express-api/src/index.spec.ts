@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw';
 import { generateToken, jwks } from './test-utils/tokens.js';
 import express from 'express';
 import request from 'supertest';
-import { createAuth0ApiRouter, requireAuth } from './index.js';
+import { createAuth0Api, requireAuth } from './index.js';
 
 const domain = 'auth0.local';
 let mockOpenIdConfiguration = {
@@ -58,7 +58,7 @@ test('should return 400 when no token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -80,7 +80,7 @@ test('should return 200 when valid token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -103,7 +103,7 @@ test('should return 401 when no issuer in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -127,7 +127,7 @@ test('should return 401 when invalid issuer in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -151,7 +151,7 @@ test('should return 401 when no audience in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -175,7 +175,7 @@ test('should return 401 when no iat in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -201,7 +201,7 @@ test('should return 401 when no exp in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -225,7 +225,7 @@ test('should return 401 when invalid audience in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -247,7 +247,7 @@ test('should return 401 when invalid audience in token', async () => {
 
 test('should throw when no audience configured', async () => {
   expect(() => {
-    createAuth0ApiRouter({
+    createAuth0Api({
       domain: domain,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
@@ -258,7 +258,7 @@ test('should return 403 when invalid scope in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -284,7 +284,7 @@ test('should return 200 when valid audience in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });
@@ -307,7 +307,7 @@ test('should return 200 when valid scope in token', async () => {
   const app = express();
   app.use(express.json());
 
-  const router = createAuth0ApiRouter({
+  const router = createAuth0Api({
     domain: domain,
     audience: '<audience>',
   });

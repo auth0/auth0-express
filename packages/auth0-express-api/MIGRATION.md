@@ -20,7 +20,7 @@ This guide will help you migrate your Express.js API from `express-oauth2-jwt-be
 
 | Aspect | express-oauth2-jwt-bearer | @auth0/auth0-express-api |
 |--------|---------------------------|--------------------------|
-| **Import** | `auth()` | `createAuth0ApiRouter()`, `requireAuth()` |
+| **Import** | `auth()` | `createAuth0Api()`, `requireAuth()` |
 | **Configuration** | `issuerBaseURL`, `audience` | `domain`, `audience` |
 | **Token Info** | `req.auth` | `req.auth0.user` |
 | **Protection Pattern** | Global | Per-route middleware |
@@ -30,7 +30,7 @@ This guide will help you migrate your Express.js API from `express-oauth2-jwt-be
 ### Migration Checklist
 
 - [ ] **Install** new package: `npm install @auth0/auth0-express-api`
-- [ ] **Update imports**: `auth()` → `createAuth0ApiRouter()`
+- [ ] **Update imports**: `auth()` → `createAuth0Api()`
 - [ ] **Rename config** (`issuerBaseURL` → `domain`)
 - [ ] **Replace middleware** (factory pattern instead of global)
 - [ ] **Update token access** (`req.auth` → `req.auth0.user`)
@@ -75,7 +75,7 @@ app.use(auth({
 
 **After:**
 ```javascript
-app.use(createAuth0ApiRouter({
+app.use(createAuth0Api({
   domain: 'YOUR_DOMAIN', // No https://
   audience: 'https://your-api-identifier',
 }));
@@ -125,10 +125,10 @@ app.get('/data', (req, res) => {
 ### After (Per-Route Middleware)
 
 ```javascript
-import { createAuth0ApiRouter, requireAuth } from '@auth0/auth0-express-api';
+import { createAuth0Api, requireAuth } from '@auth0/auth0-express-api';
 
 // Routes are public by default
-app.use(createAuth0ApiRouter({
+app.use(createAuth0Api({
   domain: 'YOUR_DOMAIN',
   audience: 'https://your-api',
 }));
@@ -151,9 +151,9 @@ The per-route pattern provides benefits:
 ### Example: Mixed Public and Protected Routes
 
 ```javascript
-import { createAuth0ApiRouter, requireAuth } from '@auth0/auth0-express-api';
+import { createAuth0Api, requireAuth } from '@auth0/auth0-express-api';
 
-app.use(createAuth0ApiRouter({
+app.use(createAuth0Api({
   domain: 'YOUR_DOMAIN',
   audience: 'https://your-api',
 }));
@@ -394,7 +394,7 @@ import { requireAuth } from '@auth0/auth0-express-api';
 
 // Mock requireAuth for testing
 jest.mock('@auth0/auth0-express-api', () => ({
-  createAuth0ApiRouter: jest.fn(() => (req, res, next) => {
+  createAuth0Api: jest.fn(() => (req, res, next) => {
     req.auth0.client = {}; // Mock API client
     next();
   }),
@@ -614,9 +614,9 @@ app.get('/protected', requireAuth(), (req, res) => {
 Route requests to different APIs based on audience:
 
 ```javascript
-import { createAuth0ApiRouter, requireAuth } from '@auth0/auth0-express-api';
+import { createAuth0Api, requireAuth } from '@auth0/auth0-express-api';
 
-app.use(createAuth0ApiRouter({
+app.use(createAuth0Api({
   domain: 'YOUR_DOMAIN',
   audience: 'https://api-1', // Single audience
 }));
@@ -648,7 +648,7 @@ app.use(cors({
 // Options handler for preflight
 app.options('*', cors());
 
-app.use(createAuth0ApiRouter({
+app.use(createAuth0Api({
   domain: 'YOUR_DOMAIN',
   audience: 'https://your-api',
 }));
@@ -839,7 +839,7 @@ app.get('/api/documents/:id', requireAuth(), (req, res) => {
 Demonstration of Proof-of-Possession (DPoP) adds extra security:
 
 ```javascript
-app.use(createAuth0ApiRouter({
+app.use(createAuth0Api({
   domain: 'YOUR_DOMAIN',
   audience: 'https://your-api',
   supportDPoP: true, // Enable DPoP

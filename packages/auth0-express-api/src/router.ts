@@ -1,9 +1,14 @@
 import { Router } from 'express';
 import { ApiClient } from '@auth0/auth0-api-js';
-import type { Auth0ExpressApiOptions } from './types.js';
+import type { Auth0ApiOptions } from './types.js';
 import './types/express.js';
 
-export function createAuth0ApiRouter(options: Auth0ExpressApiOptions): Router {
+/**
+ * Integrate Auth0 API functionality into an Express router
+ * @param options 
+ * @returns 
+ */
+export function createAuth0Api(options: Auth0ApiOptions): Router {
   if (!options.audience) {
     throw new Error('In order to use the Auth0 Express API plugin, you must provide an audience.');
   }

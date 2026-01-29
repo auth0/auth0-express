@@ -27,11 +27,11 @@ Register the Auth0 Express API router with your Express instance.
 
 ```ts
 import express from 'express';
-import { createAuth0ApiRouter } from '@auth0/auth0-express-api';
+import { createAuth0Api } from '@auth0/auth0-express-api';
 
 const app = express();
 
-app.use(createAuth0ApiRouter({
+app.use(createAuth0Api({
   domain: '<AUTH0_DOMAIN>',
   audience: '<AUTH0_AUDIENCE>',
 }));

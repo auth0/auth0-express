@@ -1,4 +1,4 @@
-export interface AuthRouteOptions {
+export interface RequireAuthOptions {
   scopes?: string | string[];
 }
 
@@ -9,7 +9,7 @@ export interface Token {
   scope?: string;
 }
 
-export interface Auth0ExpressApiOptions {
+export interface Auth0ApiOptions {
   /**
    * The auth0 domain (without https://)
    */
