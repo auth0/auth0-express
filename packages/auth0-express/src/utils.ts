@@ -1,5 +1,5 @@
 import { CookieTransactionStore, ServerClient, StatefulStateStore, StatelessStateStore } from '@auth0/auth0-server-js';
-import { Auth0ExpressOptions, StoreOptions } from './types.js';
+import { Auth0Options, StoreOptions } from './types.js';
 import { ExpressCookieHandler } from './store/express-cookie-handler.js';
 
 /**
@@ -54,7 +54,7 @@ export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): 
   return undefined;
 }
 
-export function createServerClientInstance(options: Auth0ExpressOptions) {
+export function createServerClientInstance(options: Auth0Options) {
   const callbackPath = options.routes?.callback ?? '/auth/callback';
   const redirectUri = createRouteUrl(callbackPath, options.appBaseUrl);
   

@@ -6,7 +6,10 @@ export interface StoreOptions {
   response: Response;
 }
 
-export interface Auth0ExpressOptions {
+/**
+ * Options for configuring the Auth0 Express SDK.
+ */
+export interface Auth0Options {
   domain: string;
   clientId: string;
   clientSecret?: string;

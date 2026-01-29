@@ -1,6 +1,6 @@
 import { Router, Request, Response, NextFunction } from 'express';
 import cookieParser from 'cookie-parser';
-import type { Auth0ExpressOptions } from './types.js';
+import type { Auth0Options } from './types.js';
 import { createServerClientInstance } from './utils.js';
 import { handleLogin } from './handlers/login-handler.js';
 import { handleCallback } from './handlers/callback-handler.js';
@@ -9,7 +9,7 @@ import { handleBackchannelLogout } from './handlers/backchannel-logout-handler.j
 import { runWithContext } from './store/request-context.js';
 import './types/express.js';
 
-export function createAuth0Router(options: Auth0ExpressOptions): Router {
+export function createAuth0(options: Auth0Options): Router {
   const router = Router();
 
   // Cookie parsing

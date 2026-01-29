@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { toSafeRedirect } from '../utils.js';
-import { Auth0ExpressOptions } from 'src/index.js';
+import { Auth0Options } from '../index.js';
 
-export async function handleLogin(req: Request, res: Response, options: Auth0ExpressOptions): Promise<void> {
+export async function handleLogin(req: Request, res: Response, options: Auth0Options): Promise<void> {
   try {
     const dangerousReturnTo = req.query.returnTo as string | undefined;
     const sanitizedReturnTo = toSafeRedirect(dangerousReturnTo || '/', options.appBaseUrl);

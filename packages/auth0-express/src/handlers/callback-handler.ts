@@ -1,8 +1,8 @@
 import { Request, Response } from 'express';
 import { createRouteUrl } from '../utils.js';
-import { Auth0ExpressOptions } from 'src/types.js';
+import { Auth0Options } from '../types.js';
 
-export async function handleCallback(req: Request, res: Response, options: Auth0ExpressOptions): Promise<void> {
+export async function handleCallback(req: Request, res: Response, options: Auth0Options): Promise<void> {
   try {
     const { appState } = await req.auth0.client.completeInteractiveLogin<{ returnTo: string } | undefined>(
       createRouteUrl(req.url, options.appBaseUrl)

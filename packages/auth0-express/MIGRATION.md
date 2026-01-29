@@ -20,7 +20,7 @@ This guide will help you migrate your Express.js application from `express-openi
 
 | Aspect | express-openid-connect | @auth0/auth0-express |
 |--------|------------------------|----------------------|
-| **Import** | `auth()` | `createAuth0Router()` |
+| **Import** | `auth()` | `createAuth0()` |
 | **Configuration** | `issuerBaseURL`, `baseURL`, `clientID`, `secret` | `domain`, `appBaseUrl`, `clientId`, `sessionSecret` |
 | **User Access** | `req.oidc.user` | `await req.auth0.client.getUser()` |
 | **Async/Await** | Mostly sync | All methods async |
@@ -30,7 +30,7 @@ This guide will help you migrate your Express.js application from `express-openi
 ### Migration Checklist
 
 - [ ] **Install** new package: `npm install @auth0/auth0-express`
-- [ ] **Update imports**: `auth()` → `createAuth0Router()`
+- [ ] **Update imports**: `auth()` → `createAuth0()`
 - [ ] **Rename config properties** (see table below)
 - [ ] **Add clientSecret** (now required)
 - [ ] **Add `await`** to user/session/token access
@@ -77,7 +77,7 @@ app.use(auth({
 
 **After:**
 ```javascript
-app.use(createAuth0Router({
+app.use(createAuth0({
   domain: 'YOUR_DOMAIN', // No https://
   clientId: 'YOUR_CLIENT_ID',
   clientSecret: 'YOUR_CLIENT_SECRET', // Now required
@@ -129,7 +129,7 @@ AUTH0_SESSION_SECRET=LONG_RANDOM_VALUE
 ### Custom Routes
 
 ```javascript
-app.use(createAuth0Router({
+app.use(createAuth0({
   // ... other config
   routes: {
     login: '/custom/login',
@@ -392,7 +392,7 @@ app.get('/api', async (req, res, next) => {
 ### Default Session Store
 
 ```javascript
-app.use(createAuth0Router({
+app.use(createAuth0({
   domain: 'YOUR_DOMAIN',
   clientId: 'YOUR_CLIENT_ID',
   clientSecret: 'YOUR_CLIENT_SECRET',
@@ -428,7 +428,7 @@ class CustomStore {
   }
 }
 
-app.use(createAuth0Router({
+app.use(createAuth0({
   sessionStore: new CustomStore(),
   // ... other config
 }));
@@ -626,15 +626,15 @@ const user = req.auth0.client.getUser(); // Wrong!
 
 **Problem:** `req.auth0` is undefined.
 
-**Solution:** Ensure `createAuth0Router` middleware is registered before your route handlers:
+**Solution:** Ensure `createAuth0` middleware is registered before your route handlers:
 ```javascript
 // Correct order
-app.use(createAuth0Router({ ... }));
+app.use(createAuth0({ ... }));
 app.get('/profile', async (req, res) => { ... });
 
 // Wrong order - auth router comes after route definitions
 app.get('/profile', async (req, res) => { ... });
-app.use(createAuth0Router({ ... }));
+app.use(createAuth0({ ... }));
 ```
 
 ### Custom Session Store Errors
@@ -689,7 +689,7 @@ npm install node-fetch
 // Option 2: Update to Node.js 18+
 
 // Option 3: Use custom HTTP client
-app.use(createAuth0Router({
+app.use(createAuth0({
   httpClient: customHttpClient,
   // ... other config
 }));
@@ -710,7 +710,7 @@ app.use(createAuth0Router({
 1. **Missing `await`** → Add `await` before all client method calls
 2. **Routes unprotected** → Create `requireSession` middleware
 3. **StoreOptions missing** → Add `options` parameter to store methods
-4. **req.auth0 undefined** → Move `createAuth0Router()` before route definitions
+4. **req.auth0 undefined** → Move `createAuth0()` before route definitions
 5. **Token access fails** → Check `clientSecret` and token expiration
 
 </details>
@@ -725,7 +725,7 @@ app.use(createAuth0Router({
 For production, use `private_key_jwt` instead of `client_secret`:
 
 ```javascript
-app.use(createAuth0Router({
+app.use(createAuth0({
   domain: 'YOUR_DOMAIN',
   clientId: 'YOUR_CLIENT_ID',
   clientAuthMethod: 'private_key_jwt',
@@ -750,7 +750,7 @@ Upload public key to Auth0 dashboard.
 PAR improves security by sending sensitive parameters directly to Auth0 instead of through the URL.
 
 ```javascript
-app.use(createAuth0Router({
+app.use(createAuth0({
   // ... config
   pushedAuthorizationRequests: true,
 }));
@@ -769,7 +769,7 @@ Benefits:
 Use custom HTTP client or proxy:
 
 ```javascript
-app.use(createAuth0Router({
+app.use(createAuth0({
   // ... config
   httpClient: {
     fetch: customFetchFunction,

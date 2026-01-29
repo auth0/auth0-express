@@ -15,11 +15,11 @@ Register the Auth0 Express router with your Express instance.
 
 ```ts
 import express from 'express';
-import { createAuth0Router } from '@auth0/auth0-express';
+import { createAuth0 } from '@auth0/auth0-express';
 
 const app = express();
 
-app.use(createAuth0Router({
+app.use(createAuth0({
   domain: '<AUTH0_DOMAIN>',
   clientId: '<AUTH0_CLIENT_ID>',
   clientSecret: '<AUTH0_CLIENT_SECRET>',
@@ -58,11 +58,11 @@ The SDK can also be configured not to register these routes by setting the `moun
 
 ```ts
 import express from 'express';
-import { createAuth0Router } from '@auth0/auth0-express';
+import { createAuth0 } from '@auth0/auth0-express';
 
 const app = express();
 
-app.use(createAuth0Router({
+app.use(createAuth0({
   /* ... */
   mountRoutes: false,
 }));
@@ -84,11 +84,11 @@ The SDK allows to override the fetch implementation, used for making HTTP reques
 
 ```ts
 import express from 'express';
-import { createAuth0Router } from '@auth0/auth0-express';
+import { createAuth0 } from '@auth0/auth0-express';
 
 const app = express();
 
-app.use(createAuth0Router({
+app.use(createAuth0({
   /* ... */
   customFetch: async (input, init) => {
     // Custom fetch implementation
@@ -138,7 +138,7 @@ app.get(
 If you need to call an API on behalf of the user, you want to specify the `audience` parameter when registering the router. This will make the SDK request an access token for the specified audience when the user logs in.
 
 ```ts
-app.use(createAuth0Router({
+app.use(createAuth0({
   domain: '<AUTH0_DOMAIN>',
   clientId: '<AUTH0_CLIENT_ID>',
   clientSecret: '<AUTH0_CLIENT_SECRET>',

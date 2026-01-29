@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
-import { Auth0ExpressOptions } from 'src/types.js';
+import { Auth0Options } from '../types.js';
 
-export async function handleLogout(req: Request, res: Response, options: Auth0ExpressOptions): Promise<void> {
+export async function handleLogout(req: Request, res: Response, options: Auth0Options): Promise<void> {
   try {
     const returnTo = options.appBaseUrl;
     const logoutUrl = await req.auth0.client.logout({ returnTo: returnTo.toString() });

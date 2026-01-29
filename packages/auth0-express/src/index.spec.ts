@@ -5,7 +5,7 @@ import { generateToken } from './test-utils/tokens.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
-import { createAuth0Router } from './index.js';
+import { createAuth0 } from './index.js';
 import { decrypt, encrypt } from './test-utils/encryption.js';
 
 const domain = 'auth0.local';
@@ -84,11 +84,11 @@ function parseCookies(setCookieHeader: string | string[] | undefined): Record<st
 }
 
 // Helper function to create a configured Express app
-function createConfiguredApp(options: Parameters<typeof createAuth0Router>[0]) {
+function createConfiguredApp(options: Parameters<typeof createAuth0>[0]) {
   const app = express();
   app.use(cookieParser());
   app.use(express.json());
-  app.use(createAuth0Router(options));
+  app.use(createAuth0(options));
   return app;
 }
 

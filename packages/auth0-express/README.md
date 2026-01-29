@@ -28,11 +28,11 @@ Register the Auth0 Express router with your Express instance.
 
 ```ts
 import express from 'express';
-import { createAuth0Router } from '@auth0/auth0-express';
+import { createAuth0 } from '@auth0/auth0-express';
 
 const app = express();
 
-app.use(createAuth0Router({
+app.use(createAuth0({
   domain: '<AUTH0_DOMAIN>',
   clientId: '<AUTH0_CLIENT_ID>',
   clientSecret: '<AUTH0_CLIENT_SECRET>',
@@ -70,7 +70,7 @@ The SDK for Express Web Applications mounts 4 main routes:
 To disable this behavior, you can set the `mountRoutes` option to `false` (it's true by default):
 
 ```ts
-app.use(createAuth0Router({
+app.use(createAuth0({
   mountRoutes: false
 }));
 ```
@@ -168,7 +168,7 @@ app.get(
 If you need to call an API on behalf of the user, you want to specify the `audience` parameter when registering the router. This will make the SDK request an access token for the specified audience when the user logs in.
 
 ```ts
-app.use(createAuth0Router({
+app.use(createAuth0({
   domain: '<AUTH0_DOMAIN>',
   clientId: '<AUTH0_CLIENT_ID>',
   clientSecret: '<AUTH0_CLIENT_SECRET>',
