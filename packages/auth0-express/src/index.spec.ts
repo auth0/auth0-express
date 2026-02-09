@@ -323,3 +323,71 @@ test('auth/logout uses custom route when provided', async () => {
   expect(url.pathname).toBe('/logout');
 });
 
+test('auth/login supports additional authorization parameters', async () => {
+  const app = createConfiguredApp({
+    domain: domain,
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+    appBaseUrl: 'http://localhost:3000',
+    sessionSecret: '<secret>',
+  });
+
+  const res = await request(app).get('/auth/login').query({
+    prompt: 'login',
+    screen_hint: 'signup',
+    organization: 'org_123',
+  });
+  const url = new URL(res.headers['location']?.toString() ?? '');
+
+  expect(res.status).toBe(302);
+  expect(url.searchParams.get('prompt')).toBe('login');
+  expect(url.searchParams.get('screen_hint')).toBe('signup');
+  expect(url.searchParams.get('organization')).toBe('org_123');
+});
+
+test('auth/login preserves returnTo with prompt=none', async () => {
+  const app = createConfiguredApp({
+    domain: domain,
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+    appBaseUrl: 'http://localhost:3000',
+    sessionSecret: '<secret>',
+  });
+
+  const res = await request(app).get('/auth/login').query({
+    prompt: 'none',
+    returnTo: 'http://localhost:3000/profile',
+  });
+  const cookieName = '__a0_tx';
+  const cookies = parseCookies(res.headers['set-cookie']);
+  const cookieValueRaw = cookies[cookieName]!;
+  const cookieValue = (await decrypt(cookieValueRaw, '<secret>', '__a0_tx')) as { appState: { returnTo: string } };
+
+  expect(res.status).toBe(302);
+  expect(cookieValue?.appState?.returnTo).toBe('http://localhost:3000/profile');
+
+  const url = new URL(res.headers['location']?.toString() ?? '');
+  expect(url.searchParams.get('prompt')).toBe('none');
+});
+
+test('auth/callback handles login_required error from prompt=none', async () => {
+  const app = createConfiguredApp({
+    domain: domain,
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+    appBaseUrl: 'http://localhost:3000',
+    sessionSecret: '<secret>',
+  });
+
+  const cookieName = '__a0_tx';
+  const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+  const res = await request(app)
+    .get('/auth/callback')
+    .query({ error: 'login_required', error_description: 'Login required' })
+    .set('cookie', `${cookieName}=${cookieValue}`);
+
+  expect(res.status).toBe(401);
+  expect(res.body.error).toBe('login_required');
+  expect(res.body.message).toBe('Login required');
+});
+

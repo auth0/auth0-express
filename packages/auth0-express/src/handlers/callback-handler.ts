@@ -9,10 +9,19 @@ export async function handleCallback(req: Request, res: Response, options: Auth0
     );
 
     res.redirect(appState?.returnTo ?? options.appBaseUrl);
-  } catch (error) {
-    res.status(500).json({
-      error: (error as Error).name,
-      message: (error as Error).message,
+  } catch (error: any) {
+    // If the error is due to prompt=none and an interaction is required,
+    // we should return a 401 to indicate that authentication is required, rather than a 500 which would indicate a server error.
+    const statusCode =
+      error.cause?.error === 'login_required' ||
+      error.cause?.error === 'consent_required' ||
+      error.cause?.error === 'interaction_required'
+        ? 401
+        : 500;
+
+    res.status(statusCode).json({
+      error: error.cause?.error || error.name,
+      message: error.cause?.error_description || error.message,
     });
   }
 }
