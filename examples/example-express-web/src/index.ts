@@ -18,6 +18,9 @@ app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 
 // Mount Auth0 router
+// The SDK can automatically read configuration from environment variables
+// when using getConfig() or by passing an empty object to createAuth0().
+// For explicit control, we're passing the values directly here.
 app.use(
   createAuth0({
     domain: process.env.AUTH0_DOMAIN as string,

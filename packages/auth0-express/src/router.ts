@@ -7,9 +7,11 @@ import { handleCallback } from './handlers/callback-handler.js';
 import { handleLogout } from './handlers/logout-handler.js';
 import { handleBackchannelLogout } from './handlers/backchannel-logout-handler.js';
 import { runWithContext } from './store/request-context.js';
+import { getConfig } from './config.js';
 import './types/express.js';
 
-export function createAuth0(options: Auth0Options): Router {
+export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
+  const options = getConfig(opts);
   const router = Router();
 
   // Cookie parsing
