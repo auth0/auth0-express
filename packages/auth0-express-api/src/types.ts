@@ -11,13 +11,15 @@ export interface Token {
 
 export interface Auth0ApiOptions {
   /**
-   * The auth0 domain (without https://)
+   * The auth0 domain (without https://).
+   * Can be provided via AUTH0_DOMAIN environment variable.
    */
-  domain: string;
+  domain?: string;
   /**
-   * The audience for the API
+   * The audience for the API.
+   * Can be provided via AUTH0_AUDIENCE environment variable.
    */
-  audience: string;
+  audience?: string;
   /**
    * The optional client ID of the application.
    * Required when using the `getAccessTokenForConnection` method.

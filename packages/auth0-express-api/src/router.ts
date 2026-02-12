@@ -1,27 +1,28 @@
 import { Router } from 'express';
 import { ApiClient } from '@auth0/auth0-api-js';
 import type { Auth0ApiOptions } from './types.js';
+import { getConfig } from './config.js';
 import './types/express.js';
 
 /**
- * Integrate Auth0 API functionality into an Express router
- * @param options 
- * @returns 
+ * Integrate Auth0 API functionality into an Express router.
+ * Configuration can be provided via options or environment variables.
+ *
+ * @param options - Configuration options (can be partial if using environment variables)
+ * @returns Express Router with Auth0 API client attached
  */
-export function createAuth0Api(options: Auth0ApiOptions): Router {
-  if (!options.audience) {
-    throw new Error('In order to use the Auth0 Express API plugin, you must provide an audience.');
-  }
+export function createAuth0Api(options: Partial<Auth0ApiOptions> = {}): Router {
+  const config = getConfig(options);
 
   const router = Router();
   const apiClient = new ApiClient({
-    domain: options.domain,
-    audience: options.audience,
-    clientId: options.clientId,
-    clientSecret: options.clientSecret,
-    clientAssertionSigningKey: options.clientAssertionSigningKey,
-    clientAssertionSigningAlg: options.clientAssertionSigningAlg,
-    customFetch: options.customFetch,
+    domain: config.domain!,
+    audience: config.audience!,
+    clientId: config.clientId,
+    clientSecret: config.clientSecret,
+    clientAssertionSigningKey: config.clientAssertionSigningKey,
+    clientAssertionSigningAlg: config.clientAssertionSigningAlg,
+    customFetch: config.customFetch,
   });
 
   // Attach client and requireAuth to router locals

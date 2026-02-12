@@ -251,7 +251,7 @@ test('should throw when no audience configured', async () => {
       domain: domain,
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
     } as any);
-  }).toThrowError('In order to use the Auth0 Express API plugin, you must provide an audience.');
+  }).toThrowError("'audience' is required. Provide it via config or AUTH0_AUDIENCE environment variable.");
 });
 
 test('should return 403 when invalid scope in token', async () => {

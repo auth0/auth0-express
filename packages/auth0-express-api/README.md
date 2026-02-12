@@ -39,6 +39,8 @@ app.use(createAuth0Api({
 The `AUTH0_DOMAIN` can be obtained from the [Auth0 Dashboard](https://manage.auth0.com) once you've created an API.
 The `AUTH0_AUDIENCE` is the identifier of the API that is being called. You can find this in the API section of the Auth0 dashboard.
 
+**Environment Variable Support**: You can also configure the SDK using environment variables (`AUTH0_DOMAIN`, `AUTH0_AUDIENCE`). See [EXAMPLES.md](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express-api/EXAMPLES.md#using-environment-variables) for details.
+
 #### Protecting API Routes
 
 In order to protect an API route, you can use the `requireAuth` middleware:
@@ -80,7 +82,7 @@ app.get(
 );
 ```
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > The above is to protect API routes by the means of a bearer token, and not server-side rendering routes using a session. 
 
 
