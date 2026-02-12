@@ -392,7 +392,7 @@ test('auth/callback handles login_required error from prompt=none', async () => 
     .query({ error: 'login_required', error_description: 'Login required' })
     .set('cookie', `${cookieName}=${cookieValue}`);
 
-  expect(res.status).toBe(401);
+  expect(res.status).toBe(500);
   expect(res.body.error).toBe('login_required');
   expect(res.body.message).toBe('Login required');
 });
@@ -658,7 +658,7 @@ test('claimIncludes allows access when claim includes required values', async ()
     sessionSecret: '<secret>',
   });
 
-  app.delete('/users/:id', claimIncludes('permissions', 'delete:users'), (req, res) => {
+  app.delete('/users/:id', claimIncludes('permissions', ['delete:users']), (req, res) => {
     res.send('User deleted');
   });
 

@@ -11,12 +11,6 @@ export interface RequireAuthOptions {
    * Default: false (redirects to login)
    */
   returnTo?: string;
-
-  /**
-   * Custom error message to send when authentication is required.
-   * Only used when the request expects JSON (API request).
-   */
-  errorMessage?: string;
 }
 
 /**
@@ -60,7 +54,7 @@ export function requireAuth(options?: RequireAuthOptions) {
         if (acceptsJson) {
           return res.status(401).json({
             error: 'unauthorized',
-            message: options?.errorMessage || 'Authentication required',
+            message: 'Authentication required',
           });
         }
 

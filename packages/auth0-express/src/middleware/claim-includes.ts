@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { ClaimAuthOptions } from './claim-auth.js';
 
 /**
  * Middleware to check if an array claim includes specific values.
@@ -29,7 +30,7 @@ import { Request, Response, NextFunction } from 'express';
  * });
  * ```
  */
-export function claimIncludes(claim: string, ...values: unknown[]) {
+export function claimIncludes(claim: string, values: unknown[], options?: ClaimAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = await req.auth0.client.getUser();
@@ -44,18 +45,18 @@ export function claimIncludes(claim: string, ...values: unknown[]) {
       const claimValue = (user as Record<string, unknown>)[claim];
 
       if (!Array.isArray(claimValue)) {
-        return res.status(403).json({
+        return res.status(options?.statusCode || 403).json({
           error: 'forbidden',
-          message: `Access denied`,
+          message: options?.errorMessage || `Access denied`,
         });
       }
 
       const hasAllValues = values.every((value) => claimValue.includes(value));
 
       if (!hasAllValues) {
-        return res.status(403).json({
+        return res.status(options?.statusCode || 403).json({
           error: 'forbidden',
-          message: `Access denied`,
+          message: options?.errorMessage || `Access denied`,
         });
       }
 

@@ -2,7 +2,9 @@
 
 - [Configuration](#configuration)
   - [Basic configuration](#basic-configuration)
+  - [Using environment variables](#using-environment-variables)
   - [Configuring the mounted routes](#configuring-the-mounted-routes)
+  - [Configuring a customFetch implementation](#configuring-a-customfetch-implementation)
 - [The `ServerClient` instance](#the-serverclient-instance)
 - [Protecting Routes](#protecting-routes)
   - [Using requireAuth middleware](#using-requireauth-middleware)
@@ -43,13 +45,56 @@ openssl rand -hex 64
 
 The `APP_BASE_URL` is the URL that your application is running on. When developing locally, this is most commonly `http://localhost:3000`.
 
-> [!IMPORTANT]  
+> [!IMPORTANT]
 > You will need to register the following URLs in your Auth0 Application via the [Auth0 Dashboard](https://manage.auth0.com):
 >
 > - Add `http://localhost:3000/auth/callback` to the list of **Allowed Callback URLs**
 > - Add `http://localhost:3000` to the list of **Allowed Logout URLs**
 
+### Using environment variables
 
+The SDK automatically reads configuration from environment variables, making it easy to configure without hardcoding values:
+
+```ts
+import express from 'express';
+import { createAuth0 } from '@auth0/auth0-express';
+import 'dotenv/config'; // Optional: load from .env file
+
+const app = express();
+
+// Configuration is automatically read from environment variables
+app.use(createAuth0());
+```
+
+Supported environment variables:
+- `AUTH0_DOMAIN` - Your Auth0 domain
+- `AUTH0_CLIENT_ID` - Your Auth0 application client ID
+- `AUTH0_CLIENT_SECRET` - Your Auth0 application client secret (optional)
+- `APP_BASE_URL` - Your application base URL
+- `AUTH0_SESSION_SECRET` - Secret for session encryption
+- `AUTH0_AUDIENCE` - API audience (optional)
+
+Example `.env` file:
+
+```env
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_CLIENT_ID=your_client_id
+AUTH0_CLIENT_SECRET=your_client_secret
+APP_BASE_URL=http://localhost:3000
+AUTH0_SESSION_SECRET=your_long_random_secret_here
+AUTH0_AUDIENCE=https://api.example.com
+```
+
+You can also override specific values while using environment variables for others:
+
+```ts
+app.use(createAuth0({
+  audience: 'https://api.example.com' // Override while using env vars for other config
+}));
+```
+
+> [!NOTE]
+> For migration from `express-openid-connect`, alternative environment variable names are supported: `ISSUER_BASE_URL` (for domain), `CLIENT_ID`, `CLIENT_SECRET`, `BASE_URL` and `SECRET` (for session secret). These are provided for compatibility but `AUTH0_*` prefixed names are recommended.
 
 ### Configuring the mounted routes
 
