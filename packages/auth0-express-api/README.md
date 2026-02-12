@@ -58,6 +58,41 @@ app.get(
 ```
 
 The SDK exposes the claims, extracted from the token, as the `user` property on the `req.auth0` object.
+
+#### Authorization with Claims
+
+Beyond basic authentication, you can authorize requests based on specific token claims:
+
+```ts
+import {
+  requireAuth,
+  claimEquals,
+  claimIncludes,
+  claimCheck,
+  scopesInclude,
+} from '@auth0/auth0-express-api';
+
+// Check if a claim equals a specific value
+app.get('/admin', requireAuth(), claimEquals('isAdmin', true), handler);
+
+// Check if a claim includes all specified values
+app.get('/admin/edit', requireAuth(), claimIncludes('roles', 'admin', 'editor'), handler);
+
+// Custom validation logic
+app.get('/premium', requireAuth(), claimCheck(
+  (token) => token.tier === 'premium' || token.roles?.includes('admin'),
+  'Premium tier or admin role required'
+), handler);
+
+// Flexible scope matching - match ANY (default) or ALL
+app.get('/messages', requireAuth(), scopesInclude('read:messages read:admin'), handler);
+app.get('/admin/edit', requireAuth(), scopesInclude('read:admin write:admin', { match: 'all' }), handler);
+```
+
+See [EXAMPLES.md](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express-api/EXAMPLES.md#authorization-with-claims) for more authorization patterns.
+
+#### Custom Types
+
 In order to use a custom user type to represent custom claims, you can configure the `Token` type in a module augmentation:
 
 ```ts

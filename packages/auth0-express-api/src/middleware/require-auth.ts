@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import type { RequireAuthOptions, Token } from '../types.js';
+import { sendBearerError } from './claim-auth.js';
 
 function validateScopes(token: Token, requiredScopes: string | string[]): boolean {
   const scopes = Array.isArray(requiredScopes) ? requiredScopes : [requiredScopes];
@@ -13,19 +14,6 @@ function validateScopes(token: Token, requiredScopes: string | string[]): boolea
 
   // All required scopes must be present
   return scopes.every((required) => tokenScopes.includes(required));
-}
-
-function replyWithError(res: Response, statusCode: number, error: string, errorDescription: string): Response {
-  return res
-    .status(statusCode)
-    .header(
-      'WWW-Authenticate',
-      `Bearer error="${error.replaceAll('"', '\\"')}", error_description="${errorDescription.replaceAll('"', '\\"')}"`
-    )
-    .json({
-      error: error,
-      error_description: errorDescription,
-    });
 }
 
 function getToken(req: Request): string | undefined {
@@ -49,14 +37,14 @@ export function requireAuth(options: RequireAuthOptions = {}) {
     const accessToken = getToken(req);
 
     if (!accessToken) {
-      return replyWithError(res, 400, 'invalid_request', 'No Authorization provided');
+      return sendBearerError(res, 400, 'invalid_request', 'No Authorization provided');
     }
 
     try {
       const token = (await apiClient.verifyAccessToken({ accessToken })) as Token;
 
       if (options.scopes && !validateScopes(token, options.scopes)) {
-        return replyWithError(res, 403, 'insufficient_scope', 'Insufficient scopes');
+        return sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes');
       }
 
       req.auth0 = req.auth0 || {};
@@ -66,10 +54,10 @@ export function requireAuth(options: RequireAuthOptions = {}) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
       if ((error as any).code === 'verify_access_token_error') {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return replyWithError(res, 401, 'invalid_token', (error as any).message);
+        return sendBearerError(res, 401, 'invalid_token', (error as any).message);
       }
 
-      return replyWithError(res, 401, 'invalid_token', 'Invalid token');
+      return sendBearerError(res, 401, 'invalid_token', 'Invalid token');
     }
   };
 }

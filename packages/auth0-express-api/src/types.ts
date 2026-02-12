@@ -7,6 +7,8 @@ export interface Token {
   aud: string | string[];
   iss: string;
   scope?: string;
+
+  [claim: string]: unknown;
 }
 
 export interface Auth0ApiOptions {

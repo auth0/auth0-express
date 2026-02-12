@@ -15,17 +15,17 @@ import { ClaimAuthOptions } from './claim-auth.js';
  * @example
  * ```typescript
  * // Require user to have specific permissions
- * app.delete('/users/:id', claimIncludes('permissions', 'delete:users'), (req, res) => {
+ * app.delete('/users/:id', claimIncludes('permissions', ['delete:users']), (req, res) => {
  *   res.send('User deleted');
  * });
  *
  * // Require multiple permissions
- * app.post('/admin/users', claimIncludes('permissions', 'create:users', 'admin:access'), (req, res) => {
+ * app.post('/admin/users', claimIncludes('permissions', ['create:users', 'admin:access']), (req, res) => {
  *   res.send('User created');
  * });
  *
  * // Check roles
- * app.get('/dashboard', claimIncludes('roles', 'editor', 'admin'), (req, res) => {
+ * app.get('/dashboard', claimIncludes('roles', ['editor', 'admin']), (req, res) => {
  *   res.send('Dashboard');
  * });
  * ```
