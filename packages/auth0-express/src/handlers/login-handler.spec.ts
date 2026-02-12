@@ -8,7 +8,7 @@ import {
   resetMockConfig,
   createConfiguredApp,
   parseCookies,
-} from '../test-helpers/test-setup.js';
+} from '../test-utils/test-setup.js';
 import { decrypt } from '../test-utils/encryption.js';
 
 beforeAll(() =>

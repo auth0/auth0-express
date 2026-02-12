@@ -7,7 +7,7 @@ import {
   setupTests,
   resetMockConfig,
   createConfiguredApp,
-} from '../test-helpers/test-setup.js';
+} from '../test-utils/test-setup.js';
 
 beforeAll(() =>
   server.listen({

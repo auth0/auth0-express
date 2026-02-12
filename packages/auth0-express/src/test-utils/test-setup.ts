@@ -1,11 +1,11 @@
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
-import { generateToken } from '../test-utils/tokens.js';
+import { generateToken } from './tokens.js';
 import express from 'express';
 import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { createAuth0 } from '../index.js';
-import { encrypt } from '../test-utils/encryption.js';
+import { encrypt } from './encryption.js';
 
 export const domain = 'auth0.local';
 export let accessToken: string;

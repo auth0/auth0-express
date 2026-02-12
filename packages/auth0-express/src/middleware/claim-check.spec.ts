@@ -9,7 +9,7 @@ import {
   resetMockConfig,
   createConfiguredApp,
   authenticateUser,
-} from '../test-helpers/test-setup.js';
+} from '../test-utils/test-setup.js';
 
 beforeAll(() =>
   server.listen({
