@@ -1,0 +1,78 @@
+name: Build and Test
+
+on:
+  workflow_dispatch:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main, dev]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: ${{ github.ref != 'refs/heads/main' }}
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        node: [ 20, 22, 24 ]
+    name: Build Package
+    runs-on:
+      labels: ubuntu-22.04-2cpu-8ram-75ssd
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js with npm caching
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ matrix.node }}
+          cache: "npm"
+
+      - name: Update npm
+        run: npm install -g npm@latest
+
+      - name: Install dependencies
+        run: npm install
+
+      - name: Build auth0-express
+        run: npm run build -w @auth0/auth0-express
+
+      - name: Build auth0-express-api
+        run: npm run build -w @auth0/auth0-express-api
+
+      - name: Test auth0-express
+        run: npm run test:ci -w @auth0/auth0-express
+
+      - name: Test auth0-express-api
+        run: npm run test:ci -w @auth0/auth0-express-api
+
+  lint:
+    name: Lint
+    runs-on:
+      labels: ubuntu-22.04-2cpu-8ram-75ssd
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js with npm caching
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Update npm
+        run: npm install -g npm@latest
+    
+      - name: Install dependencies
+        run: npm install
+      
+      - name: Lint @auth0/auth0-express
+        run: npm run lint -w @auth0/auth0-express
+
+      - name: Lint @auth0/auth0-express-api
+        run: npm run lint -w @auth0/auth0-express-api

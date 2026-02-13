@@ -1,0 +1,65 @@
+{
+  "name": "@auth0/auth0-express",
+  "version": "1.2.0",
+  "description": "Auth0 Authentication SDK for Express Applications on JavaScript runtimes",
+  "author": "Auth0",
+  "license": "MIT",
+  "type": "module",
+  "scripts": {
+    "build": "tsup",
+    "build:watch": "tsup --watch",
+    "clean": "rm -rf ./dist",
+    "lint": "eslint \"./**/*.ts*\"",
+    "test": "vitest run",
+    "test:ci": "vitest --watch false --coverage"
+  },
+  "types": "./dist/index.d.ts",
+  "main": "./dist/index.cjs",
+  "module": "./dist/index.js",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "require": "./dist/index.cjs",
+      "import": "./dist/index.js"
+    }
+  },
+  "devDependencies": {
+    "@eslint/js": "^9.39.2",
+    "@types/cookie-parser": "^1.4.3",
+    "@types/express": "^5.0.6",
+    "@types/supertest": "^6.0.3",
+    "@vitest/coverage-v8": "^4.0.18",
+    "eslint": "^9.39.2",
+    "express": "^5.2.1",
+    "msw": "^2.12.7",
+    "supertest": "^7.2.2",
+    "tsup": "^8.5.1",
+    "typescript": "^5.9.3",
+    "typescript-eslint": "^8.54.0",
+    "vitest": "^4.0.18"
+  },
+  "dependencies": {
+    "@auth0/auth0-server-js": "^1.2.0",
+    "cookie-parser": "^1.4.7"
+  },
+  "peerDependencies": {
+    "express": "^4.18.0 || ^5.0.0"
+  },
+  "files": [
+    "dist"
+  ],
+  "publishConfig": {
+    "access": "public"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git://github.com/auth0/auth0-express.git"
+  },
+  "bugs": {
+    "url": "https://github.com/auth0/auth0-express/issues"
+  },
+  "homepage": "https://github.com/auth0/auth0-express#readme",
+  "keywords": [
+    "auth0"
+  ]
+}
