@@ -118,16 +118,6 @@ app.use(createAuth0({
 }));
 ```
 
-Additionally, by setting `mountConnectRoutes` to `true` (it's false by default) the SDK also can also mount 4 routes useful for account-linking:
-
-1. `/auth/connect`: the route that the user will be redirected to to initiate account linking
-2. `/auth/connect/callback`: the callback route for account linking that must be added to your Auth0 application's Allowed Callback URLs
-3. `/auth/unconnect`: the route that the user will be redirected to to initiate account linking
-4. `/auth/unconnect/callback`: the callback route for account linking that must be added to your Auth0 application's Allowed Callback URLs
-
-> [!IMPORTANT]  
-> When `mountRoutes` is set to `false`, setting `mountConnectRoutes` has no effect.
-
 ### 3. Adding Login and Logout
 
 When using the built-in mounted routes, the user can be redirected to `/auth/login` to initiate the login flow and `/auth/logout` to log out.
@@ -142,32 +132,27 @@ When not using the built-in routes, you want to call the SDK's `startInteractive
 
 ```ts
 app.get('/custom/login', async (req, res) => {
-  const authorizationUrl = await req.auth0.client.startInteractiveLogin(
-    {
-      authorizationParams: {
-        // Custom URL to redirect back to after login to handle the callback.
-        // Make sure to configure the URL in the Auth0 Dashboard as an Allowed Callback URL.
-        redirect_uri: 'http://localhost:3000/custom/callback',
-      }
-    },
-    { request: req, response: res }
-  );
+  const authorizationUrl = await req.auth0.client.startInteractiveLogin({
+    authorizationParams: {
+      // Custom URL to redirect back to after login to handle the callback.
+      // Make sure to configure the URL in the Auth0 Dashboard as an Allowed Callback URL.
+      redirect_uri: 'http://localhost:3000/custom/callback',
+    }
+  });
 
   res.redirect(authorizationUrl.href);
 });
 
-
 app.get('/custom/callback', async (req, res) => {
   await req.auth0.client.completeInteractiveLogin(
-    new URL(req.url, req.auth0.config.appBaseUrl),
-    { request: req, response: res }
+    new URL(req.url, req.auth0.config.appBaseUrl)
   );
 
   res.redirect('https://localhost:3000');
 });
 
 app.get('/custom/logout', async (req, res) => {
-  const logoutUrl = await req.auth0.client.logout({ returnTo: 'https://localhost:3000' }, { request: req, response: res });
+  const logoutUrl = await req.auth0.client.logout({ returnTo: 'https://localhost:3000' });
 
   res.redirect(logoutUrl.href);
 });
@@ -180,7 +165,7 @@ In order to protect an Express route, you can use the SDK's `getSession()` metho
 
 ```ts
 async function hasSessionMiddleware(req, res, next) {
-  const session = await req.auth0.client.getSession({ request: req, response: res });
+  const session = await req.auth0.client.getSession();
 
   if (!session) {
     return res.redirect('/auth/login');
@@ -193,7 +178,7 @@ app.get(
   '/profile',
   hasSessionMiddleware,
   async (req, res) => {
-    const user = await req.auth0.client.getUser({ request: req, response: res });
+    const user = await req.auth0.client.getUser();
 
     res.render('profile.ejs', {
       name: user!.name,
@@ -225,7 +210,7 @@ The `AUTH0_AUDIENCE` is the identifier of the API you want to call. You can find
 Retrieving the token can be achieved by using `getAccessToken`:
 
 ```ts
-const accessTokenResult = await req.auth0.client.getAccessToken({ request: req, response: res });
+const accessTokenResult = await req.auth0.client.getAccessToken();
 console.log(accessTokenResult.accessToken);
 ```
 
