@@ -14,8 +14,6 @@ This guide will help you migrate your Express.js application from `express-openi
 
 ## Quick Migration Summary
 
-**Migration Time:** 30-60 minutes for basic setup, 2-4 hours for advanced features
-
 ### Key Changes at a Glance
 
 | Aspect | express-openid-connect | @auth0/auth0-express |
@@ -30,21 +28,20 @@ This guide will help you migrate your Express.js application from `express-openi
 ### Migration Checklist
 
 - [ ] **Install** new package: `npm install @auth0/auth0-express`
-- [ ] **Update imports**: `auth()` → `createAuth0()`
+- [ ] **Update imports**: `auth()` → `createAuth0()`, add `requireAuth`
 - [ ] **Rename config properties** (see table below)
-- [ ] **Add clientSecret** (now required)
+- [ ] **Configure client authentication** (clientSecret, private_key_jwt, or mTLS)
 - [ ] **Add `await`** to user/session/token access
-- [ ] **Create route protection middleware** (no global `authRequired`)
+- [ ] **Update route protection** - use built-in `requireAuth()` middleware
 - [ ] **Update custom session stores** (add StoreOptions pattern)
 - [ ] **Update tests** (mock async methods)
 
 ### Breaking Changes
 
 1. **All methods are async** - Must use `await`
-2. **No global auth** - Must explicitly protect routes
+2. **No global auth** - Must explicitly protect routes with middleware
 3. **StoreOptions required** - Custom session stores need `{ request, response }` parameter
-4. **clientSecret required** - Previously optional
-5. **No built-in route middleware** - `requiresAuth()` must be custom
+4. **Client authentication required** - Must use clientSecret, private_key_jwt, or mTLS
 
 ### Top 3 Common Issues
 
@@ -52,7 +49,7 @@ This guide will help you migrate your Express.js application from `express-openi
 |-------|----------|
 | **Missing `await`** | `const user = await req.auth0.client.getUser()` |
 | **Custom store missing options** | Add `async set(id, data, options) { const { request, response } = options; }` |
-| **Routes not protected** | Create middleware: `if (!await req.auth0.client.getSession()) res.redirect('/auth/login')` |
+| **Routes not protected** | Use built-in middleware: `app.get('/profile', requireAuth(), async (req, res) => {...})` |
 
 ---
 
@@ -94,7 +91,7 @@ app.use(createAuth0({
 | `baseURL` | `appBaseUrl` | Renamed |
 | `clientID` | `clientId` | Camel case |
 | `secret` | `sessionSecret` | Renamed |
-| — | `clientSecret` | Required (was optional) |
+| `clientSecret` | `clientSecret` | Client authentication required (secret, private_key_jwt, or mTLS) |
 
 ### Environment Variables
 
@@ -111,6 +108,42 @@ APP_BASE_URL=https://YOUR_APPLICATION_ROOT_URL
 AUTH0_CLIENT_ID=YOUR_CLIENT_ID
 AUTH0_CLIENT_SECRET=YOUR_CLIENT_SECRET
 AUTH0_SESSION_SECRET=LONG_RANDOM_VALUE
+```
+
+> **Note:** For easier migration, the SDK maintains backward compatibility with `express-openid-connect` environment variable names: `ISSUER_BASE_URL` (maps to domain), `CLIENT_ID`, `CLIENT_SECRET`, `BASE_URL`, and `SECRET` (maps to sessionSecret). While these are supported, using the `AUTH0_*` prefixed names is recommended for new applications.
+
+---
+
+## Package Exports
+
+The SDK exports the following items:
+
+### Main Functions
+- `createAuth0(options?)` - Create the Auth0 router middleware
+- `requireAuth(options?)` - Protect routes requiring authentication
+
+### Claim Validation Middleware
+- `claimEquals(claimName, value, options?)` - Validate exact claim value
+- `claimIncludes(claimName, values, options?)` - Check if claim array includes value(s)
+- `claimCheck(validationFn, options?)` - Custom claim validation logic
+
+### TypeScript Types
+- `Auth0Options` - Configuration options for createAuth0
+- `RequireAuthOptions` - Options for requireAuth middleware
+- `ClaimAuthOptions` - Options for claim validation middleware
+- `ClaimCheckFunction` - Type for claimCheck validation function
+- `StoreOptions` - Options passed to custom session stores
+
+**Example:**
+```typescript
+import {
+  createAuth0,
+  requireAuth,
+  claimEquals,
+  claimIncludes,
+  claimCheck,
+  type Auth0Options
+} from '@auth0/auth0-express';
 ```
 
 ---
@@ -173,17 +206,10 @@ Key change: Add `await`, `getUser()` returns null when not authenticated.
 
 ## Route Protection
 
-**All routes are public by default.** Create custom middleware to protect them:
+**All routes are public by default.** Use the built-in `requireAuth()` middleware to protect routes:
 
 ```javascript
-// Create a protection middleware
-async function requireSession(req, res, next) {
-  const session = await req.auth0.client.getSession();
-  if (!session) {
-    return res.redirect(`/auth/login?returnTo=${encodeURIComponent(req.url)}`);
-  }
-  next();
-}
+import { createAuth0, requireAuth } from '@auth0/auth0-express';
 
 // Public route
 app.get('/', async (req, res) => {
@@ -191,14 +217,48 @@ app.get('/', async (req, res) => {
   res.send(user ? `Hello ${user.name}` : 'Hello guest');
 });
 
-// Protected route
-app.get('/protected', requireSession, async (req, res) => {
+// Protected route - redirects to login if not authenticated
+app.get('/profile', requireAuth(), async (req, res) => {
+  const user = await req.auth0.client.getUser();
+  res.json({ user });
+});
+
+// API route - returns 401 instead of redirecting
+app.get('/api/me', requireAuth(), async (req, res) => {
+  const user = await req.auth0.client.getUser();
+  res.json({ user });
+});
+
+// Custom return URL after login
+app.get('/admin', requireAuth({ returnTo: '/admin/dashboard' }), async (req, res) => {
+  const user = await req.auth0.client.getUser();
+  res.send(`Admin page for ${user.name}`);
+});
+```
+
+The `requireAuth()` middleware automatically:
+- Redirects HTML requests to `/auth/login` with a `returnTo` parameter
+- Returns `401 Unauthorized` for API requests (those that accept JSON but not HTML)
+- Preserves the original URL for post-login redirect
+
+### Custom Middleware (Alternative)
+
+If you need custom behavior, you can create your own middleware:
+
+```javascript
+async function customAuth(req, res, next) {
+  const user = await req.auth0.client.getUser();
+  if (!user) {
+    return res.redirect('/auth/login');
+  }
+  next();
+}
+
+app.get('/protected', customAuth, async (req, res) => {
   const user = await req.auth0.client.getUser();
   res.send(`Protected content for ${user.name}`);
 });
 ```
-
-No more global `authRequired`. More explicit, more flexible.
 
 ---
 
@@ -548,30 +608,120 @@ app.get('/logout', (req, res) => {
 
 ## Claim Validation
 
+The SDK provides built-in middleware for claim-based authorization:
+
+### Using claimEquals
+
+Check if a specific claim equals an expected value:
+
 ```javascript
-async function requireClaim(claimName, expectedValue) {
-  return async (req, res, next) => {
-    try {
-      const user = await req.auth0.client.getUser();
+import { requireAuth, claimEquals } from '@auth0/auth0-express';
 
-      if (!user || user[claimName] !== expectedValue) {
-        return res.status(403).json({
-          error: `Missing required claim: ${claimName}`,
-        });
-      }
+// Check exact claim value
+app.get('/admin',
+  requireAuth(),
+  claimEquals('role', 'admin'),
+  async (req, res) => {
+    res.send('Admin dashboard');
+  }
+);
 
-      next();
-    } catch (error) {
-      next(error);
-    }
-  };
-}
+// Check namespace claim
+app.get('/internal',
+  requireAuth(),
+  claimEquals('https://myapp.com/department', 'engineering'),
+  async (req, res) => {
+    res.send('Engineering portal');
+  }
+);
 
-// Usage
-app.get('/admin', requireClaim('role', 'admin'), async (req, res) => {
-  res.send('Admin content');
-});
+// Check access token claims instead of ID token
+app.get('/api/admin',
+  requireAuth(),
+  claimEquals('role', 'admin', { tokenType: 'access' }),
+  async (req, res) => {
+    res.json({ success: true });
+  }
+);
 ```
+
+### Using claimIncludes
+
+Check if a claim array includes specific values (useful for permissions):
+
+```javascript
+import { requireAuth, claimIncludes } from '@auth0/auth0-express';
+
+// Check for a single permission
+app.delete('/users/:id',
+  requireAuth(),
+  claimIncludes('permissions', 'delete:users'),
+  async (req, res) => {
+    // Delete user logic
+    res.json({ success: true });
+  }
+);
+
+// Check for multiple permissions (user needs at least one)
+app.get('/admin/users',
+  requireAuth(),
+  claimIncludes('permissions', ['read:users', 'admin:all']),
+  async (req, res) => {
+    res.json({ users: [] });
+  }
+);
+```
+
+### Using claimCheck for Complex Logic
+
+For custom validation logic:
+
+```javascript
+import { requireAuth, claimCheck } from '@auth0/auth0-express';
+
+// Check multiple conditions
+app.get('/premium',
+  requireAuth(),
+  claimCheck((claims) => {
+    return claims.subscription === 'premium' && claims.email_verified === true;
+  }),
+  async (req, res) => {
+    res.send('Premium content');
+  }
+);
+
+// Access request parameters
+app.get('/org/:orgId/settings',
+  requireAuth(),
+  claimCheck((claims, req) => {
+    const orgId = req.params.orgId;
+    return claims.org_id === orgId && claims.org_role === 'owner';
+  }),
+  async (req, res) => {
+    res.send('Organization settings');
+  }
+);
+
+// Custom error message and status code
+app.get('/beta',
+  requireAuth(),
+  claimCheck(
+    (claims) => claims.beta_access === true,
+    {
+      errorMessage: 'Beta access required',
+      statusCode: 403
+    }
+  ),
+  async (req, res) => {
+    res.send('Beta features');
+  }
+);
+```
+
+All claim middleware automatically:
+- Returns `401 Unauthorized` if user is not authenticated
+- Returns `403 Forbidden` if authorization check fails
+- Works with both ID token claims (default) and access token claims
 
 ---
 
@@ -708,10 +858,10 @@ app.use(createAuth0({
 <summary><strong>Top 5 Issues (Quickfix)</strong></summary>
 
 1. **Missing `await`** → Add `await` before all client method calls
-2. **Routes unprotected** → Create `requireSession` middleware
+2. **Routes unprotected** → Use `requireAuth()` middleware from the SDK
 3. **StoreOptions missing** → Add `options` parameter to store methods
 4. **req.auth0 undefined** → Move `createAuth0()` before route definitions
-5. **Token access fails** → Check `clientSecret` and token expiration
+5. **Token access fails** → Check client authentication (clientSecret, private_key_jwt, or mTLS)
 
 </details>
 
@@ -720,16 +870,32 @@ app.use(createAuth0({
 ## Advanced Features
 
 <details>
-<summary><strong>Client Authentication Methods (private_key_jwt)</strong></summary>
+<summary><strong>Client Authentication Methods</strong></summary>
 
-For production, use `private_key_jwt` instead of `client_secret`:
+The SDK requires client authentication. You can choose from three methods:
+
+### 1. Client Secret (Most Common)
 
 ```javascript
 app.use(createAuth0({
   domain: 'YOUR_DOMAIN',
   clientId: 'YOUR_CLIENT_ID',
-  clientAuthMethod: 'private_key_jwt',
-  clientSecret: fs.readFileSync('./private-key.pem', 'utf8'),
+  clientSecret: 'YOUR_CLIENT_SECRET',
+  appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
+  sessionSecret: 'LONG_RANDOM_STRING',
+}));
+```
+
+### 2. Private Key JWT (Recommended for Production)
+
+```javascript
+import fs from 'fs';
+
+app.use(createAuth0({
+  domain: 'YOUR_DOMAIN',
+  clientId: 'YOUR_CLIENT_ID',
+  clientAssertionSigningKey: fs.readFileSync('./private-key.pem', 'utf8'),
+  clientAssertionSigningAlg: 'RS256',
   appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
   sessionSecret: 'LONG_RANDOM_STRING',
 }));
@@ -738,9 +904,16 @@ app.use(createAuth0({
 Generate key:
 ```bash
 openssl genrsa -out private-key.pem 2048
+openssl rsa -in private-key.pem -pubout -out public-key.pem
 ```
 
-Upload public key to Auth0 dashboard.
+Upload the public key to your Auth0 application in the dashboard.
+
+### 3. mTLS (Mutual TLS)
+
+Configure mTLS at the transport layer. The SDK will use the client certificate for authentication.
+
+> **Note:** In `express-openid-connect`, `clientSecret` was technically optional. In `@auth0/auth0-express`, you must configure one of these three authentication methods.
 
 </details>
 
@@ -787,22 +960,24 @@ app.use(createAuth0({
 | Feature | Before | After | Migration |
 |---------|--------|-------|-----------|
 | **User access** | Sync | Async | Add `await` |
-| **Route protection** | Global | Per-route | Create middleware |
+| **Route protection** | Global `authRequired` | Per-route middleware | Use `requireAuth()` |
 | **Session store** | `destroy()` | `delete()` + options | Update method names |
 | **Error handling** | Implicit | Explicit | Add try-catch |
 | **Config** | Multiple options | Minimal | Rename properties |
+| **Client auth** | Optional | Required | Use secret, private_key_jwt, or mTLS |
 
 ---
 
 ## Next Steps
 
-1. **Quick migration** (30 min):
+1. **Quick migration**:
    - [ ] Install package
    - [ ] Update config
    - [ ] Test basic flow
 
-2. **Complete migration** (2-4 hours):
-   - [ ] Update all routes
+2. **Complete migration**:
+   - [ ] Update all routes with `requireAuth()` middleware
+   - [ ] Add claim-based authorization where needed
    - [ ] Add error handling
    - [ ] Update tests
    - [ ] Custom session store (if needed)
