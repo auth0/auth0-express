@@ -10,6 +10,35 @@ import { runWithContext } from './store/request-context.js';
 import { getConfig } from './config.js';
 import './types/express.js';
 
+/**
+ * Creates an Express router with Auth0 authentication middleware.
+ *
+ * This is the main entry point for the Auth0 Express SDK. It configures
+ * authentication routes and attaches the Auth0 client to the request object.
+ *
+ * @param opts - Configuration options for Auth0 authentication
+ * @returns Express Router configured with Auth0 authentication
+ *
+ * @example
+ * ```typescript
+ * import express from 'express';
+ * import { createAuth0 } from '@auth0/auth0-express';
+ *
+ * const app = express();
+ *
+ * // Using environment variables (AUTH0_DOMAIN, AUTH0_CLIENT_ID, etc.)
+ * app.use(createAuth0());
+ *
+ * // Or with explicit configuration
+ * app.use(createAuth0({
+ *   domain: 'tenant.auth0.com',
+ *   clientId: 'your_client_id',
+ *   clientSecret: 'your_client_secret',
+ *   appBaseUrl: 'http://localhost:3000',
+ *   sessionSecret: process.env.SESSION_SECRET
+ * }));
+ * ```
+ */
 export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   const options = getConfig(opts);
   const router = Router();
