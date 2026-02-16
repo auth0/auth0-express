@@ -1,0 +1,8 @@
+@auth0/auth0-express
+Copyright 2026 Auth0, Inc.
+
+This product includes software developed by Auth0 (https://auth0.com).
+
+This software has dependencies that do not require attribution notices in this file as none of them are bundled with this distribution.
+These dependencies are installed separately by package managers. For a complete list of dependencies and their licenses, please refer to the
+package.json file for this package.
