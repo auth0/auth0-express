@@ -2,7 +2,7 @@ The Auth0 Express SDK is a library for implementing user authentication in Expre
 
 ![Release](https://img.shields.io/npm/v/@auth0/auth0-express)
 ![Downloads](https://img.shields.io/npm/dw/@auth0/auth0-express)
-[![License](https://img.shields.io/:license-mit-blue.svg?style=flat)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://opensource.org/license/apache-2-0)
 
 📚 [Documentation](#documentation) - 🚀 [Getting Started](#getting-started) - 💬 [Feedback](#feedback)
 
@@ -245,5 +245,5 @@ Please do not report security vulnerabilities on the public GitHub issue tracker
   Auth0 is an easy to implement, adaptable authentication and authorization platform. To learn more checkout <a href="https://auth0.com/why-auth0">Why Auth0?</a>
 </p>
 <p align="center">
-  This project is licensed under the MIT license. See the <a href="https://github.com/auth0/auth0-express/blob/main/packages/auth0-express/LICENSE"> LICENSE</a> file for more info.
+  This project is licensed under the Apache License 2.0. See the <a href="https://github.com/auth0/auth0-express/blob/main/packages/auth0-express/LICENSE"> LICENSE</a> file for more info.
 </p>
