@@ -60,7 +60,8 @@ export function requireAuth(options?: RequireAuthOptions) {
 
         // For HTML requests, redirect to login with returnTo
         const returnTo = options?.returnTo || req.originalUrl;
-        const loginUrl = `/auth/login?returnTo=${encodeURIComponent(returnTo)}`;
+        const loginPath = req.app.locals.auth0ClientOptions?.routes?.login || '/auth/login';
+        const loginUrl = `${loginPath}?returnTo=${encodeURIComponent(returnTo)}`;
         return res.redirect(loginUrl);
       }
 

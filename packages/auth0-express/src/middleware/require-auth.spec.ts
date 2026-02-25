@@ -48,6 +48,29 @@ describe('requireAuth middleware', () => {
     expect(res.headers.location).toContain('returnTo=%2Fprotected');
   });
 
+  test('redirects to custom login when not authenticated', async () => {
+    const app = createConfiguredApp({
+      domain: 'auth0.local',
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: '<secret>',
+      routes: {
+        login: '/custom-login',
+      }
+    });
+
+    app.get('/protected', requireAuth(), (req, res) => {
+      res.send('Protected content');
+    });
+
+    const res = await request(app).get('/protected');
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toContain('/custom-login');
+    expect(res.headers.location).toContain('returnTo=%2Fprotected');
+  });
+
   test('preserves query string in returnTo', async () => {
     const app = createConfiguredApp({
       domain: 'auth0.local',

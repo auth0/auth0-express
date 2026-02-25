@@ -58,6 +58,7 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   router.use((req: Request, res: Response, next: NextFunction) => {
     req.auth0 = { client: auth0Client };
     req.app.locals.auth0Client = auth0Client;
+    req.app.locals.auth0ClientOptions = options;
     req.app.locals.appBaseUrl = options.appBaseUrl;
     req.app.locals.pushedAuthorizationRequests = options.pushedAuthorizationRequests;
     next();
