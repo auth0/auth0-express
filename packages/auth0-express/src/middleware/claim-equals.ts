@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { ClaimAuthOptions } from './claim-auth.js';
+import { ClaimAuthOptions, JSONPrimitive } from './claim-auth.js';
 
 /**
  * Middleware to check if a claim equals a specific value.
@@ -24,7 +24,7 @@ import { ClaimAuthOptions } from './claim-auth.js';
  * });
  * ```
  */
-export function claimEquals(claim: string, value: unknown, options?: ClaimAuthOptions) {
+export function claimEquals(claim: string, value: JSONPrimitive, options?: ClaimAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = await req.auth0.client.getUser();

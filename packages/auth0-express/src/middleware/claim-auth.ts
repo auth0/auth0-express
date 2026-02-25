@@ -19,6 +19,8 @@ export interface ClaimAuthOptions {
   statusCode?: number;
 }
 
-
-
+/**
+ * Primitive JSON types that can be compared.
+ */
+export type JSONPrimitive = string | number | boolean | null;
 
