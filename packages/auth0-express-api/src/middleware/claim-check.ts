@@ -31,7 +31,7 @@ export function claimCheck(fn: ClaimCheckFunction, options?: ClaimAuthOptions) {
 
   const errorDescription = options?.errorMessage || 'Invalid token claims';
 
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const token = req.auth0?.user;
 
@@ -40,7 +40,7 @@ export function claimCheck(fn: ClaimCheckFunction, options?: ClaimAuthOptions) {
       }
 
       try {
-        const isValid = fn(token);
+        const isValid = await fn(token);
 
         if (!isValid) {
           return sendBearerError(res, 401, 'invalid_token', errorDescription);

@@ -23,18 +23,18 @@ describe('claimCheck', () => {
     return res;
   };
 
-  it('should call next() when validation function returns true', () => {
+  it('should call next() when validation function returns true', async () => {
     const middleware = claimCheck((token) => token.sub === 'user123');
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
     const res = createMockResponse();
 
-    middleware(req as Request, res as Response, mockNext as NextFunction);
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
 
     expect(mockNext).toHaveBeenCalled();
     expect(res.status).not.toHaveBeenCalled();
   });
 
-  it('should call next() with complex validation logic', () => {
+  it('should call next() with complex validation logic', async () => {
     const middleware = claimCheck(
       (token: any) => token.isAdmin === true && token.roles?.includes('editor')
     );
@@ -47,17 +47,17 @@ describe('claimCheck', () => {
     });
     const res = createMockResponse();
 
-    middleware(req as Request, res as Response, mockNext as NextFunction);
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
 
     expect(mockNext).toHaveBeenCalled();
   });
 
-  it('should return 401 when validation function returns false', () => {
+  it('should return 401 when validation function returns false', async () => {
     const middleware = claimCheck((token) => token.sub === 'admin123');
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
     const res = createMockResponse();
 
-    middleware(req as Request, res as Response, mockNext as NextFunction);
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
@@ -67,7 +67,22 @@ describe('claimCheck', () => {
     expect(mockNext).not.toHaveBeenCalled();
   });
 
-  it('should use custom error message with options object', () => {
+  it('should return 401 when validation function resolves false', async () => {
+    const middleware = await claimCheck((token) => Promise.resolve(token.sub === 'admin123'));
+    const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
+    const res = createMockResponse();
+
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
+
+    expect(res.status).toHaveBeenCalledWith(401);
+    expect(res.json).toHaveBeenCalledWith({
+      error: 'invalid_token',
+      error_description: 'Invalid token claims',
+    });
+    expect(mockNext).not.toHaveBeenCalled();
+  });
+
+  it('should use custom error message with options object', async () => {
     const middleware = claimCheck(
       (token) => token.sub === 'admin123',
       { errorMessage: 'Administrator access required' }
@@ -75,7 +90,7 @@ describe('claimCheck', () => {
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
     const res = createMockResponse();
 
-    middleware(req as Request, res as Response, mockNext as NextFunction);
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
@@ -85,14 +100,14 @@ describe('claimCheck', () => {
     expect(mockNext).not.toHaveBeenCalled();
   });
 
-  it('should return 401 when validation function throws error', () => {
+  it('should return 401 when validation function throws error', async () => {
     const middleware = claimCheck(() => {
       throw new Error('Validation failed');
     });
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
     const res = createMockResponse();
 
-    middleware(req as Request, res as Response, mockNext as NextFunction);
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
@@ -102,12 +117,12 @@ describe('claimCheck', () => {
     expect(mockNext).not.toHaveBeenCalled();
   });
 
-  it('should return 401 when no token is present', () => {
+  it('should return 401 when no token is present', async () => {
     const middleware = claimCheck(() => true);
     const req = { auth0: {} } as Partial<Request>;
     const res = createMockResponse();
 
-    middleware(req as Request, res as Response, mockNext as NextFunction);
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(res.json).toHaveBeenCalledWith({
@@ -122,7 +137,7 @@ describe('claimCheck', () => {
     expect(() => claimCheck('not a function' as any)).toThrow("'fn' must be a function");
   });
 
-  it('should receive full token payload', () => {
+  it('should receive full token payload', async () => {
     const validationFn = vi.fn().mockReturnValue(true);
     const middleware = claimCheck(validationFn);
     const token = {
@@ -134,18 +149,18 @@ describe('claimCheck', () => {
     const req = createMockRequest(token);
     const res = createMockResponse();
 
-    middleware(req as Request, res as Response, mockNext as NextFunction);
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
 
     expect(validationFn).toHaveBeenCalledWith(token);
     expect(mockNext).toHaveBeenCalled();
   });
 
-  it('should handle undefined/null return values as false', () => {
+  it('should handle undefined/null return values as false', async () => {
     const middleware = claimCheck(() => undefined as any);
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
     const res = createMockResponse();
 
-    middleware(req as Request, res as Response, mockNext as NextFunction);
+    await middleware(req as Request, res as Response, mockNext as NextFunction);
 
     expect(res.status).toHaveBeenCalledWith(401);
     expect(mockNext).not.toHaveBeenCalled();
