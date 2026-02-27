@@ -13,7 +13,11 @@ import { getRequestContext } from './request-context.js';
 export class ExpressCookieHandler implements CookieHandler<StoreOptions> {
   setCookie(name: string, value: string, options?: CookieSerializeOptions, storeOptions?: StoreOptions): void {
     const { response } = storeOptions ?? getRequestContext();
-    response.cookie(name, value, options || {});
+
+    // options.maxAge is in seconds, but Express expects milliseconds
+    const maxAge = options?.maxAge != null ? options.maxAge * 1000 : undefined;
+
+    response.cookie(name, value, { ...options, maxAge });
   }
 
   getCookie(name: string, storeOptions?: StoreOptions): string | undefined {
