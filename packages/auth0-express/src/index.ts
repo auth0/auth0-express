@@ -6,3 +6,7 @@ export { claimCheck } from './middleware/claim-check.js';
 export type { RequireAuthOptions } from './middleware/require-auth.js';
 export type { ClaimAuthOptions, ClaimCheckFunction } from './middleware/claim-auth.js';
 export * from './types.js';
+export { LegacyCompatibleStatelessStateStore } from './store/legacy-compatible-stateless-state-store.js';
+export { LegacyCompatibleStatefulStateStore } from './store/legacy-compatible-stateful-state-store.js';
+export type { LegacyCompatibleStoreOptions } from './store/legacy-compatible-stateless-state-store.js';
+export type { LegacyCompatibleStatefulStoreOptions } from './store/legacy-compatible-stateful-state-store.js';

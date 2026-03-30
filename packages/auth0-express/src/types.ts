@@ -71,6 +71,38 @@ export interface Auth0Options {
   sessionStore?: SessionStore<StoreOptions>;
   /** Advanced session configuration (cookie settings, timeouts, etc.) */
   sessionConfiguration?: SessionConfiguration;
+
+  /**
+   * Legacy compatibility options for migrating from express-openid-connect.
+   * When enabled, the SDK will automatically detect and decrypt sessions from
+   * express-openid-connect, allowing seamless migration without forcing users to re-authenticate.
+   */
+  legacyCompatibility?: {
+    /**
+     * Enable legacy session compatibility with express-openid-connect.
+     * @default false
+     */
+    enabled: boolean;
+
+    /**
+     * The secret(s) that were used by express-openid-connect for session encryption.
+     * Supports key rotation: provide an array to try multiple secrets in order.
+     * If not provided, uses the same secret as the current sessionSecret.
+     */
+    legacySecret?: string | string[];
+
+    /**
+     * The audience to assign to access tokens migrated from express-openid-connect sessions.
+     * @default 'default'
+     */
+    legacyAudience?: string;
+
+    /**
+     * The scope to assign to access tokens migrated from express-openid-connect sessions.
+     * @default 'openid profile email offline_access'
+     */
+    legacyScope?: string;
+  };
   /**
    * Whether to mount the default routes for login, logout, callback and backchannel logout.
    * Routes: /auth/login, /auth/callback, /auth/logout, /auth/backchannel-logout
