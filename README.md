@@ -3,7 +3,7 @@ Auth0-Express Mono Repo, containing SDKs for implementing user authentication in
 
 ![Release](https://img.shields.io/npm/v/@auth0/auth0-express)
 ![Downloads](https://img.shields.io/npm/dw/@auth0/auth0-express)
-[![License](https://img.shields.io/:license-mit-blue.svg?style=flat)](https://opensource.org/licenses/MIT)
+[![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://opensource.org/license/apache-2-0)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/auth0/auth0-express)
 
 📚 [Packages](#packages) - 💬 [Feedback](#feedback)
