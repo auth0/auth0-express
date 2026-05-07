@@ -54,11 +54,7 @@ describe('login handler', () => {
     expect(txCookie).toBeDefined();
 
     // Decrypt the transaction cookie to inspect its contents
-    const txState = await decrypt<{ appState?: { returnTo?: string } }>(
-      txCookie!,
-      '<secret>',
-      '__a0_tx'
-    );
+    const txState = await decrypt<{ appState?: { returnTo?: string } }>(txCookie!, '<secret>', '__a0_tx');
 
     // The returnTo in the transaction state should be undefined for unsafe URLs
     expect(txState.appState?.returnTo).toBeUndefined();
@@ -89,17 +85,14 @@ describe('login handler', () => {
     expect(txCookie).toBeDefined();
 
     // Decrypt the transaction cookie to inspect its contents
-    const txState = await decrypt<{ appState?: { returnTo?: string } }>(
-      txCookie!,
-      '<secret>',
-      '__a0_tx'
-    );
+    const txState = await decrypt<{ appState?: { returnTo?: string } }>(txCookie!, '<secret>', '__a0_tx');
 
     // The returnTo in the transaction state should contain the full safe URL
     expect(txState.appState?.returnTo).toBe('http://localhost:3000/dashboard');
   });
 
   test('handles errors in startInteractiveLogin', async () => {
+    const domain = 'auth0.local.nocache';
     const app = createConfiguredApp({
       domain: domain,
       clientId: '<client_id>',

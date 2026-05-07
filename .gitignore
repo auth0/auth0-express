@@ -6,3 +6,5 @@ coverage
 
 #temporary
 docs
+
+package-lock.json

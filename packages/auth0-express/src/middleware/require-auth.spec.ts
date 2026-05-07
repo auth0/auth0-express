@@ -1,5 +1,4 @@
 import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
-import { Request, Response, NextFunction } from 'express';
 import request from 'supertest';
 import { requireAuth } from './require-auth.js';
 import {
@@ -57,7 +56,7 @@ describe('requireAuth middleware', () => {
       sessionSecret: '<secret>',
       routes: {
         login: '/custom-login',
-      }
+      },
     });
 
     app.get('/protected', requireAuth(), (req, res) => {
@@ -152,7 +151,7 @@ describe('requireAuth middleware', () => {
     expect(res.body.user.sub).toBe('user_123');
   });
 
-  test('handles errors in getUser', async () => {
+  test('should handle invalid session for requests that accept JSON', async () => {
     const app = createConfiguredApp({
       domain: 'auth0.local',
       clientId: '<client_id>',
@@ -165,17 +164,37 @@ describe('requireAuth middleware', () => {
       res.send('Protected content');
     });
 
-    // Add error handler to verify error is passed to next
-    app.use((err: Error, req: Request, res: Response, next: NextFunction) => {
-      res.status(500).json({ error: err.message });
-      next();
+    // Send malformed session cookie to trigger error
+    const res = await request(app)
+      .get('/protected')
+      .set('Accept', 'application/json')
+      .set('cookie', '__a0_session=invalid_data');
+
+    expect(res.status).toBe(401);
+    expect(res.body.error).toBeDefined();
+    expect(res.body.error).toBe('unauthorized');
+  });
+
+  test('should handle invalid session for requests that accept HTML', async () => {
+    const app = createConfiguredApp({
+      domain: 'auth0.local',
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: '<secret>',
+    });
+
+    app.get('/protected', requireAuth(), (req, res) => {
+      res.send('Protected content');
     });
 
     // Send malformed session cookie to trigger error
-    const res = await request(app).get('/protected').set('cookie', '__a0_session=invalid_data');
+    const res = await request(app)
+      .get('/protected')
+      .set('Accept', 'text/html')
+      .set('cookie', '__a0_session=invalid_data');
 
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBeDefined();
-    expect(res.body.error).toBe('Invalid Compact JWE'); // temporarily until resolved in auth0-server-js
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toContain('returnTo=');
   });
 });
