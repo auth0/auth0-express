@@ -13,23 +13,36 @@ function ensureTrailingSlash(value: string) {
 }
 
 /**
- * Ensures the value does not have a leading slash.
- * If it does, it will trim it.
- * @param value The value to ensure has no leading slash.
- * @returns The value without a leading slash.
+ * Ensures the value does not have any leading slashes.
+ * If it does, it will trim all of them.
+ * @param value The value to ensure has no leading slashes.
+ * @returns The value without leading slashes.
  */
 function ensureNoLeadingSlash(value: string) {
-  return value.startsWith('/') ? value.substring(1, value.length) : value;
+  return value.replace(/^\/+/, '');
 }
 
 /**
  * Utility function to ensure Route URLs are created correctly when using both the root and subpath as base URL.
+ * Validates that the constructed URL has the same origin as the base URL to prevent host override attacks.
  * @param url The URL to use.
  * @param base The base URL to use.
  * @returns A URL object, combining the base and url.
+ * @throws {Error} If the constructed URL origin does not match the base URL origin.
  */
 export function createRouteUrl(url: string, base: string) {
-  return new URL(ensureNoLeadingSlash(url), ensureTrailingSlash(base));
+  const baseUrl = new URL(ensureTrailingSlash(base));
+  const normalized = ensureNoLeadingSlash(url);
+
+  if (normalized !== url.replace(/^\//, '')) {
+    throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes`);
+  }
+
+  const result = new URL(normalized, baseUrl);
+  if (result.origin !== baseUrl.origin) {
+    throw new Error('URL is not allowed: origin does not match base URL');
+  }
+  return result;
 }
 
 /**
