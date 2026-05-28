@@ -80,6 +80,7 @@ describe('LegacyCompatibleStatelessStateStore', () => {
         tokenSets: [
           {
             audience: 'https://api.test.com',
+            scope: 'openid profile email',
             accessToken: 'modern-access-token',
             expiresAt: Math.floor(Date.now() / 1000) + 3600,
           },
@@ -304,7 +305,7 @@ describe('LegacyCompatibleStatelessStateStore', () => {
       expect(transformed.tokenSets[0].scope).toBe('openid profile email offline_access');
     });
 
-    it('should throw when both modern and legacy decryption fail', async () => {
+    it('should return undefined when both modern and legacy decryption fail', async () => {
       const store = new LegacyCompatibleStatelessStateStore(
         {
           secret,
@@ -315,7 +316,8 @@ describe('LegacyCompatibleStatelessStateStore', () => {
 
       const invalidEncrypted = 'invalid-encrypted-data';
 
-      await expect((store as any).decrypt('test-id', invalidEncrypted)).rejects.toThrow();
+      const result = await (store as any).decrypt('test-id', invalidEncrypted);
+      expect(result).toBeUndefined();
     });
 
     it('should decrypt with second secret when key rotation is used', async () => {
@@ -374,7 +376,7 @@ describe('LegacyCompatibleStatelessStateStore', () => {
       expect(decrypted.tokenSets[0].accessToken).toBe('first-secret-token');
     });
 
-    it('should reject an expired legacy session (header-level exp)', async () => {
+    it('should return undefined for an expired legacy session (header-level exp)', async () => {
       const store = new LegacyCompatibleStatelessStateStore(
         {
           secret,
@@ -383,15 +385,14 @@ describe('LegacyCompatibleStatelessStateStore', () => {
         cookieHandler
       );
 
-      // Encrypt a session with an exp in the past
       const legacySession = {
         id_token: sampleIdToken,
         access_token: 'expired-access-token',
       };
       const expiredEncrypted = await encryptLegacyWithHeaderExp(legacySession, secret, Math.floor(Date.now() / 1000) - 3600);
 
-      // Should throw (modern decryption fails, legacy decryption throws due to exp check)
-      await expect((store as any).decrypt('test-id', expiredEncrypted)).rejects.toThrow();
+      const result = await (store as any).decrypt('test-id', expiredEncrypted);
+      expect(result).toBeUndefined();
     });
   });
 });
@@ -417,7 +418,7 @@ async function encryptLegacyWithHeaderExp(
       hash: DIGEST,
       info: encoder.encode(ENCRYPTION_INFO),
       salt: new Uint8Array(0),
-    } as HkdfParams,
+    },
     keyMaterial,
     BYTE_LENGTH * 8
   );
@@ -463,7 +464,7 @@ async function encryptLegacy(payload: Record<string, unknown>, secret: string): 
       hash: DIGEST,
       info: encoder.encode(ENCRYPTION_INFO),
       salt: new Uint8Array(0),
-    } as HkdfParams,
+    },
     keyMaterial,
     BYTE_LENGTH * 8
   );

@@ -92,42 +92,37 @@ export class LegacyCompatibleStatelessStateStore<TStoreOptions> extends Stateles
   /**
    * Overrides the decrypt method to try modern decryption first, then fall back to legacy decryption.
    *
-   * super.decrypt() throws for all failures. We attempt modern decryption first and, on any error,
-   * fall back to the legacy express-openid-connect decryption. If legacy decryption also fails,
-   * we return undefined (the correct contract for unreadable session cookies).
+   * The base class decrypt throws on decryption failure. We catch that and attempt legacy
+   * express-openid-connect decryption. If both fail, we return undefined.
    */
   protected override async decrypt<TData>(
     identifier: string,
     encryptedStateData: string
-  ): Promise<TData> {
+  ): Promise<TData | undefined> {
     try {
-      return await super.decrypt<TData>(identifier, encryptedStateData);
-    } catch (modernError) {
-      // Modern decryption failed — try legacy express-openid-connect decryption.
-      try {
-        const { session: legacyData, iat } = await this.#decryptLegacy(encryptedStateData);
-        const stateData = this.#transformer.transformLegacySession(legacyData);
-        // Use the JWE header iat as createdAt so the session's absolute duration
-        // is preserved correctly after migration (rather than resetting to now).
-        if (iat !== undefined) {
-          stateData.internal.createdAt = iat;
-        }
-        return stateData as TData;
-      } catch {
-        // If both fail, throw the original modern error
-        throw modernError;
-      }
+      const modernResult = await super.decrypt<TData>(identifier, encryptedStateData);
+      if (modernResult !== undefined) return modernResult;
+    } catch {
+      // Modern decryption threw — fall through to legacy attempt.
     }
+
+    const legacyResult = await this.#decryptLegacy(encryptedStateData);
+    if (!legacyResult) return undefined;
+
+    const { session: legacyData, iat } = legacyResult;
+    const stateData = this.#transformer.transformLegacySession(legacyData);
+    if (iat !== undefined) {
+      stateData.internal.createdAt = iat;
+    }
+    return stateData as TData;
   }
 
   /**
    * Decrypts data using express-openid-connect's encryption method (A256GCM with HKDF).
    * Tries each secret in order; the first successful decryption wins (key rotation support).
-   * Returns the session payload and the header `iat` (session creation time, if present).
+   * Returns the session payload and the header `iat`, or undefined if all secrets fail.
    */
-  async #decryptLegacy(encryptedData: string): Promise<{ session: ExpressOpenidConnectSession; iat?: number }> {
-    let lastError: unknown;
-
+  async #decryptLegacy(encryptedData: string): Promise<{ session: ExpressOpenidConnectSession; iat?: number } | undefined> {
     for (const secret of this.#legacySecrets) {
       try {
         const key = await this.#deriveLegacyKey(secret);
@@ -141,7 +136,7 @@ export class LegacyCompatibleStatelessStateStore<TStoreOptions> extends Stateles
         // Check header-level exp (express-openid-connect stores exp in JWE header, not payload).
         const headerExp = header.exp;
         if (typeof headerExp === 'number' && headerExp < Math.floor(Date.now() / 1000)) {
-          throw new Error('Legacy session expired');
+          return undefined;
         }
 
         const headerIat = header.iat;
@@ -149,13 +144,12 @@ export class LegacyCompatibleStatelessStateStore<TStoreOptions> extends Stateles
           session: payload as ExpressOpenidConnectSession,
           iat: typeof headerIat === 'number' ? headerIat : undefined,
         };
-      } catch (err) {
-        lastError = err;
+      } catch {
         continue;
       }
     }
 
-    throw lastError;
+    return undefined;
   }
 
   /**
@@ -175,10 +169,10 @@ export class LegacyCompatibleStatelessStateStore<TStoreOptions> extends Stateles
         name: 'HKDF',
         hash: DIGEST,
         info: encoder.encode(ENCRYPTION_INFO),
-        salt: new Uint8Array(0), // express-openid-connect uses empty salt
-      } as HkdfParams,
+        salt: new Uint8Array(0),
+      },
       keyMaterial,
-      BYTE_LENGTH * 8 // Convert bytes to bits
+      BYTE_LENGTH * 8
     );
 
     return new Uint8Array(derivedBits);

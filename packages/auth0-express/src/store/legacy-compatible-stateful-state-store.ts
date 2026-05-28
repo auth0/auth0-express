@@ -60,31 +60,10 @@ export interface LegacyCompatibleStatefulStoreOptions {
  * - auth0-server-js stores StateData directly
  * - express-openid-connect stores flat structure with id_token, access_token, etc.
  * - auth0-server-js uses structured format with user, idToken, tokenSets, etc.
- *
- * @example
- * ```typescript
- * import { LegacyCompatibleStatefulStateStore } from '@auth0/auth0-express';
- * import { ExpressCookieHandler } from './express-cookie-handler';
- * import RedisStore from 'connect-redis';
- * import { createClient } from 'redis';
- *
- * const redisClient = createClient();
- * await redisClient.connect();
- *
- * const store = new LegacyCompatibleStatefulStateStore(
- *   {
- *     secret: process.env.SESSION_SECRET,
- *     store: new RedisStore({ client: redisClient }),
- *     legacyAudience: 'https://api.example.com',
- *     legacyScope: 'openid profile email',
- *   },
- *   new ExpressCookieHandler()
- * );
- * ```
  */
 export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulStateStore<TStoreOptions> {
-  protected readonly _cookieHandler: CookieHandler<TStoreOptions>;
-  protected readonly _store: AbstractDataStore<unknown>;
+  readonly #cookieHandler: CookieHandler<TStoreOptions>;
+  readonly #store: AbstractDataStore<unknown>;
   readonly #legacySecrets: string[];
   readonly #transformer: LegacySessionTransformer;
 
@@ -98,8 +77,8 @@ export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulS
       cookieHandler
     );
 
-    this._cookieHandler = cookieHandler;
-    this._store = options.store;
+    this.#cookieHandler = cookieHandler;
+    this.#store = options.store;
 
     this.#legacySecrets = Array.isArray(options.legacySecret)
       ? options.legacySecret
@@ -111,68 +90,65 @@ export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulS
   }
 
   /**
-   * Overrides getSessionId so that both get() and set() can resolve a legacy
-   * express-openid-connect session ID from the cookie. The base class calls
-   * this.decrypt() on the raw cookie value, which fails for the plain-text
-   * (possibly JWS-signed) IDs that express-openid-connect stored. We catch
-   * that failure and fall back to the raw value, stripping any JWS signature.
+   * Overrides get() to handle legacy express-openid-connect sessions.
    *
-   * Overriding here (rather than in get() alone) also fixes set(): the base
-   * class set() calls getSessionId() to find the existing session before
-   * writing the new one, so without this override token refresh and other
-   * write operations would throw for legacy sessions.
-   */
-  override async getSessionId(identifier: string, options?: TStoreOptions): Promise<string | undefined> {
-    try {
-      return await super.getSessionId(identifier, options);
-    } catch {
-      // Modern decryption failed — the cookie is a legacy plain-text session ID.
-      const rawCookieValue = this.#reassembleCookieChunks(identifier, options);
-      if (!rawCookieValue) return undefined;
-
-      if (rawCookieValue.includes('.')) {
-        const stripped = await this.#resolveSignedCookie(identifier, rawCookieValue);
-        if (stripped !== undefined) return stripped;
-      }
-
-      return rawCookieValue;
-    }
-  }
-
-  /**
-   * Overrides get() to transform express-openid-connect session data to
-   * auth0-server-js StateData format. getSessionId() already handles legacy
-   * cookie decoding, so super.get() resolves correctly for both modern and
-   * legacy sessions; we only need to transform the store payload if needed.
+   * Strategy: try the base class get() first (handles modern encrypted session IDs).
+   * If that returns undefined, attempt to resolve the cookie as a legacy plain-text
+   * or JWS-signed session ID, look it up in the store, and transform if needed.
    */
   override async get(
     identifier: string,
     options?: TStoreOptions
   ): Promise<StateData | undefined> {
-    const data = await super.get(identifier, options);
-    if (!data) return undefined;
-    return this.isLegacyStorePayload(data) ? this.transformLegacyStorePayload(data) : data;
+    const modernResult = await super.get(identifier, options);
+    if (modernResult) return modernResult;
+
+    // Modern path returned nothing — attempt legacy session resolution.
+    const rawCookieValue = this.#reassembleCookieChunks(identifier, options);
+    if (!rawCookieValue) return undefined;
+
+    const sessionId = await this.#resolveLegacySessionId(identifier, rawCookieValue);
+    if (!sessionId) return undefined;
+
+    const storeData = await this.#store.get(sessionId);
+    if (!storeData) return undefined;
+
+    if (this.#isLegacyStorePayload(storeData)) {
+      return this.#transformLegacyStorePayload(storeData);
+    }
+
+    // Data is already in StateData format (shouldn't normally happen here, but be safe)
+    return storeData as StateData;
   }
 
   /**
    * Legacy sessions don't use logout tokens. Intentional no-op.
    */
-  override async deleteByLogoutToken(): Promise<void> {
-    // Legacy sessions don't use logout tokens. Intentional no-op.
+  override async deleteByLogoutToken(): Promise<void> {}
+
+  /**
+   * Resolves a legacy session ID from a raw cookie value. If the value contains a dot,
+   * it may be JWS-signed — try to verify and extract the unsigned portion.
+   * Falls back to the raw value if verification fails.
+   */
+  async #resolveLegacySessionId(cookieName: string, rawCookieValue: string): Promise<string> {
+    if (rawCookieValue.includes('.')) {
+      const stripped = await this.#resolveSignedCookie(cookieName, rawCookieValue);
+      if (stripped !== undefined) return stripped;
+    }
+    return rawCookieValue;
   }
 
   /**
    * Type guard to check if data is in express-openid-connect SessionStorePayload format
-   * @protected
    */
-  protected isLegacyStorePayload(data: unknown): data is ExpressOpenidConnectStorePayload {
+  #isLegacyStorePayload(data: unknown): data is ExpressOpenidConnectStorePayload {
     if (!data || typeof data !== 'object') {
       return false;
     }
 
     const payload = data as Record<string, unknown>;
 
-    // Check for the express-openid-connect structure
     return (
       'header' in payload &&
       'data' in payload &&
@@ -187,36 +163,26 @@ export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulS
 
   /**
    * Transforms express-openid-connect SessionStorePayload to auth0-server-js StateData format.
-   * Uses header.iat as createdAt for accurate session creation time.
-   * @protected
+   * Rejects expired sessions.
    */
-  protected transformLegacyStorePayload(payload: ExpressOpenidConnectStorePayload): StateData {
-    const sessionData = this.transformLegacySession(payload.data);
+  #transformLegacyStorePayload(payload: ExpressOpenidConnectStorePayload): StateData | undefined {
+    if (payload.header.exp < Math.floor(Date.now() / 1000)) {
+      return undefined;
+    }
+    const sessionData = this.#transformer.transformLegacySession(payload.data);
     sessionData.internal.createdAt = payload.header.iat;
     return sessionData;
   }
 
   /**
-   * Transforms express-openid-connect session format to auth0-server-js StateData format
-   * @protected
-   */
-  protected transformLegacySession(legacy: ExpressOpenidConnectSession): StateData {
-    return this.#transformer.transformLegacySession(legacy);
-  }
-
-  /**
    * Reads the base cookie and any numbered chunk cookies (`identifier.1`, `identifier.2`, …)
-   * from the full cookie map, concatenating them in order. This matches the chunking scheme used
-   * by express-openid-connect when a session ID exceeds the 4096-byte cookie limit.
-   *
-   * Returns undefined if the base cookie is absent.
+   * from the full cookie map, concatenating them in order.
    */
   #reassembleCookieChunks(identifier: string, options?: TStoreOptions): string | undefined {
-    const first = this._cookieHandler.getCookie(identifier, options);
+    const first = this.#cookieHandler.getCookie(identifier, options);
     if (!first) return undefined;
 
-    // Scan all cookies for additional chunks (identifier.1, identifier.2, …)
-    const allCookies = this._cookieHandler.getCookies(options);
+    const allCookies = this.#cookieHandler.getCookies(options);
     const prefix = `${identifier}.`;
     const extraChunks = Object.entries(allCookies)
       .filter(([name]) => name.startsWith(prefix))
@@ -231,14 +197,6 @@ export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulS
   /**
    * Attempts to verify a JWS-signed cookie from express-openid-connect and return the
    * unsigned session ID. Tries each legacy secret in order.
-   *
-   * express-openid-connect signs cookies using JWS with:
-   * - HKDF key: info "JWS Cookie Signing", SHA-256, empty salt, 32 bytes
-   * - Protected header: {"alg":"HS256","b64":false,"crit":["b64"]} (fixed base64url)
-   * - Signing input: base64url(header) + "." + raw bytes of "${cookieName}=${sessionId}"
-   * - Signature: HMAC-SHA256, base64url-encoded
-   *
-   * Returns the unsigned session ID if verification succeeds, or undefined if all secrets fail.
    */
   async #resolveSignedCookie(cookieName: string, cookieValue: string): Promise<string | undefined> {
     for (const secret of this.#legacySecrets) {
@@ -250,10 +208,7 @@ export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulS
     return undefined;
   }
 
-  /**
-   * Derives the HKDF signing key used by express-openid-connect for cookie signing.
-   */
-  async #deriveLegacySigningKey(secret: string): Promise<Uint8Array> {
+  async #deriveLegacySigningKey(secret: string): Promise<CryptoKey> {
     const BYTE_LENGTH = 32;
     const SIGNING_INFO = 'JWS Cookie Signing';
     const DIGEST = 'SHA-256';
@@ -267,22 +222,16 @@ export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulS
         hash: DIGEST,
         info: encoder.encode(SIGNING_INFO),
         salt: new Uint8Array(0),
-      } as HkdfParams,
+      },
       keyMaterial,
       BYTE_LENGTH * 8
     );
 
-    return new Uint8Array(derivedBits);
+    return crypto.subtle.importKey('raw', derivedBits, { name: 'HMAC', hash: 'SHA-256' }, false, ['verify']);
   }
 
-  /**
-   * Verifies a JWS-signed cookie value and returns the session ID portion if valid.
-   * Returns undefined if verification fails.
-   */
   async #verifySignedCookie(cookieName: string, cookieValue: string, secret: string): Promise<string | undefined> {
     try {
-      // express-openid-connect JWS format: header.signature
-      // where the payload is unencoded (b64:false) and is "${cookieName}=${sessionId}"
       const dotIndex = cookieValue.lastIndexOf('.');
       if (dotIndex === -1) return undefined;
 
@@ -292,7 +241,6 @@ export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulS
       // The fixed JWS header used by express-openid-connect
       const HEADER_B64 = 'eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19';
 
-      // Signing input: base64url(header) + "." + raw payload bytes
       const encoder = new TextEncoder();
       const rawPayload = encoder.encode(`${cookieName}=${sessionId}`);
       const headerBytes = encoder.encode(HEADER_B64 + '.');
@@ -300,10 +248,7 @@ export class LegacyCompatibleStatefulStateStore<TStoreOptions> extends StatefulS
       signingInput.set(headerBytes, 0);
       signingInput.set(rawPayload, headerBytes.length);
 
-      const keyBytes = await this.#deriveLegacySigningKey(secret);
-      const cryptoKey = await crypto.subtle.importKey('raw', keyBytes, { name: 'HMAC', hash: 'SHA-256' }, false, [
-        'verify',
-      ]);
+      const cryptoKey = await this.#deriveLegacySigningKey(secret);
 
       // Decode the base64url signature
       const sigBase64 = signatureB64.replace(/-/g, '+').replace(/_/g, '/');
