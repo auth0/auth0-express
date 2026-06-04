@@ -1,5 +1,9 @@
 The Auth0 Express SDK is a library for implementing user authentication in Express applications.
 
+> :warning: Please be aware that auth0-express is currently in [**Beta**](https://auth0.com/docs/troubleshoot/product-lifecycle/product-release-stages). Whilst we encourage you to test the update within your applications, we do not recommend using this version in production yet.
+> As with any beta release, we look forward to your questions and feedback to help us improve the library.
+
+![Stage: Beta Release](https://img.shields.io/badge/stage-beta-yellow)
 ![Release](https://img.shields.io/npm/v/@auth0/auth0-express)
 ![Downloads](https://img.shields.io/npm/dw/@auth0/auth0-express)
 [![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://opensource.org/license/apache-2-0)
@@ -16,7 +20,7 @@ The Auth0 Express SDK is a library for implementing user authentication in Expre
 ### 1. Install the SDK
 
 ```shell
-npm i @auth0/auth0-express
+npm i @auth0/auth0-express@beta
 ```
 
 This library requires Node.js 20 LTS and newer LTS versions.
