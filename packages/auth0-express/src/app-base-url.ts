@@ -14,3 +14,34 @@ export function isUrl(value: string): boolean {
     return false;
   }
 }
+
+function getFirstHeaderValue(value: string | string[] | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+  const raw = Array.isArray(value) ? value[0] : value;
+  if (!raw) {
+    return undefined;
+  }
+  const [first] = raw.split(',');
+  return first?.trim() || undefined;
+}
+
+/**
+ * Infers the application base URL from the incoming request.
+ * Prefers `x-forwarded-host`/`x-forwarded-proto`, falling back to the `host`
+ * header and `req.protocol`. Returns null when a valid origin cannot be built.
+ */
+export function inferBaseUrlFromRequest(req: Request): string | null {
+  const forwardedProto = getFirstHeaderValue(req.headers['x-forwarded-proto']);
+  const forwardedHost = getFirstHeaderValue(req.headers['x-forwarded-host']);
+  const host = forwardedHost || getFirstHeaderValue(req.headers['host']);
+  const proto = forwardedProto || req.protocol;
+
+  if (!host || !proto) {
+    return null;
+  }
+
+  const candidate = `${proto}://${host}`;
+  return isUrl(candidate) ? candidate : null;
+}
