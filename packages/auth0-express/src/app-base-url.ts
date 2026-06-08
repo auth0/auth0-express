@@ -45,3 +45,56 @@ export function inferBaseUrlFromRequest(req: Request): string | null {
   const candidate = `${proto}://${host}`;
   return isUrl(candidate) ? candidate : null;
 }
+
+/**
+ * Resolves the application base URL for the current request.
+ *
+ * - `string`: used as-is (static configuration).
+ * - `undefined`: inferred from the request host (dynamic mode).
+ * - `string[]`: the request origin is matched against the allow-list; the
+ *   matching origin is returned, otherwise an error is thrown.
+ *
+ * @throws {InvalidConfigurationError} When the base URL cannot be resolved.
+ */
+export function resolveAppBaseUrl(appBaseUrl: string | string[] | undefined, req?: Request): string {
+  const staticAppBaseUrl = typeof appBaseUrl === 'string' ? appBaseUrl : undefined;
+  const allowedAppBaseUrls = typeof appBaseUrl === 'string' ? undefined : appBaseUrl;
+
+  if (staticAppBaseUrl) {
+    return staticAppBaseUrl;
+  }
+
+  if (!req) {
+    throw new InvalidConfigurationError(
+      'APP_BASE_URL is not configured as a static string, and a request context is not available.'
+    );
+  }
+
+  const inferred = inferBaseUrlFromRequest(req);
+  if (!inferred) {
+    throw new InvalidConfigurationError(
+      'APP_BASE_URL is not configured as a static string, and the request origin could not be determined from the request context.'
+    );
+  }
+
+  if (!allowedAppBaseUrls) {
+    return inferred;
+  }
+
+  const requestOrigin = new URL(inferred).origin;
+  const isAllowed = allowedAppBaseUrls.some((allowedUrl) => {
+    try {
+      return new URL(allowedUrl).origin === requestOrigin;
+    } catch {
+      return false;
+    }
+  });
+
+  if (isAllowed) {
+    return requestOrigin;
+  }
+
+  throw new InvalidConfigurationError(
+    'APP_BASE_URL is not configured as a static string, and the APP_BASE_URL configuration does not contain a match for the current request origin.'
+  );
+}

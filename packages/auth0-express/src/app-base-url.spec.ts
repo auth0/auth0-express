@@ -1,6 +1,7 @@
 import { describe, expect, test } from 'vitest';
 import type { Request } from 'express';
-import { isUrl, inferBaseUrlFromRequest } from './app-base-url.js';
+import { isUrl, inferBaseUrlFromRequest, resolveAppBaseUrl } from './app-base-url.js';
+import { InvalidConfigurationError } from './errors/index.js';
 
 function makeRequest(opts: { headers?: Record<string, string>; protocol?: string }): Request {
   return {
@@ -58,5 +59,59 @@ describe('inferBaseUrlFromRequest', () => {
   test('returns null when host cannot be determined', () => {
     const req = makeRequest({ headers: {}, protocol: 'https' });
     expect(inferBaseUrlFromRequest(req)).toBeNull();
+  });
+});
+
+describe('resolveAppBaseUrl', () => {
+  test('returns a static string base URL as-is', () => {
+    expect(resolveAppBaseUrl('https://app.example.com')).toBe('https://app.example.com');
+  });
+
+  test('infers from request when appBaseUrl is undefined', () => {
+    const req = makeRequest({ headers: { host: 'preview.example.com' }, protocol: 'https' });
+    expect(resolveAppBaseUrl(undefined, req)).toBe('https://preview.example.com');
+  });
+
+  test('throws when undefined and no request is available', () => {
+    expect(() => resolveAppBaseUrl(undefined)).toThrowError(InvalidConfigurationError);
+  });
+
+  test('throws when undefined and the request origin cannot be determined', () => {
+    const req = makeRequest({ headers: {} });
+    expect(() => resolveAppBaseUrl(undefined, req)).toThrowError(InvalidConfigurationError);
+  });
+
+  test('matches the request origin against an allow-list array', () => {
+    const req = makeRequest({ headers: { host: 'app2.example.com' }, protocol: 'https' });
+    expect(
+      resolveAppBaseUrl(['https://app1.example.com', 'https://app2.example.com'], req)
+    ).toBe('https://app2.example.com');
+  });
+
+  test('matches allow-list entries that differ only by port', () => {
+    const req = makeRequest({ headers: { host: 'localhost:3001' }, protocol: 'http' });
+    expect(
+      resolveAppBaseUrl(['http://localhost:3000', 'http://localhost:3001'], req)
+    ).toBe('http://localhost:3001');
+  });
+
+  test('throws when the request origin is not in the allow-list', () => {
+    const req = makeRequest({ headers: { host: 'unknown.example.com' }, protocol: 'https' });
+    expect(() =>
+      resolveAppBaseUrl(['https://app1.example.com', 'https://app2.example.com'], req)
+    ).toThrowError(InvalidConfigurationError);
+  });
+
+  test('throws when an allow-list array is provided but no request is available', () => {
+    expect(() => resolveAppBaseUrl(['https://app1.example.com'])).toThrowError(
+      InvalidConfigurationError
+    );
+  });
+
+  test('skips invalid allow-list entries and still matches a valid one', () => {
+    const req = makeRequest({ headers: { host: 'app1.example.com' }, protocol: 'https' });
+    expect(resolveAppBaseUrl(['not-a-url', 'https://app1.example.com'], req)).toBe(
+      'https://app1.example.com'
+    );
   });
 });
