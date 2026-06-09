@@ -217,6 +217,34 @@ describe('getConfig', () => {
     expect(config.hooks?.onLogin).toBeDefined();
   });
 
+  test('accepts a domain resolver function', () => {
+    const resolver = async () => 'tenant.custom-domain.com';
+    const config = getConfig({
+      domain: resolver,
+      clientId: 'client_id',
+      clientSecret: 'client_secret',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: 'secret',
+    });
+
+    expect(config.domain).toBe(resolver);
+  });
+
+  test('accepts a domain resolver with appBaseUrl omitted (dynamic mode)', () => {
+    const resolver = () => 'tenant.custom-domain.com';
+    delete process.env.APP_BASE_URL;
+    delete process.env.BASE_URL;
+    const config = getConfig({
+      domain: resolver,
+      clientId: 'client_id',
+      clientSecret: 'client_secret',
+      sessionSecret: 'secret',
+    });
+
+    expect(config.domain).toBe(resolver);
+    expect(config.appBaseUrl).toBeUndefined();
+  });
+
   describe('appBaseUrl parsing and validation', () => {
     test('parses comma-separated APP_BASE_URL into an array', () => {
       process.env.AUTH0_DOMAIN = 'auth0.com';
