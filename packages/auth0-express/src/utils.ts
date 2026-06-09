@@ -1,6 +1,8 @@
 import { CookieTransactionStore, ServerClient, StatefulStateStore, StatelessStateStore } from '@auth0/auth0-server-js';
+import type { DomainResolver } from '@auth0/auth0-server-js';
 import { Auth0Options, StoreOptions } from './types.js';
 import { ExpressCookieHandler } from './store/express-cookie-handler.js';
+import { getRequestContext } from './store/request-context.js';
 
 /**
  * Ensures the value has a trailing slash.
@@ -20,6 +22,26 @@ function ensureTrailingSlash(value: string) {
  */
 function ensureNoLeadingSlash(value: string) {
   return value.replace(/^\/+/, '');
+}
+
+/**
+ * Wraps a user-provided domain resolver so it always receives the Express
+ * request context. `@auth0/auth0-server-js` invokes the resolver with the
+ * `storeOptions` passed to client methods; this SDK relies on
+ * `AsyncLocalStorage` instead of passing them explicitly, so when
+ * `storeOptions` is absent we recover it via `getRequestContext()` — the same
+ * fallback used by `ExpressCookieHandler`.
+ *
+ * A static string domain is returned unchanged.
+ */
+export function wrapDomainResolver(
+  domain: Auth0Options['domain']
+): string | DomainResolver<StoreOptions> {
+  if (typeof domain === 'string') {
+    return domain;
+  }
+
+  return (storeOptions?: StoreOptions) => domain(storeOptions ?? getRequestContext());
 }
 
 /**
@@ -78,7 +100,7 @@ export function createServerClientInstance(options: Auth0Options) {
     : undefined;
 
   return new ServerClient<StoreOptions>({
-    domain: options.domain,
+    domain: wrapDomainResolver(options.domain),
     clientId: options.clientId,
     clientSecret: options.clientSecret,
     clientAssertionSigningKey: options.clientAssertionSigningKey,
@@ -106,5 +128,6 @@ export function createServerClientInstance(options: Auth0Options) {
         ),
     stateIdentifier: options.sessionConfiguration?.cookie?.name,
     customFetch: options.customFetch,
+    discoveryCache: options.discoveryCache,
   });
 }

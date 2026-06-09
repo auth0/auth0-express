@@ -1,5 +1,8 @@
 import { describe, expect, test } from 'vitest';
-import { createRouteUrl, toSafeRedirect } from './utils.js';
+import { createRouteUrl, toSafeRedirect, wrapDomainResolver } from './utils.js';
+import { runWithContext } from './store/request-context.js';
+import type { Request, Response } from 'express';
+import type { StoreOptions } from './types.js';
 
 describe('createRouteUrl', () => {
   const BASE = 'https://myapp.com';
@@ -85,5 +88,31 @@ describe('toSafeRedirect', () => {
 
   test('returns undefined for a URL with a different port (different origin)', () => {
     expect(toSafeRedirect('http://localhost:4000/path', BASE)).toBeUndefined();
+  });
+});
+
+describe('wrapDomainResolver', () => {
+  test('returns a static string domain unchanged', () => {
+    expect(wrapDomainResolver('tenant.auth0.com')).toBe('tenant.auth0.com');
+  });
+
+  test('passes storeOptions straight through to the resolver when provided', async () => {
+    const ctx = { request: { headers: { host: 'explicit' } } as unknown as Request, response: {} as Response };
+    const wrapped = wrapDomainResolver((opts?: StoreOptions) => Promise.resolve((opts as StoreOptions).request.headers.host as string));
+
+    await expect(
+      (wrapped as (o?: StoreOptions) => Promise<string> | string)(ctx)
+    ).resolves.toBe('explicit');
+  });
+
+  test('falls back to AsyncLocalStorage request context when storeOptions is undefined', async () => {
+    const ctx = { request: { headers: { host: 'from-als' } } as unknown as Request, response: {} as Response };
+    const wrapped = wrapDomainResolver((opts?: StoreOptions) => (opts as StoreOptions).request.headers.host as string);
+
+    const result = await runWithContext(ctx, () =>
+      (wrapped as (o?: StoreOptions) => Promise<string> | string)(undefined)
+    );
+
+    expect(result).toBe('from-als');
   });
 });
