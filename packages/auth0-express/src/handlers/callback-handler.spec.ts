@@ -209,4 +209,27 @@ describe('callback handler', () => {
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('http://localhost:3000');
   });
+
+  test('redirects to the inferred base URL when appBaseUrl is omitted', async () => {
+    const app = createConfiguredApp({
+      domain: domain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      sessionSecret: '<secret>',
+      appBaseUrl: undefined,
+    });
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('host', 'preview.example.com')
+      .set('x-forwarded-proto', 'https')
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('https://preview.example.com');
+  });
 });
