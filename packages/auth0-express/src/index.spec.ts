@@ -329,6 +329,27 @@ test('auth/logout uses custom route when provided', async () => {
   expect(url.pathname).toBe('/logout');
 });
 
+test('auth/logout uses the inferred base URL for post_logout_redirect_uri', async () => {
+  const app = createConfiguredApp({
+    domain: domain,
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+    sessionSecret: '<secret>',
+    appBaseUrl: undefined,
+  });
+
+  const res = await request(app)
+    .get('/auth/logout')
+    .set('host', 'preview.example.com')
+    .set('x-forwarded-proto', 'https');
+
+  const url = new URL(res.headers['location']?.toString() || '');
+
+  expect(res.status).toBe(302);
+  expect(url.pathname).toBe('/logout');
+  expect(url.searchParams.get('post_logout_redirect_uri')).toBe('https://preview.example.com');
+});
+
 test('auth/login supports additional authorization parameters', async () => {
   const app = createConfiguredApp({
     domain: domain,
