@@ -3,10 +3,19 @@ import type { Request } from 'express';
 import { isUrl, inferBaseUrlFromRequest, resolveAppBaseUrl } from './app-base-url.js';
 import { InvalidConfigurationError } from './errors/index.js';
 
-function makeRequest(opts: { headers?: Record<string, string>; protocol?: string }): Request {
+function makeRequest(opts: {
+  headers?: Record<string, string>;
+  protocol?: string;
+  trustProxy?: boolean;
+}): Request {
+  const trustProxy = opts.trustProxy ?? false;
   return {
     headers: opts.headers ?? {},
     protocol: opts.protocol ?? 'http',
+    socket: { remoteAddress: '127.0.0.1' },
+    app: {
+      get: (key: string) => (key === 'trust proxy fn' ? () => trustProxy : undefined),
+    },
   } as unknown as Request;
 }
 
@@ -34,24 +43,37 @@ describe('inferBaseUrlFromRequest', () => {
     expect(inferBaseUrlFromRequest(req)).toBe('https://example.com');
   });
 
-  test('prefers x-forwarded-host and x-forwarded-proto over host/protocol', () => {
+  test('prefers x-forwarded-host over host when the proxy is trusted', () => {
     const req = makeRequest({
       headers: {
         host: 'internal.local',
         'x-forwarded-host': 'preview.example.com',
-        'x-forwarded-proto': 'https',
       },
-      protocol: 'http',
+      protocol: 'https',
+      trustProxy: true,
     });
     expect(inferBaseUrlFromRequest(req)).toBe('https://preview.example.com');
   });
 
-  test('takes the first value from comma-separated forwarded headers', () => {
+  test('ignores x-forwarded-host when the proxy is not trusted', () => {
+    const req = makeRequest({
+      headers: {
+        host: 'internal.local',
+        'x-forwarded-host': 'preview.example.com',
+      },
+      protocol: 'https',
+      trustProxy: false,
+    });
+    expect(inferBaseUrlFromRequest(req)).toBe('https://internal.local');
+  });
+
+  test('takes the first value from a comma-separated x-forwarded-host when trusted', () => {
     const req = makeRequest({
       headers: {
         'x-forwarded-host': 'preview.example.com, internal.local',
-        'x-forwarded-proto': 'https, http',
       },
+      protocol: 'https',
+      trustProxy: true,
     });
     expect(inferBaseUrlFromRequest(req)).toBe('https://preview.example.com');
   });

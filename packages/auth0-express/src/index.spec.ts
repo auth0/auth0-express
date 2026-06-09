@@ -90,8 +90,14 @@ function parseCookies(setCookieHeader: string | string[] | undefined): Record<st
 }
 
 // Helper function to create a configured Express app
-function createConfiguredApp(options: Parameters<typeof createAuth0>[0]) {
+function createConfiguredApp(
+  options: Parameters<typeof createAuth0>[0],
+  appOptions: { trustProxy?: boolean } = {}
+) {
   const app = express();
+  if (appOptions.trustProxy) {
+    app.set('trust proxy', true);
+  }
   app.use(cookieParser());
   app.use(express.json());
   app.use(createAuth0(options));
@@ -330,13 +336,16 @@ test('auth/logout uses custom route when provided', async () => {
 });
 
 test('auth/logout uses the inferred base URL for post_logout_redirect_uri', async () => {
-  const app = createConfiguredApp({
-    domain: domain,
-    clientId: '<client_id>',
-    clientSecret: '<client_secret>',
-    sessionSecret: '<secret>',
-    appBaseUrl: undefined,
-  });
+  const app = createConfiguredApp(
+    {
+      domain: domain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      sessionSecret: '<secret>',
+      appBaseUrl: undefined,
+    },
+    { trustProxy: true }
+  );
 
   const res = await request(app)
     .get('/auth/logout')

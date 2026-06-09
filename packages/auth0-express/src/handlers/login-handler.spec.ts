@@ -205,13 +205,16 @@ describe('login handler - query parameter sanitization', () => {
 describe('login handler - dynamic app base URL', () => {
   test('infers redirect_uri from the request host when appBaseUrl is omitted', async () => {
     // Explicitly set appBaseUrl to undefined to override any environment variable
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      sessionSecret: '<secret>',
-      appBaseUrl: undefined,
-    });
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: undefined,
+      },
+      { trustProxy: true }
+    );
 
     const res = await request(app)
       .get('/auth/login')
@@ -224,13 +227,16 @@ describe('login handler - dynamic app base URL', () => {
   });
 
   test('uses the matching allow-list entry for redirect_uri', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      sessionSecret: '<secret>',
-      appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'], // allow-list mode
-    });
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'], // allow-list mode
+      },
+      { trustProxy: true }
+    );
 
     const res = await request(app)
       .get('/auth/login')

@@ -151,7 +151,16 @@ import { createAuth0 } from '@auth0/auth0-express';
 app.use(createAuth0());
 ```
 
-The SDK reads `x-forwarded-host` / `x-forwarded-proto` (falling back to the `host` header and request protocol) to build the base URL per request.
+The SDK builds the base URL per request from the request protocol and host. When your app runs behind a reverse proxy (most preview platforms such as Vercel and Netlify do), enable Express's [`trust proxy`](https://expressjs.com/en/guide/behind-proxies.html) setting so the forwarded `x-forwarded-proto` / `x-forwarded-host` headers are honored:
+
+```ts
+const app = express();
+app.set('trust proxy', true); // or a more specific value (e.g. number of hops, subnet)
+
+app.use(createAuth0());
+```
+
+When `trust proxy` is not enabled, the SDK ignores the `x-forwarded-*` headers and uses the connection protocol and the `Host` header — matching how `req.protocol`, `req.secure`, and the rest of Express behave. This works the same on Express 4 and 5.
 
 #### Allow-list (recommended for production)
 
@@ -170,7 +179,7 @@ APP_BASE_URL=https://app.example.com,https://myapp.vercel.app
 ```
 
 > [!IMPORTANT]
-> The `Host` header is untrusted input. Auth0's **Allowed Callback URLs** are the primary safeguard: if the resolved host is not registered in your Auth0 application, Auth0 rejects the authorize request. Register every dynamic/preview host you expect.
+> The host comes from the request and is ultimately untrusted input. Enabling `trust proxy` only when you are genuinely behind a trusted proxy, and using the allow-list above, are your first line of defense. Auth0's **Allowed Callback URLs** are the primary safeguard: if the resolved host is not registered in your Auth0 application, Auth0 rejects the authorize request. Register every dynamic/preview host you expect.
 
 > [!NOTE]
 > When relying on dynamic base URLs (omitted `appBaseUrl`) in production (`NODE_ENV=production`), the SDK enforces a secure session cookie. Explicitly setting `sessionConfiguration.cookie.secure = false` throws `InvalidConfigurationError`.

@@ -44,13 +44,16 @@ describe('logout handler', () => {
   });
 
   test('infers the base URL from the request host when appBaseUrl is omitted', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      sessionSecret: '<secret>',
-      appBaseUrl: undefined,
-    });
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: undefined,
+      },
+      { trustProxy: true }
+    );
 
     const res = await request(app)
       .get('/auth/logout')
@@ -64,13 +67,16 @@ describe('logout handler', () => {
   });
 
   test('uses the matching allow-list entry for post_logout_redirect_uri', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      sessionSecret: '<secret>',
-      appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'],
-    });
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'],
+      },
+      { trustProxy: true }
+    );
 
     const res = await request(app)
       .get('/auth/logout')

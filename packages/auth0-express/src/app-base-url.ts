@@ -28,15 +28,36 @@ function getFirstHeaderValue(value: string | string[] | undefined): string | und
 }
 
 /**
+ * Returns true when Express has been configured to trust the peer that sent
+ * this request (`trust proxy`), meaning forwarded headers may be honored.
+ *
+ * We reuse Express's own compiled `trust proxy fn` rather than reimplementing
+ * the trust policy, so this matches how `req.protocol`/`req.secure` decide
+ * whether to trust `X-Forwarded-*`. This works identically on Express 4 and 5.
+ */
+function isProxyTrusted(req: Request): boolean {
+  const trust = req.app?.get('trust proxy fn');
+  return typeof trust === 'function' && trust(req.socket?.remoteAddress, 0);
+}
+
+/**
  * Infers the application base URL from the incoming request.
- * Prefers `x-forwarded-host`/`x-forwarded-proto`, falling back to the `host`
- * header and `req.protocol`. Returns null when a valid origin cannot be built.
+ *
+ * The protocol comes from `req.protocol`, which already honors `trust proxy`
+ * (reading `X-Forwarded-Proto` only when the proxy is trusted) on both Express
+ * 4 and 5. For the host we only consult `X-Forwarded-Host` when `trust proxy`
+ * trusts the peer; otherwise we use the raw `Host` header. We read the header
+ * directly rather than `req.host`/`req.hostname` because the Express 4 getters
+ * strip the port (and `req.host` is deprecated there), whereas the allow-list
+ * matches on origin including the port.
+ *
+ * Returns null when a valid origin cannot be built.
  */
 export function inferBaseUrlFromRequest(req: Request): string | null {
-  const forwardedProto = getFirstHeaderValue(req.headers['x-forwarded-proto']);
-  const forwardedHost = getFirstHeaderValue(req.headers['x-forwarded-host']);
+  const trusted = isProxyTrusted(req);
+  const forwardedHost = trusted ? getFirstHeaderValue(req.headers['x-forwarded-host']) : undefined;
   const host = forwardedHost || getFirstHeaderValue(req.headers['host']);
-  const proto = forwardedProto || req.protocol;
+  const proto = req.protocol;
 
   if (!host || !proto) {
     return null;

@@ -211,13 +211,16 @@ describe('callback handler', () => {
   });
 
   test('redirects to the inferred base URL when appBaseUrl is omitted', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      sessionSecret: '<secret>',
-      appBaseUrl: undefined,
-    });
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: undefined,
+      },
+      { trustProxy: true }
+    );
 
     const cookieName = '__a0_tx';
     const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
