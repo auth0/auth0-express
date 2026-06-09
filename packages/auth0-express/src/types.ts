@@ -59,8 +59,16 @@ export interface Auth0Options {
   clientAssertionSigningAlg?: string;
   /** API audience for requesting access tokens */
   audience?: string;
-  /** Base URL of your application (e.g., 'http://localhost:3000') */
-  appBaseUrl: string;
+  /**
+   * Base URL of your application (e.g., 'http://localhost:3000').
+   *
+   * - Provide a single URL string for a static base URL (default behavior).
+   * - Provide an array of allowed URLs to validate the incoming request origin
+   *   against an allow-list (recommended for dynamic/preview deployments).
+   * - Omit it (or set `APP_BASE_URL`/`BASE_URL` empty) to infer the base URL
+   *   from the incoming request host at runtime.
+   */
+  appBaseUrl?: string | string[];
 
   /** Enable Pushed Authorization Requests (PAR) for enhanced security */
   pushedAuthorizationRequests?: boolean;
