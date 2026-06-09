@@ -280,4 +280,50 @@ describe('getConfig', () => {
       ).toThrowError(/not-a-url/);
     });
   });
+
+  describe('secure cookie enforcement in production dynamic mode', () => {
+    const baseEnv = () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+      delete process.env.APP_BASE_URL;
+      delete process.env.BASE_URL;
+    };
+
+    test('forces session cookie secure=true when production and appBaseUrl omitted', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig();
+
+      expect(config.sessionConfiguration?.cookie?.secure).toBe(true);
+    });
+
+    test('throws when secure is explicitly false in production dynamic mode', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      expect(() =>
+        getConfig({ sessionConfiguration: { cookie: { secure: false } } })
+      ).toThrowError(InvalidConfigurationError);
+    });
+
+    test('does not force secure when a static appBaseUrl is configured', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig({ appBaseUrl: 'https://app.example.com' });
+
+      expect(config.sessionConfiguration?.cookie?.secure).toBeUndefined();
+    });
+
+    test('does not force secure outside production', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'development';
+
+      const config = getConfig();
+
+      expect(config.sessionConfiguration?.cookie?.secure).toBeUndefined();
+    });
+  });
 });

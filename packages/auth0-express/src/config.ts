@@ -43,6 +43,31 @@ function validateAppBaseUrl(appBaseUrl: string | string[] | undefined): void {
   }
 }
 
+function enforceSecureCookies(config: Auth0Options): void {
+  const isProduction = process.env.NODE_ENV === 'production';
+  const isDynamic = config.appBaseUrl === undefined;
+
+  if (!isProduction || !isDynamic) {
+    return;
+  }
+
+  const explicitSecure = config.sessionConfiguration?.cookie?.secure;
+  if (explicitSecure === false) {
+    throw new InvalidConfigurationError(
+      'Secure cookies are required when relying on dynamic base URLs in production. ' +
+        'Remove the explicit `sessionConfiguration.cookie.secure = false` or set a static APP_BASE_URL.'
+    );
+  }
+
+  config.sessionConfiguration = {
+    ...config.sessionConfiguration,
+    cookie: {
+      ...config.sessionConfiguration?.cookie,
+      secure: true,
+    },
+  };
+}
+
 /**
  * Merges environment variables with provided configuration options.
  * Environment variables are used as defaults and can be overridden by explicitly provided options.
@@ -79,6 +104,8 @@ export function getConfig(config: Partial<Auth0Options> = {}): Auth0Options {
   if (!mergedConfig.sessionSecret) {
     throw new MissingRequiredArgumentError('sessionSecret');
   }
+
+  enforceSecureCookies(mergedConfig);
 
   return mergedConfig;
 }
