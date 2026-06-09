@@ -232,4 +232,27 @@ describe('callback handler', () => {
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('https://preview.example.com');
   });
+
+  test('returns 500 when the request host is not in the allow-list', async () => {
+    const app = createConfiguredApp({
+      domain: domain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      sessionSecret: '<secret>',
+      appBaseUrl: ['https://app1.example.com'],
+    });
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('host', 'evil.example.com')
+      .set('x-forwarded-proto', 'https')
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('InvalidConfigurationError');
+  });
 });
