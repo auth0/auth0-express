@@ -136,4 +136,11 @@ describe('resolveAppBaseUrl', () => {
       'https://app1.example.com'
     );
   });
+
+  test('returns the matched allow-list entry including its path', () => {
+    const req = makeRequest({ headers: { host: 'app.example.com' }, protocol: 'https' });
+    expect(resolveAppBaseUrl(['https://app.example.com/base'], req)).toBe(
+      'https://app.example.com/base'
+    );
+  });
 });

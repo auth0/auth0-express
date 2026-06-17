@@ -240,6 +240,17 @@ describe('getConfig', () => {
       expect(config.appBaseUrl).toBe('https://app.example.com');
     });
 
+    test('collapses trailing-comma APP_BASE_URL to a string, not a single-element array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+      process.env.APP_BASE_URL = 'https://app.example.com,';
+
+      const config = getConfig();
+
+      expect(config.appBaseUrl).toBe('https://app.example.com');
+    });
+
     test('allows appBaseUrl to be omitted (dynamic mode)', () => {
       process.env.AUTH0_DOMAIN = 'auth0.com';
       process.env.AUTH0_CLIENT_ID = 'client_id';
@@ -324,6 +335,27 @@ describe('getConfig', () => {
       const config = getConfig();
 
       expect(config.sessionConfiguration?.cookie?.secure).toBeUndefined();
+    });
+
+    test('forces session cookie secure=true when production and appBaseUrl is an allow-list array', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig({ appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'] });
+
+      expect(config.sessionConfiguration?.cookie?.secure).toBe(true);
+    });
+
+    test('throws when secure is explicitly false in production allow-list mode', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      expect(() =>
+        getConfig({
+          appBaseUrl: ['https://app1.example.com'],
+          sessionConfiguration: { cookie: { secure: false } },
+        })
+      ).toThrowError(InvalidConfigurationError);
     });
   });
 });

@@ -103,7 +103,7 @@ export function resolveAppBaseUrl(appBaseUrl: string | string[] | undefined, req
   }
 
   const requestOrigin = new URL(inferred).origin;
-  const isAllowed = allowedAppBaseUrls.some((allowedUrl) => {
+  const matchedEntry = allowedAppBaseUrls.find((allowedUrl) => {
     try {
       return new URL(allowedUrl).origin === requestOrigin;
     } catch {
@@ -111,8 +111,8 @@ export function resolveAppBaseUrl(appBaseUrl: string | string[] | undefined, req
     }
   });
 
-  if (isAllowed) {
-    return requestOrigin;
+  if (matchedEntry !== undefined) {
+    return matchedEntry;
   }
 
   throw new InvalidConfigurationError(

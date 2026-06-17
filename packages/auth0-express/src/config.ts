@@ -12,10 +12,11 @@ function parseAppBaseUrlEnv(value: string | undefined): string | string[] | unde
     return undefined;
   }
   if (value.includes(',')) {
-    return value
+    const entries = value
       .split(',')
       .map((entry) => entry.trim())
       .filter(Boolean);
+    return entries.length === 1 ? entries[0] : entries;
   }
   return value;
 }
@@ -45,7 +46,7 @@ function validateAppBaseUrl(appBaseUrl: string | string[] | undefined): void {
 
 function enforceSecureCookies(config: Auth0Options): void {
   const isProduction = process.env.NODE_ENV === 'production';
-  const isDynamic = config.appBaseUrl === undefined;
+  const isDynamic = typeof config.appBaseUrl !== 'string';
 
   if (!isProduction || !isDynamic) {
     return;
