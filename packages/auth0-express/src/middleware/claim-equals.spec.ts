@@ -1,6 +1,6 @@
 import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
-import { requireAuth } from './require-auth.js';
+import { requiresAuth } from './require-auth.js';
 import { claimEquals } from './claim-equals.js';
 import {
   server,
@@ -37,7 +37,7 @@ describe('claimEquals middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimEquals('role', 'admin'), (req, res) => {
+    app.get('/admin', requiresAuth(), claimEquals('role', 'admin'), (req, res) => {
       res.send('Admin page');
     });
 
@@ -57,7 +57,7 @@ describe('claimEquals middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimEquals('role', 'admin'), (req, res) => {
+    app.get('/admin', requiresAuth(), claimEquals('role', 'admin'), (req, res) => {
       res.send('Admin page');
     });
 
@@ -77,7 +77,7 @@ describe('claimEquals middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimEquals('role', 'admin'), (req, res) => {
+    app.get('/admin', requiresAuth(), claimEquals('role', 'admin'), (req, res) => {
       res.send('Admin page');
     });
 
@@ -96,7 +96,7 @@ describe('claimEquals middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/internal', requireAuth(), claimEquals('https://myapp.com/department', 'engineering'), (req, res) => {
+    app.get('/internal', requiresAuth(), claimEquals('https://myapp.com/department', 'engineering'), (req, res) => {
       res.send('Engineering portal');
     });
 
@@ -116,7 +116,7 @@ describe('claimEquals middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/api/admin', requireAuth(), claimEquals('role', 'admin'), (req, res) => {
+    app.get('/api/admin', requiresAuth(), claimEquals('role', 'admin'), (req, res) => {
       res.json({ success: true });
     });
 
@@ -139,7 +139,7 @@ describe('claimEquals middleware', () => {
 
     app.get(
       '/premium',
-      requireAuth(),
+      requiresAuth(),
       claimEquals('subscription', 'premium', {
         statusCode: 402,
         errorMessage: 'Premium subscription required',
@@ -166,7 +166,7 @@ describe('claimEquals middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimEquals('role', 'admin'), (req, res) => {
+    app.get('/admin', requiresAuth(), claimEquals('role', 'admin'), (req, res) => {
       res.send('Admin page');
     });
 
@@ -190,7 +190,7 @@ describe('claimEquals middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimEquals('role', 'admin'), (req, res) => {
+    app.get('/admin', requiresAuth(), claimEquals('role', 'admin'), (req, res) => {
       res.send('Admin page');
     });
 

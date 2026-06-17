@@ -15,7 +15,7 @@ In version 1.0.0-beta.0, we have added the following features:
 - The SDK uses a stateless token storage by default, but allows to opt-in to stateful storage if needed by providing a `sessionStore` configuration option.
 - In stateless storage mode, the SDK will use cookie-chunking to store the token in the browser's cookies.
 - The SDK provides the following middleware for protecting routes and checking claims:
-  - `requireAuth()` — requires authentication, redirecting to login for HTML requests or returning 401 for API requests.
+  - `requiresAuth()` — requires authentication, redirecting to login for HTML requests or returning 401 for API requests.
   - `claimEquals(claim, value)` — checks if a claim equals a specific value.
   - `claimIncludes(claim, ...values)` — checks if an array claim contains the required values.
   - `claimCheck(fn)` — custom authorization logic via a validation function.

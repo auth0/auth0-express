@@ -28,11 +28,11 @@ This guide will help you migrate your Express.js application from `express-openi
 ### Migration Checklist
 
 - [ ] **Install** new package: `npm install @auth0/auth0-express`
-- [ ] **Update imports**: `auth()` → `createAuth0()`, add `requireAuth`
+- [ ] **Update imports**: `auth()` → `createAuth0()`, add `requiresAuth`
 - [ ] **Rename config properties** (see table below)
 - [ ] **Configure client authentication** (clientSecret, private_key_jwt, or mTLS)
 - [ ] **Add `await`** to user/session/token access
-- [ ] **Update route protection** - use built-in `requireAuth()` middleware
+- [ ] **Update route protection** - use built-in `requiresAuth()` middleware
 - [ ] **Update custom session stores** (add StoreOptions pattern)
 - [ ] **Update tests** (mock async methods)
 
@@ -49,7 +49,7 @@ This guide will help you migrate your Express.js application from `express-openi
 |-------|----------|
 | **Missing `await`** | `const user = await req.auth0.client.getUser()` |
 | **Custom store missing options** | Add `async set(id, data, options) { const { request, response } = options; }` |
-| **Routes not protected** | Use built-in middleware: `app.get('/profile', requireAuth(), async (req, res) => {...})` |
+| **Routes not protected** | Use built-in middleware: `app.get('/profile', requiresAuth(), async (req, res) => {...})` |
 
 ---
 
@@ -120,7 +120,7 @@ The SDK exports the following items:
 
 ### Main Functions
 - `createAuth0(options?)` - Create the Auth0 router middleware
-- `requireAuth(options?)` - Protect routes requiring authentication
+- `requiresAuth(options?)` - Protect routes requiring authentication
 
 ### Claim Validation Middleware
 - `claimEquals(claimName, value, options?)` - Validate exact claim value
@@ -129,7 +129,7 @@ The SDK exports the following items:
 
 ### TypeScript Types
 - `Auth0Options` - Configuration options for createAuth0
-- `RequireAuthOptions` - Options for requireAuth middleware
+- `RequireAuthOptions` - Options for requiresAuth middleware
 - `ClaimAuthOptions` - Options for claim validation middleware
 - `ClaimCheckFunction` - Type for claimCheck validation function
 - `StoreOptions` - Options passed to custom session stores
@@ -138,7 +138,7 @@ The SDK exports the following items:
 ```typescript
 import {
   createAuth0,
-  requireAuth,
+  requiresAuth,
   claimEquals,
   claimIncludes,
   claimCheck,
@@ -206,10 +206,10 @@ Key change: Add `await`, `getUser()` returns null when not authenticated.
 
 ## Route Protection
 
-**All routes are public by default.** Use the built-in `requireAuth()` middleware to protect routes:
+**All routes are public by default.** Use the built-in `requiresAuth()` middleware to protect routes:
 
 ```javascript
-import { createAuth0, requireAuth } from '@auth0/auth0-express';
+import { createAuth0, requiresAuth } from '@auth0/auth0-express';
 
 // Public route
 app.get('/', async (req, res) => {
@@ -218,25 +218,25 @@ app.get('/', async (req, res) => {
 });
 
 // Protected route - redirects to login if not authenticated
-app.get('/profile', requireAuth(), async (req, res) => {
+app.get('/profile', requiresAuth(), async (req, res) => {
   const user = await req.auth0.client.getUser();
   res.json({ user });
 });
 
 // API route - returns 401 instead of redirecting
-app.get('/api/me', requireAuth(), async (req, res) => {
+app.get('/api/me', requiresAuth(), async (req, res) => {
   const user = await req.auth0.client.getUser();
   res.json({ user });
 });
 
 // Custom return URL after login
-app.get('/admin', requireAuth({ returnTo: '/admin/dashboard' }), async (req, res) => {
+app.get('/admin', requiresAuth({ returnTo: '/admin/dashboard' }), async (req, res) => {
   const user = await req.auth0.client.getUser();
   res.send(`Admin page for ${user.name}`);
 });
 ```
 
-The `requireAuth()` middleware automatically:
+The `requiresAuth()` middleware automatically:
 - Redirects HTML requests to `/auth/login` with a `returnTo` parameter
 - Returns `401 Unauthorized` for API requests (those that accept JSON but not HTML)
 - Preserves the original URL for post-login redirect
@@ -615,11 +615,11 @@ The SDK provides built-in middleware for claim-based authorization:
 Check if a specific claim equals an expected value:
 
 ```javascript
-import { requireAuth, claimEquals } from '@auth0/auth0-express';
+import { requiresAuth, claimEquals } from '@auth0/auth0-express';
 
 // Check exact claim value
 app.get('/admin',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('role', 'admin'),
   async (req, res) => {
     res.send('Admin dashboard');
@@ -628,7 +628,7 @@ app.get('/admin',
 
 // Check namespace claim
 app.get('/internal',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('https://myapp.com/department', 'engineering'),
   async (req, res) => {
     res.send('Engineering portal');
@@ -637,7 +637,7 @@ app.get('/internal',
 
 // Check access token claims instead of ID token
 app.get('/api/admin',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('role', 'admin', { tokenType: 'access' }),
   async (req, res) => {
     res.json({ success: true });
@@ -650,11 +650,11 @@ app.get('/api/admin',
 Check if a claim array includes specific values (useful for permissions):
 
 ```javascript
-import { requireAuth, claimIncludes } from '@auth0/auth0-express';
+import { requiresAuth, claimIncludes } from '@auth0/auth0-express';
 
 // Check for a single permission
 app.delete('/users/:id',
-  requireAuth(),
+  requiresAuth(),
   claimIncludes('permissions', 'delete:users'),
   async (req, res) => {
     // Delete user logic
@@ -664,7 +664,7 @@ app.delete('/users/:id',
 
 // Check for multiple permissions (user needs at least one)
 app.get('/admin/users',
-  requireAuth(),
+  requiresAuth(),
   claimIncludes('permissions', ['read:users', 'admin:all']),
   async (req, res) => {
     res.json({ users: [] });
@@ -677,11 +677,11 @@ app.get('/admin/users',
 For custom validation logic:
 
 ```javascript
-import { requireAuth, claimCheck } from '@auth0/auth0-express';
+import { requiresAuth, claimCheck } from '@auth0/auth0-express';
 
 // Check multiple conditions
 app.get('/premium',
-  requireAuth(),
+  requiresAuth(),
   claimCheck((claims) => {
     return claims.subscription === 'premium' && claims.email_verified === true;
   }),
@@ -692,7 +692,7 @@ app.get('/premium',
 
 // Access request parameters
 app.get('/org/:orgId/settings',
-  requireAuth(),
+  requiresAuth(),
   claimCheck((claims, req) => {
     const orgId = req.params.orgId;
     return claims.org_id === orgId && claims.org_role === 'owner';
@@ -704,7 +704,7 @@ app.get('/org/:orgId/settings',
 
 // Custom error message and status code
 app.get('/beta',
-  requireAuth(),
+  requiresAuth(),
   claimCheck(
     (claims) => claims.beta_access === true,
     {
@@ -858,7 +858,7 @@ app.use(createAuth0({
 <summary><strong>Top 5 Issues (Quickfix)</strong></summary>
 
 1. **Missing `await`** → Add `await` before all client method calls
-2. **Routes unprotected** → Use `requireAuth()` middleware from the SDK
+2. **Routes unprotected** → Use `requiresAuth()` middleware from the SDK
 3. **StoreOptions missing** → Add `options` parameter to store methods
 4. **req.auth0 undefined** → Move `createAuth0()` before route definitions
 5. **Token access fails** → Check client authentication (clientSecret, private_key_jwt, or mTLS)
@@ -960,7 +960,7 @@ app.use(createAuth0({
 | Feature | Before | After | Migration |
 |---------|--------|-------|-----------|
 | **User access** | Sync | Async | Add `await` |
-| **Route protection** | Global `authRequired` | Per-route middleware | Use `requireAuth()` |
+| **Route protection** | Global `authRequired` | Per-route middleware | Use `requiresAuth()` |
 | **Session store** | `destroy()` | `delete()` + options | Update method names |
 | **Error handling** | Implicit | Explicit | Add try-catch |
 | **Config** | Multiple options | Minimal | Rename properties |
@@ -976,7 +976,7 @@ app.use(createAuth0({
    - [ ] Test basic flow
 
 2. **Complete migration**:
-   - [ ] Update all routes with `requireAuth()` middleware
+   - [ ] Update all routes with `requiresAuth()` middleware
    - [ ] Add claim-based authorization where needed
    - [ ] Add error handling
    - [ ] Update tests

@@ -1,6 +1,6 @@
 import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
-import { requireAuth } from './require-auth.js';
+import { requiresAuth } from './require-auth.js';
 import { claimIncludes } from './claim-includes.js';
 import {
   server,
@@ -37,7 +37,7 @@ describe('claimIncludes middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.delete('/users/:id', requireAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
+    app.delete('/users/:id', requiresAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
       res.json({ success: true });
     });
 
@@ -59,7 +59,7 @@ describe('claimIncludes middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.delete('/users/:id', requireAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
+    app.delete('/users/:id', requiresAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
       res.json({ success: true });
     });
 
@@ -80,7 +80,7 @@ describe('claimIncludes middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimIncludes('permissions', ['read:users', 'delete:users']), (req, res) => {
+    app.get('/admin', requiresAuth(), claimIncludes('permissions', ['read:users', 'delete:users']), (req, res) => {
       res.send('Admin page');
     });
 
@@ -101,7 +101,7 @@ describe('claimIncludes middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
+    app.get('/admin', requiresAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
       res.send('Admin page');
     });
 
@@ -122,7 +122,7 @@ describe('claimIncludes middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
+    app.get('/admin', requiresAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
       res.send('Admin page');
     });
 
@@ -141,7 +141,7 @@ describe('claimIncludes middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
+    app.get('/admin', requiresAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
       res.send('Admin page');
     });
 
@@ -165,7 +165,7 @@ describe('claimIncludes middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
+    app.get('/admin', requiresAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
       res.send('Admin page');
     });
 
@@ -187,7 +187,7 @@ describe('claimIncludes middleware', () => {
 
     app.get(
       '/admin',
-      requireAuth(),
+      requiresAuth(),
       claimIncludes('permissions', ['delete:users'], { statusCode: 402, errorMessage: 'Custom error message' }),
       (req, res) => {
         res.send('Admin page');
