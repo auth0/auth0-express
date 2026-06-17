@@ -22,10 +22,10 @@ export interface ScopesIncludeOptions {
  * @example
  * ```ts
  * // Allow access if token has ANY of the specified scopes (default)
- * router.get('/messages', requireAuth(), scopesInclude('read:msg read:admin'), handler);
+ * router.get('/messages', requiresAuth(), scopesInclude('read:msg read:admin'), handler);
  *
  * // Require ALL of the specified scopes
- * router.get('/admin/edit', requireAuth(), scopesInclude('read:admin write:admin', { match: 'all' }), handler);
+ * router.get('/admin/edit', requiresAuth(), scopesInclude('read:admin write:admin', { match: 'all' }), handler);
  * ```
  */
 export function scopesInclude(scopes: string | string[], options: ScopesIncludeOptions = {}) {

@@ -6,7 +6,7 @@ The `@auth0/auth0-express-api` library allows for protecting API endpoints in Ex
 
 In version 1.0.0-beta.0, we have added the following features:
 
-- Access Token validation from the `Authorization` header (Bearer scheme) via `requireAuth()` middleware, with optional scope validation.
+- Access Token validation from the `Authorization` header (Bearer scheme) via `requiresAuth()` middleware, with optional scope validation.
 - The SDK provides the following middleware for claim-based authorization:
   - `claimEquals(claim, value)` — checks if a claim equals a specific value.
   - `claimIncludes(claim, ...values)` — checks if a claim contains all specified values (supports array and space-separated string claims).

@@ -14,10 +14,10 @@ import { ClaimAuthOptions, sendBearerError, JSONPrimitive } from './claim-auth.j
  * @example
  * ```ts
  * // Require both 'admin' and 'manager' roles
- * router.get('/admin/managers', requireAuth(), claimIncludes('role', ['admin', 'manager']), handler);
+ * router.get('/admin/managers', requiresAuth(), claimIncludes('role', ['admin', 'manager']), handler);
  *
  * // Custom error message
- * router.get('/admin/managers', requireAuth(), claimIncludes('role', ['admin', 'manager'], {
+ * router.get('/admin/managers', requiresAuth(), claimIncludes('role', ['admin', 'manager'], {
  *   errorMessage: 'You must have both admin and manager roles'
  * }), handler);
  * ```

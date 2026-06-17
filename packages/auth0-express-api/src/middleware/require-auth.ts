@@ -26,7 +26,7 @@ function getToken(req: Request): string | undefined {
  * @param options RequireAuthOptions
  * @returns Express middleware function
  */
-export function requireAuth(options: RequireAuthOptions = {}) {
+export function requiresAuth(options: RequireAuthOptions = {}) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const apiClient = req.auth0?.client;
 

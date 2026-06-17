@@ -25,7 +25,7 @@ export function createAuth0Api(options: Partial<Auth0ApiOptions> = {}): Router {
     customFetch: config.customFetch,
   });
 
-  // Attach client and requireAuth to router locals
+  // Attach client and requiresAuth to router locals
   router.use((req, res, next) => {
     req.auth0 = req.auth0 || {};
     req.auth0.client = apiClient;

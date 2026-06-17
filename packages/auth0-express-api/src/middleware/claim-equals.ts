@@ -14,12 +14,12 @@ import { ClaimAuthOptions, sendBearerError, JSONPrimitive } from './claim-auth.j
  * @example
  * ```typescript
  * // Require user to be an admin
- * app.get('/admin', requireAuth(), claimEquals('role', 'admin'), (req, res) => {
+ * app.get('/admin', requiresAuth(), claimEquals('role', 'admin'), (req, res) => {
  *   res.json({ message: 'Admin dashboard' });
  * });
  *
  * // Check organization membership with custom error
- * app.get('/org', requireAuth(), claimEquals('org_id', 'org_123', {
+ * app.get('/org', requiresAuth(), claimEquals('org_id', 'org_123', {
  *   errorMessage: 'You must be a member of org_123'
  * }), (req, res) => {
  *   res.json({ message: 'Organization page' });
