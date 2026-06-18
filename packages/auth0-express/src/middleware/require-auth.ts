@@ -3,7 +3,7 @@ import { Request, Response, NextFunction } from 'express';
 /**
  * Options for the requiresAuth middleware.
  */
-export interface RequireAuthOptions {
+export interface RequiresAuthOptions {
   /**
    * If true, returns a 401 status instead of redirecting to login.
    * Useful for API routes that should not redirect.
@@ -42,7 +42,7 @@ export interface RequireAuthOptions {
  * });
  * ```
  */
-export function requiresAuth(options?: RequireAuthOptions) {
+export function requiresAuth(options?: RequiresAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = await req.auth0.client.getUser();

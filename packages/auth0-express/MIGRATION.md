@@ -129,7 +129,7 @@ The SDK exports the following items:
 
 ### TypeScript Types
 - `Auth0Options` - Configuration options for createAuth0
-- `RequireAuthOptions` - Options for requiresAuth middleware
+- `RequiresAuthOptions` - Options for requiresAuth middleware
 - `ClaimAuthOptions` - Options for claim validation middleware
 - `ClaimCheckFunction` - Type for claimCheck validation function
 - `StoreOptions` - Options passed to custom session stores

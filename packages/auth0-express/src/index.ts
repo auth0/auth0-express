@@ -3,6 +3,6 @@ export { requiresAuth } from './middleware/require-auth.js';
 export { claimIncludes } from './middleware/claim-includes.js';
 export { claimEquals } from './middleware/claim-equals.js';
 export { claimCheck } from './middleware/claim-check.js';
-export type { RequireAuthOptions } from './middleware/require-auth.js';
+export type { RequiresAuthOptions } from './middleware/require-auth.js';
 export type { ClaimAuthOptions, ClaimCheckFunction } from './middleware/claim-auth.js';
 export * from './types.js';

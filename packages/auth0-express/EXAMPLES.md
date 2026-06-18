@@ -7,7 +7,7 @@
   - [Configuring a customFetch implementation](#configuring-a-customfetch-implementation)
 - [The `ServerClient` instance](#the-serverclient-instance)
 - [Protecting Routes](#protecting-routes)
-  - [Using requiresAuth middleware](#using-requireauth-middleware)
+  - [Using requiresAuth middleware](#using-requiresauth-middleware)
   - [Using custom middleware](#using-custom-middleware)
 - [Authorization with Claims](#authorization-with-claims)
   - [Using claimEquals](#using-claimequals)
