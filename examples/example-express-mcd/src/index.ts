@@ -1,0 +1,132 @@
+import express, { Request, Response, NextFunction } from 'express';
+import { createAuth0, DomainResolver, StoreOptions } from '@auth0/auth0-express';
+import expressLayouts from 'express-ejs-layouts';
+import 'dotenv/config';
+import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+const app = express();
+
+// Fix to use __dirname in ES modules
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+
+// Serve static files
+app.use(express.static(path.join(__dirname, '../public')));
+
+// Setup view engine. `express-ejs-layouts` wraps each rendered view in
+// views/layout.ejs (referenced via the `layout` local), giving every page the
+// shared nav plus the host / resolved-Auth0-domain banner.
+app.set('view engine', 'ejs');
+app.set('views', path.join(__dirname, '../views'));
+app.use(expressLayouts);
+
+// Multiple Custom Domains (MCD) configuration.
+//
+// This single app serves two hostnames — tenant-1.localhost and
+// tenant-2.localhost — on the same port, each mapped to a different Auth0
+// custom domain of the SAME Auth0 tenant. The mapping is driven by env vars so
+// you can point it at your own custom domains.
+const defaultAuth0Domain = process.env.AUTH0_DOMAIN as string;
+const domainsByHost: Record<string, string> = {
+  'tenant-1.localhost:3000': process.env.AUTH0_CUSTOM_DOMAIN_1 as string,
+  'tenant-2.localhost:3000': process.env.AUTH0_CUSTOM_DOMAIN_2 as string,
+};
+
+// Resolve the Auth0 custom domain for a given request host, falling back to the
+// default domain when the host is not in the map.
+//
+// SECURITY: you are responsible for ensuring every resolved domain is a trusted
+// custom domain of your Auth0 tenant. A resolver that returns an
+// attacker-controlled value is a critical risk (auth bypass / SSRF). When
+// inferring the host from request headers, run behind a trusted reverse proxy
+// that sanitizes `Host` / `X-Forwarded-Host` before they reach the app.
+function resolveAuth0Domain(host: string | undefined): string {
+  return (host && domainsByHost[host]) || defaultAuth0Domain;
+}
+
+// A `DomainResolver` is called per request and receives the Express request
+// context. Passing it to `domain` (instead of a static string) enables MCD.
+const domainResolver: DomainResolver<StoreOptions> = (context) =>
+  resolveAuth0Domain(context?.request.headers.host);
+
+// Mount Auth0 router.
+//
+// Note that `appBaseUrl` is intentionally NOT passed here. Instead, the SDK
+// reads `APP_BASE_URL` from the environment. When that value is a
+// comma-separated list, the SDK treats it as an allow-list of origins and
+// resolves the correct base URL per request by matching the incoming origin —
+// so callbacks, redirects, and logout use the right origin for each host.
+app.use(
+  createAuth0({
+    domain: domainResolver,
+    clientId: process.env.AUTH0_CLIENT_ID as string,
+    clientSecret: process.env.AUTH0_CLIENT_SECRET as string,
+    sessionSecret: process.env.AUTH0_SESSION_SECRET as string,
+    // Discovery (OIDC metadata + JWKS) is cached per resolved domain. Raise
+    // `maxEntries` when a single process serves more than ~100 distinct Auth0
+    // domains within the TTL window, which is common in larger MCD fleets.
+    discoveryCache: { ttl: 600, maxEntries: 100 },
+  })
+);
+
+// Middleware to check for session
+async function requireSession(req: Request, res: Response, next: NextFunction) {
+  const session = await req.auth0.client.getSession();
+
+  if (!session) {
+    return res.redirect(`/auth/login?returnTo=${encodeURIComponent(req.url)}`);
+  }
+
+  next();
+}
+
+// Routes
+app.get('/', async (req: Request, res: Response) => {
+  const user = await req.auth0.client.getUser();
+
+  res.render('index', {
+    isLoggedIn: !!user,
+    user,
+    host: req.headers.host,
+    auth0Domain: resolveAuth0Domain(req.headers.host),
+    layout: 'layout',
+  });
+});
+
+app.get('/public', async (req: Request, res: Response) => {
+  const user = await req.auth0.client.getUser();
+
+  res.render('public', {
+    isLoggedIn: !!user,
+    user,
+    host: req.headers.host,
+    auth0Domain: resolveAuth0Domain(req.headers.host),
+    layout: 'layout',
+  });
+});
+
+app.get('/private', requireSession, async (req: Request, res: Response) => {
+  const user = await req.auth0.client.getUser();
+
+  res.render('private', {
+    isLoggedIn: !!user,
+    user,
+    host: req.headers.host,
+    auth0Domain: resolveAuth0Domain(req.headers.host),
+    layout: 'layout',
+  });
+});
+
+const start = async () => {
+  try {
+    app.listen(3000, () => {
+      console.log('Server listening on http://tenant-1.localhost:3000 and http://tenant-2.localhost:3000');
+    });
+  } catch (err) {
+    console.error(err);
+    process.exit(1);
+  }
+};
+
+start();
