@@ -5,7 +5,7 @@ import 'dotenv/config';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
 
-const app = express();
+export const app = express();
 
 // Fix to use __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
@@ -129,4 +129,8 @@ const start = async () => {
   }
 };
 
-start();
+// Start the server only when this file is run directly (e.g. `npm start`), not
+// when it is imported (e.g. by the test suite, which drives `app` via supertest).
+if (process.argv[1] === __filename) {
+  start();
+}
