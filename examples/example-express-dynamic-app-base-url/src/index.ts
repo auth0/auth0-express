@@ -1,5 +1,6 @@
 import express, { Request, Response, NextFunction } from 'express';
 import { createAuth0 } from '@auth0/auth0-express';
+import expressLayouts from 'express-ejs-layouts';
 import 'dotenv/config';
 import path from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -13,9 +14,12 @@ const __dirname = path.dirname(__filename);
 // Serve static files
 app.use(express.static(path.join(__dirname, '../public')));
 
-// Setup view engine
+// Setup view engine. `express-ejs-layouts` wraps each rendered view in
+// views/layout.ejs (referenced via the `layout` local), giving every page the
+// shared nav plus the "Serving from" host banner.
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
+app.use(expressLayouts);
 
 // Mount Auth0 router.
 //
