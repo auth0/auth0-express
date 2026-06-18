@@ -52,17 +52,14 @@ const domainResolver: DomainResolver<StoreOptions> = (context) =>
 
 // Mount Auth0 router.
 //
-// Note that `appBaseUrl` is intentionally NOT passed here. Instead, the SDK
-// reads `APP_BASE_URL` from the environment. When that value is a
-// comma-separated list, the SDK treats it as an allow-list of origins and
-// resolves the correct base URL per request by matching the incoming origin —
-// so callbacks, redirects, and logout use the right origin for each host.
+// Only the MCD-specific options are passed here; the rest of the configuration
+// (clientId, clientSecret, sessionSecret, and the APP_BASE_URL allow-list) is
+// read from the environment by the SDK. `APP_BASE_URL` is a comma-separated
+// list, which the SDK matches against each request to resolve the correct base
+// URL — so callbacks, redirects, and logout use the right origin for each host.
 app.use(
   createAuth0({
     domain: domainResolver,
-    clientId: process.env.AUTH0_CLIENT_ID as string,
-    clientSecret: process.env.AUTH0_CLIENT_SECRET as string,
-    sessionSecret: process.env.AUTH0_SESSION_SECRET as string,
     // Discovery (OIDC metadata + JWKS) is cached per resolved domain. Raise
     // `maxEntries` when a single process serves more than ~100 distinct Auth0
     // domains within the TTL window, which is common in larger MCD fleets.

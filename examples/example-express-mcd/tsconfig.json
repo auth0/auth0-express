@@ -27,5 +27,6 @@
     "compilerOptions": {
       "module": "nodenext"
     }
-  }
+  },
+  "exclude": ["dist", "**/*.spec.ts"]
 }
