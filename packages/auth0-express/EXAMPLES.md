@@ -421,8 +421,8 @@ const domainsByHost: Record<string, string> = {
   'brand-2.my-app.com': 'auth.custom-domain-2.com',
 };
 
-const domainResolver: DomainResolver<StoreOptions> = ({ request }) => {
-  const host = request.headers.host;
+const domainResolver: DomainResolver<StoreOptions> = (storeOptions) => {
+  const host = storeOptions?.request?.headers.host;
   return (host && domainsByHost[host]) || defaultAuth0Domain;
 };
 
@@ -445,9 +445,9 @@ const headerValueToAuth0Domain: Record<string, string> = {
   workspace_b: 'workspace-b.custom-domain.com',
 };
 
-const domainResolver: DomainResolver<StoreOptions> = ({ request }) => {
+const domainResolver: DomainResolver<StoreOptions> = (storeOptions) => {
   // App-specific routing key, not Auth0 tenant metadata.
-  const routingKey = request.headers['x-tenant-id'] as string | undefined;
+  const routingKey = storeOptions?.request?.headers['x-tenant-id'] as string | undefined;
   return (routingKey && headerValueToAuth0Domain[routingKey]) || 'auth.custom-domain.com';
 };
 ```
@@ -460,6 +460,10 @@ const domainResolver: DomainResolver<StoreOptions> = ({ request }) => {
 - omit it to infer the base URL from the request host (enable Express `trust proxy` when behind a proxy).
 
 If you omit `appBaseUrl`, register every inferred origin in Auth0 as an **Allowed Callback URL** and **Allowed Logout URL**.
+
+### Backchannel logout requests
+
+The backchannel logout route (mounted by default) is called **server-to-server by Auth0**, not by the end-user's browser. Such requests do not carry the tenant's `Host` (or any app-specific routing header), so a host- or header-based resolver will not find a match for them. Make sure your resolver returns a sensible default in that case — the fallback in the examples above (`|| defaultAuth0Domain`) handles this. If you have no meaningful default, detect the backchannel logout path and return the appropriate domain explicitly.
 
 ### Security requirements
 
