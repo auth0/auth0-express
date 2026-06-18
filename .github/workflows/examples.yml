@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   example-express-dynamic-app-base-url:
-    name: example-express-dynamic-app-base-url
+    name: Dynamic App Base URL
     runs-on: ubuntu-latest
 
     steps:
