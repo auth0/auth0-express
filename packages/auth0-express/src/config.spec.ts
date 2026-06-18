@@ -229,6 +229,28 @@ describe('getConfig', () => {
       expect(config.appBaseUrl).toEqual(['https://app1.example.com', 'https://app2.example.com']);
     });
 
+    test('parses a comma-separated appBaseUrl passed explicitly into an array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+
+      const config = getConfig({
+        appBaseUrl: 'https://app1.example.com, https://app2.example.com',
+      });
+
+      expect(config.appBaseUrl).toEqual(['https://app1.example.com', 'https://app2.example.com']);
+    });
+
+    test('keeps a single explicit appBaseUrl as a string', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+
+      const config = getConfig({ appBaseUrl: 'https://app.example.com' });
+
+      expect(config.appBaseUrl).toBe('https://app.example.com');
+    });
+
     test('keeps a single APP_BASE_URL as a string', () => {
       process.env.AUTH0_DOMAIN = 'auth0.com';
       process.env.AUTH0_CLIENT_ID = 'client_id';
