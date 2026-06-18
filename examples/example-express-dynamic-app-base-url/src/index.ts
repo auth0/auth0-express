@@ -23,21 +23,16 @@ app.use(expressLayouts);
 
 // Mount Auth0 router.
 //
-// Note that `appBaseUrl` is intentionally NOT passed here. Instead, the SDK
-// reads `APP_BASE_URL` from the environment. When that value is a
-// comma-separated list, the SDK treats it as an allow-list of origins and
-// resolves the correct base URL per request by matching the incoming origin.
+// All configuration is read from the environment (AUTH0_DOMAIN,
+// AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_SESSION_SECRET, APP_BASE_URL),
+// so no options are passed here. In particular, `APP_BASE_URL` is a
+// comma-separated list, which the SDK treats as an allow-list of origins and
+// matches against each request to resolve the correct base URL — so callbacks,
+// redirects, and logout use the right origin for each host.
 //
 // This single app serves two domains (app1.localhost and app2.localhost) on
 // the same port using the same Auth0 application.
-app.use(
-  createAuth0({
-    domain: process.env.AUTH0_DOMAIN as string,
-    clientId: process.env.AUTH0_CLIENT_ID as string,
-    clientSecret: process.env.AUTH0_CLIENT_SECRET as string,
-    sessionSecret: process.env.AUTH0_SESSION_SECRET as string,
-  })
-);
+app.use(createAuth0());
 
 // Middleware to check for session
 async function requireSession(req: Request, res: Response, next: NextFunction) {
