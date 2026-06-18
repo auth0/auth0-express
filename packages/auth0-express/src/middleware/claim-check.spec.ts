@@ -176,6 +176,35 @@ describe('claimCheck middleware', () => {
     expect(res.status).toBe(403);
   });
 
+  test('passes the request as the second argument to the check function', async () => {
+    const app = createConfiguredApp({
+      domain: 'auth0.local',
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: '<secret>',
+    });
+
+    // Authorize only when the route param matches the user's sub.
+    app.get(
+      '/users/:id',
+      requireAuth(),
+      claimCheck((claims, req) => claims.sub === req.params.id),
+      (req, res) => {
+        res.send('Own profile');
+      }
+    );
+
+    const sessionCookie = await authenticateUser(app, {});
+
+    const allowed = await request(app).get('/users/user_123').set('cookie', sessionCookie);
+    expect(allowed.status).toBe(200);
+    expect(allowed.text).toBe('Own profile');
+
+    const denied = await request(app).get('/users/someone_else').set('cookie', sessionCookie);
+    expect(denied.status).toBe(403);
+  });
+
   test('supports custom status code and error message', async () => {
     const app = createConfiguredApp({
       domain: 'auth0.local',

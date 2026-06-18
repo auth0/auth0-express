@@ -7,7 +7,8 @@ import { ClaimAuthOptions, ClaimCheckFunction } from './claim-auth.js';
  * Returns 403 Forbidden if the validation function returns false
  * or user is not authenticated.
  *
- * @param checkFn - A function that receives the user claims and returns true if authorized
+ * @param checkFn - A function that receives the user claims and the Express
+ *   request and returns true if authorized
  * @param options - Optional configuration
  * @returns Express middleware function
  *
@@ -20,10 +21,9 @@ import { ClaimAuthOptions, ClaimCheckFunction } from './claim-auth.js';
  *   res.send('Premium content');
  * });
  *
- * // Complex authorization logic
- * app.delete('/posts/:id', claimCheck(async (claims) => {
- *   const postId = req.params.id;
- *   const post = await getPost(postId);
+ * // Complex authorization logic using the request
+ * app.delete('/posts/:id', claimCheck(async (claims, req) => {
+ *   const post = await getPost(req.params.id);
  *   return claims.sub === post.authorId || claims.role === 'admin';
  * }), (req, res) => {
  *   res.send('Post deleted');
@@ -50,7 +50,7 @@ export function claimCheck(checkFn: ClaimCheckFunction, options?: ClaimAuthOptio
         });
       }
 
-      const isAuthorized = await checkFn(user as Record<string, unknown>);
+      const isAuthorized = await checkFn(user as Record<string, unknown>, req);
 
       if (!isAuthorized) {
         return res.status(options?.statusCode || 403).json({

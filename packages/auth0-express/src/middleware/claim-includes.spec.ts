@@ -92,7 +92,7 @@ describe('claimIncludes middleware', () => {
     expect(res.status).toBe(200);
   });
 
-  test('denies access when claim is not an array', async () => {
+  test('allows access when a space-delimited string claim includes all required values', async () => {
     const app = createConfiguredApp({
       domain: 'auth0.local',
       clientId: '<client_id>',
@@ -106,7 +106,49 @@ describe('claimIncludes middleware', () => {
     });
 
     const sessionCookie = await authenticateUser(app, {
-      permissions: 'delete:users', // Not an array
+      permissions: 'read:users delete:users update:users', // Space-delimited string
+    });
+    const res = await request(app).get('/admin').set('cookie', sessionCookie);
+
+    expect(res.status).toBe(200);
+  });
+
+  test('denies access when a space-delimited string claim is missing a required value', async () => {
+    const app = createConfiguredApp({
+      domain: 'auth0.local',
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: '<secret>',
+    });
+
+    app.get('/admin', requireAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
+      res.send('Admin page');
+    });
+
+    const sessionCookie = await authenticateUser(app, {
+      permissions: 'read:users update:users', // Space-delimited string, missing delete:users
+    });
+    const res = await request(app).get('/admin').set('cookie', sessionCookie);
+
+    expect(res.status).toBe(403);
+  });
+
+  test('denies access when claim is neither an array nor a string', async () => {
+    const app = createConfiguredApp({
+      domain: 'auth0.local',
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: '<secret>',
+    });
+
+    app.get('/admin', requireAuth(), claimIncludes('permissions', ['delete:users']), (req, res) => {
+      res.send('Admin page');
+    });
+
+    const sessionCookie = await authenticateUser(app, {
+      permissions: 42, // Not an array or string
     });
     const res = await request(app).get('/admin').set('cookie', sessionCookie);
 
