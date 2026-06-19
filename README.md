@@ -12,10 +12,8 @@ Auth0-Express Mono Repo, containing SDKs for implementing user authentication in
 
 Two SDKs — pick the one that matches your application:
 
-| Package | Use it for | Authenticates with |
-| --- | --- | --- |
-| [`@auth0/auth0-express`](./packages/auth0-express/README.md) | Server-rendered **web apps** where users log in. Handles login, logout, callback, and session management. | Browser session cookie |
-| [`@auth0/auth0-express-api`](./packages/auth0-express-api/README.md) | **APIs** / resource servers consumed by SPAs, mobile, or services. Validates tokens and authorizes by scopes and claims. | `Authorization: Bearer <access_token>` |
+- [`@auth0/auth0-express`](./packages/auth0-express/README.md) — for server-rendered **web apps** where users log in. Authenticates with a browser session cookie and handles login, logout, callback, and session management.
+- [`@auth0/auth0-express-api`](./packages/auth0-express-api/README.md) — for **APIs** / resource servers consumed by SPAs, mobile, or services. Authenticates with an `Authorization: Bearer <access_token>` and authorizes by scopes and claims.
 
 ## Feature Index
 
