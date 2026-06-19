@@ -1,5 +1,14 @@
 # Change Log
 
+## [v1.0.0-beta.1](https://github.com/auth0/auth0-express/releases/tag/auth0-express-api-v1.0.0-beta.1) (2026-06-19)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-api-v1.0.0-beta.0...auth0-express-api-v1.0.0-beta.1)
+
+**Breaking Changes**
+- feat(auth0-express-api): rename requireAuth to requiresAuth [\#9](https://github.com/auth0/auth0-express/pull/9) ([frederikprijck](https://github.com/frederikprijck))
+
+**Fixed**
+- fix(auth0-express): align claimIncludes and claimCheck with express-openid-connect [\#10](https://github.com/auth0/auth0-express/pull/10) ([frederikprijck](https://github.com/frederikprijck))
+
 ## [v1.0.0-beta.0](https://github.com/auth0/auth0-express/releases/tag/auth0-express-api-v1.0.0-beta.0) (2026-05-18)
 
 The `@auth0/auth0-express-api` library allows for protecting API endpoints in Express applications on a JavaScript runtime.
