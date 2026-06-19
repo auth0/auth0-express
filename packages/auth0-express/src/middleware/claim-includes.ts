@@ -11,8 +11,8 @@ import { ClaimAuthOptions } from './claim-auth.js';
  * Returns 403 Forbidden if the claim doesn't include all required values
  * or user is not authenticated.
  *
- * @param claim - The name of the array claim to check
- * @param values - The values that must be present in the claim array
+ * @param claim - The name of the claim to check
+ * @param values - The values that must be present in the claim
  * @param options - Optional configuration
  * @returns Express middleware function
  *

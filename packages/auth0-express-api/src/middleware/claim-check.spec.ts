@@ -52,6 +52,22 @@ describe('claimCheck', () => {
     expect(mockNext).toHaveBeenCalled();
   });
 
+  it('should pass the request as the second argument to the check function', async () => {
+    const middleware = claimCheck(
+      (claims, req) => claims.sub === (req.params as Record<string, string>).id
+    );
+    const req = {
+      auth0: { user: { sub: 'user123', aud: 'api', iss: 'issuer' } },
+      params: { id: 'user123' },
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await middleware(req, res as Response, mockNext as NextFunction);
+
+    expect(mockNext).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
   it('should return 401 when validation function returns false', async () => {
     const middleware = claimCheck((token) => token.sub === 'admin123');
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
@@ -151,7 +167,7 @@ describe('claimCheck', () => {
 
     await middleware(req as Request, res as Response, mockNext as NextFunction);
 
-    expect(validationFn).toHaveBeenCalledWith(token);
+    expect(validationFn).toHaveBeenCalledWith(token, req);
     expect(mockNext).toHaveBeenCalled();
   });
 
