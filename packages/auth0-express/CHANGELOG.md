@@ -1,5 +1,18 @@
 # Change Log
 
+## [v1.0.0-beta.1](https://github.com/auth0/auth0-express/releases/tag/auth0-express-v1.0.0-beta.1) (2026-06-19)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.0...auth0-express-v1.0.0-beta.1)
+
+**Breaking Changes**
+- feat(auth0-express): rename requireAuth to requiresAuth [\#8](https://github.com/auth0/auth0-express/pull/8) ([frederikprijck](https://github.com/frederikprijck))
+
+**Added**
+- feat(auth0-express): add dynamic application base URL support [\#4](https://github.com/auth0/auth0-express/pull/4) ([frederikprijck](https://github.com/frederikprijck))
+- feat(auth0-express): add Multiple Custom Domains (MCD) support [\#6](https://github.com/auth0/auth0-express/pull/6) ([frederikprijck](https://github.com/frederikprijck))
+
+**Fixed**
+- fix(auth0-express): align claimIncludes and claimCheck with express-openid-connect [\#10](https://github.com/auth0/auth0-express/pull/10) ([frederikprijck](https://github.com/frederikprijck))
+
 ## [v1.0.0-beta.0](https://github.com/auth0/auth0-express/releases/tag/auth0-express-v1.0.0-beta.0) (2026-05-18)
 
 The `@auth0/auth0-express` library allows for implementing user authentication in web applications on a JavaScript runtime.
