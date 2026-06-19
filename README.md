@@ -6,7 +6,7 @@ Auth0-Express Mono Repo, containing SDKs for implementing user authentication in
 [![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://opensource.org/license/apache-2-0)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/auth0/auth0-express)
 
-📚 [Packages](#packages) - 🔎 [Feature Index](#feature-index) - 💬 [Feedback](#feedback)
+📚 [Packages](#packages) - 🔎 [Features](#features) - 💬 [Feedback](#feedback)
 
 ## Packages
 
@@ -15,7 +15,7 @@ Two SDKs — pick the one that matches your application:
 - [`@auth0/auth0-express`](./packages/auth0-express/README.md) — for server-rendered **web apps** where users log in. Authenticates with a browser session cookie and handles login, logout, callback, and session management.
 - [`@auth0/auth0-express-api`](./packages/auth0-express-api/README.md) — for **APIs** / resource servers consumed by SPAs, mobile, or services. Authenticates with an `Authorization: Bearer <access_token>` and authorizes by scopes and claims.
 
-## Feature Index
+## Features
 
 Jump straight to the capability you need.
 
