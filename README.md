@@ -26,35 +26,31 @@ Jump straight to the capability you need.
 
 ### `@auth0/auth0-express` — Web applications
 
-| Feature | Where |
-| --- | --- |
-| Quick start (`createAuth0`) | [README → Getting Started](./packages/auth0-express/README.md#getting-started) |
-| Configure via environment variables | [README](./packages/auth0-express/README.md#using-environment-variables) · [EXAMPLES](./packages/auth0-express/EXAMPLES.md#using-environment-variables) |
-| Migrating from `express-openid-connect` (env var aliases) | [README → Using Environment Variables](./packages/auth0-express/README.md#using-environment-variables) |
-| Built-in routes (`/auth/login`, `/auth/logout`, `/auth/callback`, back-channel logout) | [README → Routes](./packages/auth0-express/README.md#routes) |
-| Custom login / logout / callback (no mounted routes) | [README → Adding Login and Logout](./packages/auth0-express/README.md#3-adding-login-and-logout) |
-| Configure or disable mounted routes | [EXAMPLES → Configuring the mounted routes](./packages/auth0-express/EXAMPLES.md#configuring-the-mounted-routes) |
-| Protect a route with a session | [README → Protecting Routes](./packages/auth0-express/README.md#4-protecting-routes) · [EXAMPLES](./packages/auth0-express/EXAMPLES.md#protecting-routes) |
-| Get the current session / user | [README → Protecting Routes](./packages/auth0-express/README.md#4-protecting-routes) |
-| Call an API on the user's behalf (`getAccessToken`) | [README → Requesting an Access Token](./packages/auth0-express/README.md#requesting-an-access-token-to-call-an-api) · [EXAMPLES](./packages/auth0-express/EXAMPLES.md#requesting-an-access-token-to-call-an-api) |
-| Authorization with claims (`claimEquals`, `claimIncludes`, `claimCheck`) | [EXAMPLES → Authorization with Claims](./packages/auth0-express/EXAMPLES.md#authorization-with-claims) |
-| Dynamic / multiple app base URLs (host inference, allow-list) | [EXAMPLES → Dynamic Application Base URLs](./packages/auth0-express/EXAMPLES.md#dynamic-application-base-urls) |
-| Multiple Custom Domains (MCD) | [EXAMPLES → Multiple Custom Domains](./packages/auth0-express/EXAMPLES.md#multiple-custom-domains-mcd) |
-| Custom `fetch` implementation | [EXAMPLES → Configuring a `customFetch`](./packages/auth0-express/EXAMPLES.md#configuring-a-customfetch-implementation) |
-| Discovery cache | [EXAMPLES → Discovery Cache](./packages/auth0-express/EXAMPLES.md#discovery-cache) |
+- [Quick start (`createAuth0`)](./packages/auth0-express/README.md#getting-started)
+- [Configure via environment variables](./packages/auth0-express/README.md#using-environment-variables) — [more examples](./packages/auth0-express/EXAMPLES.md#using-environment-variables)
+- [Migrating from `express-openid-connect` (env var aliases)](./packages/auth0-express/README.md#using-environment-variables)
+- [Built-in routes (`/auth/login`, `/auth/logout`, `/auth/callback`, back-channel logout)](./packages/auth0-express/README.md#routes)
+- [Custom login / logout / callback (no mounted routes)](./packages/auth0-express/README.md#3-adding-login-and-logout)
+- [Configure or disable mounted routes](./packages/auth0-express/EXAMPLES.md#configuring-the-mounted-routes)
+- [Protect a route with a session](./packages/auth0-express/README.md#4-protecting-routes) — [more examples](./packages/auth0-express/EXAMPLES.md#protecting-routes)
+- [Get the current session / user](./packages/auth0-express/README.md#4-protecting-routes)
+- [Call an API on the user's behalf (`getAccessToken`)](./packages/auth0-express/README.md#requesting-an-access-token-to-call-an-api) — [more examples](./packages/auth0-express/EXAMPLES.md#requesting-an-access-token-to-call-an-api)
+- [Authorization with claims (`claimEquals`, `claimIncludes`, `claimCheck`)](./packages/auth0-express/EXAMPLES.md#authorization-with-claims)
+- [Dynamic / multiple app base URLs (host inference, allow-list)](./packages/auth0-express/EXAMPLES.md#dynamic-application-base-urls)
+- [Multiple Custom Domains (MCD)](./packages/auth0-express/EXAMPLES.md#multiple-custom-domains-mcd)
+- [Custom `fetch` implementation](./packages/auth0-express/EXAMPLES.md#configuring-a-customfetch-implementation)
+- [Discovery cache](./packages/auth0-express/EXAMPLES.md#discovery-cache)
 
 ### `@auth0/auth0-express-api` — APIs
 
-| Feature | Where |
-| --- | --- |
-| Quick start (`createAuth0Api`) | [README → Getting Started](./packages/auth0-express-api/README.md#getting-started) |
-| Configure via environment variables | [EXAMPLES → Using environment variables](./packages/auth0-express-api/EXAMPLES.md#using-environment-variables) |
-| Protect an API route with a bearer token (`requiresAuth`) | [README → Protecting API Routes](./packages/auth0-express-api/README.md#protecting-api-routes) · [EXAMPLES](./packages/auth0-express-api/EXAMPLES.md#protecting-api-routes) |
-| Read token claims (`req.auth0.user`) | [README → Protecting API Routes](./packages/auth0-express-api/README.md#protecting-api-routes) |
-| Require specific scopes (`scopesInclude`, match any/all) | [EXAMPLES → Requiring specific scopes](./packages/auth0-express-api/EXAMPLES.md#requiring-specific-scopes) |
-| Authorization with claims (`claimEquals`, `claimIncludes`, `claimCheck`) | [README → Authorization with Claims](./packages/auth0-express-api/README.md#authorization-with-claims) · [EXAMPLES](./packages/auth0-express-api/EXAMPLES.md#authorization-with-claims) |
-| Custom token / user type (module augmentation) | [README → Custom Types](./packages/auth0-express-api/README.md#custom-types) · [EXAMPLES](./packages/auth0-express-api/EXAMPLES.md#custom-user-type) |
-| Custom `fetch` implementation | [EXAMPLES → Configuring a `customFetch`](./packages/auth0-express-api/EXAMPLES.md#configuring-a-customfetch-implementation) |
+- [Quick start (`createAuth0Api`)](./packages/auth0-express-api/README.md#getting-started)
+- [Configure via environment variables](./packages/auth0-express-api/EXAMPLES.md#using-environment-variables)
+- [Protect an API route with a bearer token (`requiresAuth`)](./packages/auth0-express-api/README.md#protecting-api-routes) — [more examples](./packages/auth0-express-api/EXAMPLES.md#protecting-api-routes)
+- [Read token claims (`req.auth0.user`)](./packages/auth0-express-api/README.md#protecting-api-routes)
+- [Require specific scopes (`scopesInclude`, match any/all)](./packages/auth0-express-api/EXAMPLES.md#requiring-specific-scopes)
+- [Authorization with claims (`claimEquals`, `claimIncludes`, `claimCheck`)](./packages/auth0-express-api/README.md#authorization-with-claims) — [more examples](./packages/auth0-express-api/EXAMPLES.md#authorization-with-claims)
+- [Custom token / user type (module augmentation)](./packages/auth0-express-api/README.md#custom-types) — [more examples](./packages/auth0-express-api/EXAMPLES.md#custom-user-type)
+- [Custom `fetch` implementation](./packages/auth0-express-api/EXAMPLES.md#configuring-a-customfetch-implementation)
 
 ## Running Examples
 
