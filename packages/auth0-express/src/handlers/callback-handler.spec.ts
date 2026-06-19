@@ -209,4 +209,115 @@ describe('callback handler', () => {
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('http://localhost:3000');
   });
+
+  test('redirects to the inferred base URL when appBaseUrl is omitted', async () => {
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: undefined,
+      },
+      { trustProxy: true }
+    );
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('host', 'preview.example.com')
+      .set('x-forwarded-proto', 'https')
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('https://preview.example.com');
+  });
+
+  test('returns 500 when the request host is not in the allow-list', async () => {
+    const app = createConfiguredApp({
+      domain: domain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      sessionSecret: '<secret>',
+      appBaseUrl: ['https://app1.example.com'],
+    });
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('host', 'evil.example.com')
+      .set('x-forwarded-proto', 'https')
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('InvalidConfigurationError');
+  });
+
+  test('redirects to appState.returnTo from a different allowed origin (no re-validation at callback time)', async () => {
+    // Login happened on app1, returnTo was stored for app1/dashboard.
+    // The callback arrives on app2 (also in the allow-list).
+    // Documents that returnTo is not re-validated against the callback-time
+    // base URL — the stored returnTo (app1) is used as-is.
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'],
+      },
+      { trustProxy: true }
+    );
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt(
+      { appState: { returnTo: 'https://app1.example.com/dashboard' } },
+      '<secret>',
+      cookieName,
+      Date.now() + 1000
+    );
+
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('host', 'app2.example.com')
+      .set('x-forwarded-proto', 'https')
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(302);
+    // The redirect target is the login-time returnTo, not the callback-time origin.
+    expect(res.headers.location).toBe('https://app1.example.com/dashboard');
+  });
+
+  test('falls back to callback-time base URL when appState has no returnTo (allow-list mode)', async () => {
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'],
+      },
+      { trustProxy: true }
+    );
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('host', 'app2.example.com')
+      .set('x-forwarded-proto', 'https')
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('https://app2.example.com');
+  });
 });

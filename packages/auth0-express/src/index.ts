@@ -6,3 +6,5 @@ export { claimCheck } from './middleware/claim-check.js';
 export type { RequireAuthOptions } from './middleware/require-auth.js';
 export type { ClaimAuthOptions, ClaimCheckFunction } from './middleware/claim-auth.js';
 export * from './types.js';
+export { InvalidConfigurationError } from './errors/index.js';
+export { resolveAppBaseUrl, isUrl } from './app-base-url.js';

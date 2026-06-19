@@ -1,5 +1,6 @@
 import { Request, Response } from 'express';
-import { toSafeRedirect } from '../utils.js';
+import { createRouteUrl, toSafeRedirect } from '../utils.js';
+import { resolveAppBaseUrl } from '../app-base-url.js';
 import { Auth0Options } from '../index.js';
 
 // Block both Object.prototype own-property names and commonly abused
@@ -46,13 +47,21 @@ function filterAuthorizationParams(
 
 export async function handleLogin(req: Request, res: Response, options: Auth0Options): Promise<void> {
   try {
+    const appBaseUrl = resolveAppBaseUrl(options.appBaseUrl, req);
+    const callbackPath = options.routes?.callback ?? '/auth/callback';
+    const redirectUri = createRouteUrl(callbackPath, appBaseUrl);
+
     const query = req.query as Record<string, unknown>;
     const dangerousReturnTo = query.returnTo as string | undefined;
-    const sanitizedReturnTo = toSafeRedirect(dangerousReturnTo || '/', options.appBaseUrl);
+    const sanitizedReturnTo = toSafeRedirect(dangerousReturnTo || '/', appBaseUrl);
+
     const authorizationUrl = await req.auth0.client.startInteractiveLogin({
       pushedAuthorizationRequests: options.pushedAuthorizationRequests,
       appState: { returnTo: sanitizedReturnTo },
-      authorizationParams: filterAuthorizationParams(query, ['returnTo']),
+      authorizationParams: {
+        ...filterAuthorizationParams(query, ['returnTo']),
+        redirect_uri: redirectUri.toString(),
+      },
     });
 
     res.redirect(authorizationUrl.href);

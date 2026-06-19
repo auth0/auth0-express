@@ -71,8 +71,14 @@ export function parseCookies(setCookieHeader: string | string[] | undefined): Re
   return cookies;
 }
 
-export function createConfiguredApp(options: Parameters<typeof createAuth0>[0]) {
+export function createConfiguredApp(
+  options: Parameters<typeof createAuth0>[0],
+  appOptions: { trustProxy?: boolean } = {}
+) {
   const app = express();
+  if (appOptions.trustProxy) {
+    app.set('trust proxy', true);
+  }
   app.use(cookieParser());
   app.use(express.json());
   app.use(createAuth0(options));

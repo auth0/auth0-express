@@ -69,8 +69,14 @@ export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): 
 
 export function createServerClientInstance(options: Auth0Options) {
   const callbackPath = options.routes?.callback ?? '/auth/callback';
-  const redirectUri = createRouteUrl(callbackPath, options.appBaseUrl);
-  
+  // Only a static string base URL yields a startup redirect_uri. In dynamic
+  // (undefined) or allow-list (array) mode, the login handler sets redirect_uri
+  // per request from the resolved base URL.
+  const staticAppBaseUrl = typeof options.appBaseUrl === 'string' ? options.appBaseUrl : undefined;
+  const redirectUri = staticAppBaseUrl
+    ? createRouteUrl(callbackPath, staticAppBaseUrl).toString()
+    : undefined;
+
   return new ServerClient<StoreOptions>({
     domain: options.domain,
     clientId: options.clientId,
@@ -79,7 +85,7 @@ export function createServerClientInstance(options: Auth0Options) {
     clientAssertionSigningAlg: options.clientAssertionSigningAlg,
     authorizationParams: {
       audience: options.audience,
-      redirect_uri: redirectUri.toString(),
+      redirect_uri: redirectUri,
     },
     transactionStore: new CookieTransactionStore({ secret: options.sessionSecret }, new ExpressCookieHandler()),
     stateStore: options.sessionStore

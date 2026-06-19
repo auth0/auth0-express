@@ -52,7 +52,7 @@ The `SESSION_SECRET` is the key used to encrypt the session cookie. You can gene
 openssl rand -hex 64
 ```
 
-The `APP_BASE_URL` is the URL that your application is running on. When developing locally, this is most commonly `http://localhost:3000`.
+The `APP_BASE_URL` is the URL that your application is running on. When developing locally, this is most commonly `http://localhost:3000`. `APP_BASE_URL` is optional. Omit it to infer the base URL from the request host (useful for preview deployments), or provide a comma-separated list of allowed URLs. See [Dynamic Application Base URLs](./EXAMPLES.md#dynamic-application-base-urls).
 
 #### Using Environment Variables
 
@@ -73,7 +73,7 @@ Supported environment variables:
 - `AUTH0_DOMAIN` - Your Auth0 domain
 - `AUTH0_CLIENT_ID` - Your Auth0 application client ID
 - `AUTH0_CLIENT_SECRET` - Your Auth0 application client secret (optional)
-- `APP_BASE_URL` - Your application base URL
+- `APP_BASE_URL` - Your application base URL (optional)
 - `AUTH0_SESSION_SECRET` - Secret for session encryption
 - `AUTH0_AUDIENCE` - API audience (optional)
 
