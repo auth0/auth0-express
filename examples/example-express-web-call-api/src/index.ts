@@ -1,5 +1,5 @@
-import express, { Request, Response, NextFunction } from 'express';
-import { createAuth0 } from '@auth0/auth0-express';
+import express, { Request, Response } from 'express';
+import { createAuth0, requiresAuth } from '@auth0/auth0-express';
 import expressLayouts from 'express-ejs-layouts';
 import 'dotenv/config';
 import path from 'node:path';
@@ -37,15 +37,6 @@ app.use(
   })
 );
 
-// Redirect to login if there is no active session.
-async function requireSession(req: Request, res: Response, next: NextFunction) {
-  const session = await req.auth0.client.getSession();
-  if (!session) {
-    return res.redirect(`/auth/login?returnTo=${encodeURIComponent(req.url)}`);
-  }
-  next();
-}
-
 app.get('/', async (req: Request, res: Response) => {
   const user = await req.auth0.client.getUser();
   res.render('index', { isLoggedIn: !!user, user, layout: 'layout' });
@@ -56,7 +47,9 @@ app.get('/public', async (req: Request, res: Response) => {
   res.render('public', { isLoggedIn: !!user, user, layout: 'layout' });
 });
 
-app.get('/private', requireSession, async (req: Request, res: Response) => {
+// `requiresAuth()` is the SDK's built-in guard: it redirects browser requests
+// to /auth/login (preserving returnTo) and returns 401 for API requests.
+app.get('/private', requiresAuth(), async (req: Request, res: Response) => {
   const user = await req.auth0.client.getUser();
   res.render('private', { isLoggedIn: !!user, user, layout: 'layout' });
 });
@@ -67,7 +60,7 @@ app.get('/private', requireSession, async (req: Request, res: Response) => {
 //    (requesting/refreshing it as needed).
 // 2. We call the API with the token in the `Authorization` header.
 // 3. The API validates the token and returns data, which we render.
-app.get('/call-api', requireSession, async (req: Request, res: Response) => {
+app.get('/call-api', requiresAuth(), async (req: Request, res: Response) => {
   const user = await req.auth0.client.getUser();
   const { accessToken } = await req.auth0.client.getAccessToken();
 
