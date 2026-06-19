@@ -20,11 +20,11 @@ This guide will help you migrate your Express.js API from `express-oauth2-jwt-be
 
 | Aspect | express-oauth2-jwt-bearer | @auth0/auth0-express-api |
 |--------|---------------------------|--------------------------|
-| **Import** | `auth()` | `createAuth0Api()`, `requireAuth()` |
+| **Import** | `auth()` | `createAuth0Api()`, `requiresAuth()` |
 | **Configuration** | `issuerBaseURL`, `audience` | `domain`, `audience` |
 | **Token Info** | `req.auth` | `req.auth0.user` |
 | **Protection Pattern** | Global | Per-route middleware |
-| **Scopes** | `requiredScopes()` | `requireAuth({ scopes })` |
+| **Scopes** | `requiredScopes()` | `requiresAuth({ scopes })` |
 | **Default Behavior** | Global auth required | All routes public |
 
 ### Migration Checklist
@@ -40,8 +40,8 @@ This guide will help you migrate your Express.js API from `express-oauth2-jwt-be
 
 ### Breaking Changes
 
-1. **Per-route middleware** - `requireAuth()` imported and used per-route instead of global middleware
-2. **All routes public by default** - Must explicitly protect each route with `requireAuth()`
+1. **Per-route middleware** - `requiresAuth()` imported and used per-route instead of global middleware
+2. **All routes public by default** - Must explicitly protect each route with `requiresAuth()`
 3. **Token info location** - `req.auth0.user` instead of `req.auth`
 4. **RFC 6750 errors** - Standard error format required
 5. **No global protection** - Per-route protection only
@@ -50,8 +50,8 @@ This guide will help you migrate your Express.js API from `express-oauth2-jwt-be
 
 | Issue | Solution |
 |-------|----------|
-| **"requireAuth is not a function"** | Import and call: `import { requireAuth } from '@auth0/auth0-express-api'` |
-| **Routes unprotected** | Add middleware to each protected route: `app.get('/api', requireAuth(), handler)` |
+| **"requiresAuth is not a function"** | Import and call: `import { requiresAuth } from '@auth0/auth0-express-api'` |
+| **Routes unprotected** | Add middleware to each protected route: `app.get('/api', requiresAuth(), handler)` |
 | **Token info undefined** | Use `req.auth0.user` (includes claims) not `req.auth.payload` |
 
 ---
@@ -125,7 +125,7 @@ app.get('/data', (req, res) => {
 ### After (Per-Route Middleware)
 
 ```javascript
-import { createAuth0Api, requireAuth } from '@auth0/auth0-express-api';
+import { createAuth0Api, requiresAuth } from '@auth0/auth0-express-api';
 
 // Routes are public by default
 app.use(createAuth0Api({
@@ -133,8 +133,8 @@ app.use(createAuth0Api({
   audience: 'https://your-api',
 }));
 
-// Explicitly protect routes with requireAuth middleware
-app.get('/data', requireAuth(), async (req, res) => {
+// Explicitly protect routes with requiresAuth middleware
+app.get('/data', requiresAuth(), async (req, res) => {
   res.json({ data: 'protected' });
 });
 ```
@@ -151,7 +151,7 @@ The per-route pattern provides benefits:
 ### Example: Mixed Public and Protected Routes
 
 ```javascript
-import { createAuth0Api, requireAuth } from '@auth0/auth0-express-api';
+import { createAuth0Api, requiresAuth } from '@auth0/auth0-express-api';
 
 app.use(createAuth0Api({
   domain: 'YOUR_DOMAIN',
@@ -164,12 +164,12 @@ app.get('/public', (req, res) => {
 });
 
 // Protected route
-app.get('/protected', requireAuth(), (req, res) => {
+app.get('/protected', requiresAuth(), (req, res) => {
   res.json({ data: 'protected' });
 });
 
 // Route requiring specific scope
-app.get('/admin', requireAuth({ scopes: 'admin' }), (req, res) => {
+app.get('/admin', requiresAuth({ scopes: 'admin' }), (req, res) => {
   res.json({ data: 'admin only' });
 });
 ```
@@ -195,9 +195,9 @@ app.get('/me', (req, res) => {
 ### After
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
-app.get('/me', requireAuth(), (req, res) => {
+app.get('/me', requiresAuth(), (req, res) => {
   const user = req.auth0.user;
 
   res.json({
@@ -248,12 +248,12 @@ app.get('/admin', requiredScopes('admin', 'write:all'), (req, res) => {
 ### After
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
 // Single scope
 app.get(
   '/data',
-  requireAuth({ scopes: 'read:data' }),
+  requiresAuth({ scopes: 'read:data' }),
   (req, res) => {
     res.json({ data: 'sensitive' });
   }
@@ -262,7 +262,7 @@ app.get(
 // Multiple scopes (requires ALL by default)
 app.get(
   '/admin',
-  requireAuth({ scopes: ['admin', 'write:all'] }),
+  requiresAuth({ scopes: ['admin', 'write:all'] }),
   (req, res) => {
     res.json({ data: 'admin' });
   }
@@ -272,9 +272,9 @@ app.get(
 ### Extracting Scopes from Token
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
-app.get('/scopes', requireAuth(), (req, res) => {
+app.get('/scopes', requiresAuth(), (req, res) => {
   const scopes = req.auth0.user.scope; // Space-separated string
   const scopeArray = scopes.split(' ');
 
@@ -289,7 +289,7 @@ app.get('/scopes', requireAuth(), (req, res) => {
 Validate custom claims in tokens:
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
 function requireClaim(claimName, expectedValue) {
   return (req, res, next) => {
@@ -309,7 +309,7 @@ function requireClaim(claimName, expectedValue) {
 // Usage
 app.get(
   '/admin',
-  requireAuth(),
+  requiresAuth(),
   requireClaim('https://myapp/role', 'admin'),
   (req, res) => {
     res.json({ data: 'admin' });
@@ -363,9 +363,9 @@ app.use((err, req, res, next) => {
 ### Per-Route Error Handling
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
-app.get('/protected', requireAuth(), (req, res, next) => {
+app.get('/protected', requiresAuth(), (req, res, next) => {
   try {
     const user = req.auth0.user;
 
@@ -387,18 +387,18 @@ app.get('/protected', requireAuth(), (req, res, next) => {
 
 ## Testing
 
-Mock the `requireAuth` middleware:
+Mock the `requiresAuth` middleware:
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
-// Mock requireAuth for testing
+// Mock requiresAuth for testing
 jest.mock('@auth0/auth0-express-api', () => ({
   createAuth0Api: jest.fn(() => (req, res, next) => {
     req.auth0.client = {}; // Mock API client
     next();
   }),
-  requireAuth: jest.fn((options = {}) => {
+  requiresAuth: jest.fn((options = {}) => {
     return (req, res, next) => {
       // Mock authenticated user
       req.auth0 = {
@@ -520,15 +520,15 @@ function createMockAuth(overrides: Partial<MockUser> = {}): MockUser {
 ### Pattern 1: Create Reusable Middleware
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
-const requireAuthMiddleware = requireAuth();
+const requiresAuthMiddleware = requiresAuth();
 
-app.get('/api/users', requireAuthMiddleware, (req, res) => {
+app.get('/api/users', requiresAuthMiddleware, (req, res) => {
   res.json({ users: [] });
 });
 
-app.get('/api/posts', requireAuthMiddleware, (req, res) => {
+app.get('/api/posts', requiresAuthMiddleware, (req, res) => {
   res.json({ posts: [] });
 });
 ```
@@ -536,11 +536,11 @@ app.get('/api/posts', requireAuthMiddleware, (req, res) => {
 ### Pattern 2: Scope-Specific Routes
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
-const readRoute = requireAuth({ scopes: 'read:data' });
-const writeRoute = requireAuth({ scopes: 'write:data' });
-const adminRoute = requireAuth({ scopes: 'admin' });
+const readRoute = requiresAuth({ scopes: 'read:data' });
+const writeRoute = requiresAuth({ scopes: 'write:data' });
+const adminRoute = requiresAuth({ scopes: 'admin' });
 
 app.get('/api/data', readRoute, (req, res) => {
   res.json({ data: [] });
@@ -558,12 +558,12 @@ app.delete('/api/data/:id', adminRoute, (req, res) => {
 ### Pattern 3: Router-Level Protection
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
 const router = express.Router();
 
 // Protect entire router
-router.use(requireAuth({ scopes: 'admin' }));
+router.use(requiresAuth({ scopes: 'admin' }));
 
 router.get('/users', (req, res) => {
   res.json({ users: [] });
@@ -583,7 +583,7 @@ app.use('/admin', router);
 Allow routes to work with or without authentication:
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
 // Public route - works without token
 app.get('/public', (req, res) => {
@@ -602,7 +602,7 @@ app.get('/optional', (req, res) => {
 });
 
 // Protected route - requires token
-app.get('/protected', requireAuth(), (req, res) => {
+app.get('/protected', requiresAuth(), (req, res) => {
   res.json({ data: req.auth0.user });
 });
 ```
@@ -614,14 +614,14 @@ app.get('/protected', requireAuth(), (req, res) => {
 Route requests to different APIs based on audience:
 
 ```javascript
-import { createAuth0Api, requireAuth } from '@auth0/auth0-express-api';
+import { createAuth0Api, requiresAuth } from '@auth0/auth0-express-api';
 
 app.use(createAuth0Api({
   domain: 'YOUR_DOMAIN',
   audience: 'https://api-1', // Single audience
 }));
 
-app.get('/api1-data', requireAuth(), (req, res) => {
+app.get('/api1-data', requiresAuth(), (req, res) => {
   const user = req.auth0.user;
 
   if (user.aud === 'https://api-1') {
@@ -653,7 +653,7 @@ app.use(createAuth0Api({
   audience: 'https://your-api',
 }));
 
-app.get('/data', requireAuth(), (req, res) => {
+app.get('/data', requiresAuth(), (req, res) => {
   res.json({ data: 'protected' });
 });
 ```
@@ -682,31 +682,31 @@ app.use(cors({
 
 ## Troubleshooting
 
-### "requireAuth is not a function"
+### "requiresAuth is not a function"
 
-**Problem:** Not importing `requireAuth` from the package.
+**Problem:** Not importing `requiresAuth` from the package.
 
 **Solution:**
 ```javascript
-// Wrong - not importing requireAuth
-app.get('/api', requireAuth(), handler);
+// Wrong - not importing requiresAuth
+app.get('/api', requiresAuth(), handler);
 
-// Correct - import requireAuth
-import { requireAuth } from '@auth0/auth0-express-api';
-app.get('/api', requireAuth(), handler);
+// Correct - import requiresAuth
+import { requiresAuth } from '@auth0/auth0-express-api';
+app.get('/api', requiresAuth(), handler);
 
 // Also correct - with options
-app.get('/api', requireAuth({ scopes: ['read'] }), handler);
+app.get('/api', requiresAuth({ scopes: ['read'] }), handler);
 ```
 
 ### Route not protected - user is undefined
 
 **Problem:** Route is public but should be protected.
 
-**Solution:** Make sure to add `requireAuth()` middleware to each protected route:
+**Solution:** Make sure to add `requiresAuth()` middleware to each protected route:
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
 // Wrong - route not protected
 app.get('/api', (req, res) => {
@@ -714,7 +714,7 @@ app.get('/api', (req, res) => {
 });
 
 // Correct - route protected
-app.get('/api', requireAuth(), (req, res) => {
+app.get('/api', requiresAuth(), (req, res) => {
   const user = req.auth0.user; // Defined
 });
 ```
@@ -729,9 +729,9 @@ app.get('/api', requireAuth(), (req, res) => {
 3. Check issuer: `user.iss === 'https://YOUR_DOMAIN/'`
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
-app.get('/debug', requireAuth(), (req, res) => {
+app.get('/debug', requiresAuth(), (req, res) => {
   const now = Math.floor(Date.now() / 1000);
   res.json({
     token: req.auth0.user,
@@ -751,9 +751,9 @@ app.get('/debug', requireAuth(), (req, res) => {
 3. Request new token with required scopes
 
 ```javascript
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
-app.get('/scopes', requireAuth(), (req, res) => {
+app.get('/scopes', requiresAuth(), (req, res) => {
   const scopes = req.auth0.user.scope.split(' ');
   res.json({ scopes });
 });
@@ -776,8 +776,8 @@ const role = req.auth0.user['https://myapp/role']; // Defined
 <details>
 <summary><strong>Top 5 Issues (Quickfix)</strong></summary>
 
-1. **"requireAuth is not a function"** → Import: `import { requireAuth } from '@auth0/auth0-express-api'`
-2. **Routes unprotected** → Add middleware: `requireAuth()` on each route
+1. **"requiresAuth is not a function"** → Import: `import { requiresAuth } from '@auth0/auth0-express-api'`
+2. **Routes unprotected** → Add middleware: `requiresAuth()` on each route
 3. **Token info undefined** → Use `req.auth0.user` not `req.auth.payload`
 4. **CORS preflight fails** → Register cors middleware BEFORE auth router
 5. **Custom claims undefined** → Use full namespace: `user['https://myapp/role']`
@@ -819,7 +819,7 @@ function hasWriteAccess(req, res, next) {
 
 ```javascript
 // Scopes tied to specific resources
-app.get('/api/documents/:id', requireAuth(), (req, res) => {
+app.get('/api/documents/:id', requiresAuth(), (req, res) => {
   const docId = req.params.id;
   const required = `read:document:${docId}`;
 
@@ -856,10 +856,10 @@ Clients must provide DPoP proof with each request.
 
 | Feature | Before | After | Migration |
 |---------|--------|-------|-----------|
-| **Protection** | Global | Per-route | Import and use `requireAuth()` middleware |
+| **Protection** | Global | Per-route | Import and use `requiresAuth()` middleware |
 | **Token info** | `req.auth.payload` | `req.auth0.user` | Change property |
-| **Scopes** | `requiredScopes()` middleware | `requireAuth({ scopes })` option | Pass scopes to `requireAuth()` |
-| **Default behavior** | Protected globally | Public by default | Add `requireAuth()` to protect |
+| **Scopes** | `requiredScopes()` middleware | `requiresAuth({ scopes })` option | Pass scopes to `requiresAuth()` |
+| **Default behavior** | Protected globally | Public by default | Add `requiresAuth()` to protect |
 | **Error format** | Custom | RFC 6750 standard | Update error responses |
 
 ---

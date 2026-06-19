@@ -118,14 +118,14 @@ For the complete list of available methods, please refer to the [@auth0/auth0-ap
 
 ### Basic authentication
 
-In order to protect an API route, you can use the `requireAuth` middleware:
+In order to protect an API route, you can use the `requiresAuth` middleware:
 
 ```ts
-import { requireAuth } from '@auth0/auth0-express-api';
+import { requiresAuth } from '@auth0/auth0-express-api';
 
 app.get(
   '/protected-api',
-  requireAuth(),
+  requiresAuth(),
   async (req, res) => {
     res.json({ message: `Hello, ${req.auth0.user.sub}` });
   }
@@ -136,12 +136,12 @@ The SDK exposes the claims, extracted from the token, as the `user` property on 
 
 ### Requiring specific scopes
 
-You can require **all** of the specified scopes by passing them to the `requireAuth` middleware:
+You can require **all** of the specified scopes by passing them to the `requiresAuth` middleware:
 
 ```ts
 app.get(
   '/admin/edit',
-  requireAuth({ scopes: ['read:admin', 'write:admin'] }),
+  requiresAuth({ scopes: ['read:admin', 'write:admin'] }),
   async (req, res) => {
     res.json({ message: 'Admin editor access granted' });
   }
@@ -153,12 +153,12 @@ app.get(
 The `scopesInclude` middleware allows you to check for multiple scopes with flexible matching:
 
 ```ts
-import { requireAuth, scopesInclude } from '@auth0/auth0-express-api';
+import { requiresAuth, scopesInclude } from '@auth0/auth0-express-api';
 
 // Match ANY of the scopes (default behavior)
 app.get(
   '/messages',
-  requireAuth(),
+  requiresAuth(),
   scopesInclude('read:messages read:admin'),
   async (req, res) => {
     res.json({ message: 'Access granted with either scope' });
@@ -168,7 +168,7 @@ app.get(
 // Match ALL of the scopes
 app.get(
   '/admin/edit',
-  requireAuth(),
+  requiresAuth(),
   scopesInclude('read:admin write:admin', { match: 'all' }),
   async (req, res) => {
     res.json({ message: 'Access granted with both scopes' });
@@ -180,10 +180,10 @@ You can also pass an array of scopes:
 
 ```ts
 // Match ANY (default)
-app.get('/messages', requireAuth(), scopesInclude(['read:messages', 'read:admin']), handler);
+app.get('/messages', requiresAuth(), scopesInclude(['read:messages', 'read:admin']), handler);
 
 // Match ALL
-app.get('/admin/edit', requireAuth(), scopesInclude(['read:admin', 'write:admin'], { match: 'all' }), handler);
+app.get('/admin/edit', requiresAuth(), scopesInclude(['read:admin', 'write:admin'], { match: 'all' }), handler);
 ```
 
 ### Custom user type
@@ -205,7 +205,7 @@ Doing so will change the user type on the `req.auth0.user` object automatically:
 ```ts
 app.get(
   '/protected-api',
-  requireAuth(),
+  requiresAuth(),
   async (req, res) => {
     res.json({ message: `Hello, ${req.auth0.user.name}` });
   }
@@ -224,11 +224,11 @@ Beyond scope-based authorization, you can authorize requests based on specific t
 Check if a claim equals a specific value:
 
 ```ts
-import { requireAuth, claimEquals } from '@auth0/auth0-express-api';
+import { requiresAuth, claimEquals } from '@auth0/auth0-express-api';
 
 app.get(
   '/admin',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('isAdmin', true),
   async (req, res) => {
     res.json({ message: 'Admin access granted' });
@@ -240,13 +240,13 @@ The `claimEquals` middleware supports strings, numbers, and booleans values:
 
 ```ts
 // String comparison
-app.get('/vip', requireAuth(), claimEquals('tier', 'premium'), handler);
+app.get('/vip', requiresAuth(), claimEquals('tier', 'premium'), handler);
 
 // Number comparison
-app.get('/level-5', requireAuth(), claimEquals('level', 5), handler);
+app.get('/level-5', requiresAuth(), claimEquals('level', 5), handler);
 
 // Boolean comparison
-app.get('/verified', requireAuth(), claimEquals('emailVerified', true), handler);
+app.get('/verified', requiresAuth(), claimEquals('emailVerified', true), handler);
 ```
 
 ### Using claimIncludes
@@ -254,11 +254,11 @@ app.get('/verified', requireAuth(), claimEquals('emailVerified', true), handler)
 Check if a claim (array or space-separated string) includes all specified values:
 
 ```ts
-import { requireAuth, claimIncludes } from '@auth0/auth0-express-api';
+import { requiresAuth, claimIncludes } from '@auth0/auth0-express-api';
 
 app.get(
   '/admin/edit',
-  requireAuth(),
+  requiresAuth(),
   claimIncludes('roles', ['admin', 'editor']),
   async (req, res) => {
     res.json({ message: 'Access granted to admin editors' });
@@ -272,11 +272,11 @@ app.get(
 For complex authorization logic, use `claimCheck` with a custom validation function:
 
 ```ts
-import { requireAuth, claimCheck } from '@auth0/auth0-express-api';
+import { requiresAuth, claimCheck } from '@auth0/auth0-express-api';
 
 app.get(
   '/premium-content',
-  requireAuth(),
+  requiresAuth(),
   claimCheck(
     (token) => {
       // Custom logic: require either premium tier OR admin role
@@ -295,4 +295,4 @@ The validation function receives the full token payload and should return `true`
 The second parameter is an optional configuration object that can include a custom error message to be returned if the check fails. If not provided, a default error message will be used.
 
 > [!NOTE]
-> All claim authorization middlewares should be used **after** `requireAuth()` to ensure a valid token is present. They will return 401 errors if the token doesn't meet the required claim conditions.
+> All claim authorization middlewares should be used **after** `requiresAuth()` to ensure a valid token is present. They will return 401 errors if the token doesn't meet the required claim conditions.

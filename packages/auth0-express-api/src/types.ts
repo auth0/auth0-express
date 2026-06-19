@@ -1,4 +1,4 @@
-export interface RequireAuthOptions {
+export interface RequiresAuthOptions {
   scopes?: string | string[];
 }
 

@@ -12,13 +12,13 @@ import { ClaimAuthOptions, sendBearerError, ClaimCheckFunction } from './claim-a
  * @example
  * ```ts
  * // Require admin with editor role
- * router.get('/admin/edit', requireAuth(), claimCheck(
+ * router.get('/admin/edit', requiresAuth(), claimCheck(
  *   ({ isAdmin, roles }) => isAdmin && roles?.includes('editor'),
  *   { errorMessage: 'Requires admin with editor role' }
  * ), handler);
  *
  * // Legacy string support
- * router.get('/admin/edit', requireAuth(), claimCheck(
+ * router.get('/admin/edit', requiresAuth(), claimCheck(
  *   ({ isAdmin, roles }) => isAdmin && roles?.includes('editor'),
  *   'Requires admin with editor role'
  * ), handler);

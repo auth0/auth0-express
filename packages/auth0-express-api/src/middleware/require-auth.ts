@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import type { RequireAuthOptions, Token } from '../types.js';
+import type { RequiresAuthOptions, Token } from '../types.js';
 import { sendBearerError } from './claim-auth.js';
 
 function validateScopes(token: Token, requiredScopes: string | string[]): boolean {
@@ -23,10 +23,10 @@ function getToken(req: Request): string | undefined {
 
 /**
  * Middleware factory to require authentication on a route
- * @param options RequireAuthOptions
+ * @param options RequiresAuthOptions
  * @returns Express middleware function
  */
-export function requireAuth(options: RequireAuthOptions = {}) {
+export function requiresAuth(options: RequiresAuthOptions = {}) {
   return async (req: Request, res: Response, next: NextFunction) => {
     const apiClient = req.auth0?.client;
 
