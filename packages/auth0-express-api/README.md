@@ -8,12 +8,27 @@ The Auth0 Express-API SDK is a library for protecting API's in Express applicati
 ![Downloads](https://img.shields.io/npm/dw/@auth0/auth0-express-api)
 [![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://opensource.org/license/apache-2-0)
 
-📚 [Documentation](#documentation) - 🚀 [Getting Started](#getting-started) - 💬 [Feedback](#feedback)
+📚 [Documentation](#documentation) - 🔎 [Features](#features) - 🚀 [Getting Started](#getting-started) - 💬 [Feedback](#feedback)
 
 ## Documentation
 
 - [Examples](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express-api/EXAMPLES.md) - examples for your different use cases.
 - [Docs Site](https://auth0.com/docs) - explore our docs site and learn more about Auth0.
+
+## Features
+
+Jump straight to the capability you need.
+
+| Feature | What it does |
+| --- | --- |
+| [Quick start](#getting-started) | Protect an API with `createAuth0Api` in a few lines |
+| [Environment variables](./EXAMPLES.md#using-environment-variables) | Configure from `AUTH0_*` env vars instead of hardcoding |
+| [Protect an API route (`requiresAuth`)](#protecting-api-routes) | Require a valid bearer access token |
+| [Read token claims (`req.auth0.user`)](#protecting-api-routes) | Access claims extracted from the verified token |
+| [Require specific scopes](./EXAMPLES.md#requiring-specific-scopes) | Gate routes with `scopesInclude` (match any or all) |
+| [Authorization with claims](#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
+| [Custom token / user type](#custom-types) | Type your custom claims via module augmentation |
+| [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
 
 ## Getting Started
 
