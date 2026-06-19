@@ -6,19 +6,16 @@ Auth0-Express Mono Repo, containing SDKs for implementing user authentication in
 [![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://opensource.org/license/apache-2-0)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/auth0/auth0-express)
 
-📚 [Packages](#packages) - 🧭 [Choosing an SDK](#choosing-an-sdk) - 🔎 [Feature Index](#feature-index) - 💬 [Feedback](#feedback)
+📚 [Packages](#packages) - 🔎 [Feature Index](#feature-index) - 💬 [Feedback](#feedback)
 
 ## Packages
 
-- [`@auth0/auth0-express`](./packages/auth0-express/README.md) - Authentication SDK for **Express web applications** (server-rendered apps using sessions/cookies). Handles login, logout, callback, and session management.
-- [`@auth0/auth0-express-api`](./packages/auth0-express-api/README.md) - Authentication SDK for **Express APIs** (resource servers). Validates bearer access tokens and authorizes requests by scopes and claims.
+Two SDKs — pick the one that matches your application:
 
-## Choosing an SDK
-
-| Your application | Use | Authenticates with |
+| Package | Use it for | Authenticates with |
 | --- | --- | --- |
-| A server-rendered web app where users log in (sessions/cookies) | [`@auth0/auth0-express`](./packages/auth0-express/README.md) | Browser session cookie |
-| An API / resource server consumed by SPAs, mobile, or services | [`@auth0/auth0-express-api`](./packages/auth0-express-api/README.md) | `Authorization: Bearer <access_token>` |
+| [`@auth0/auth0-express`](./packages/auth0-express/README.md) | Server-rendered **web apps** where users log in. Handles login, logout, callback, and session management. | Browser session cookie |
+| [`@auth0/auth0-express-api`](./packages/auth0-express-api/README.md) | **APIs** / resource servers consumed by SPAs, mobile, or services. Validates tokens and authorizes by scopes and claims. | `Authorization: Bearer <access_token>` |
 
 ## Feature Index
 
