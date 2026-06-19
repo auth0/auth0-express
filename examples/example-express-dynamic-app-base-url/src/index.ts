@@ -1,5 +1,5 @@
-import express, { Request, Response, NextFunction } from 'express';
-import { createAuth0 } from '@auth0/auth0-express';
+import express, { Request, Response } from 'express';
+import { createAuth0, requiresAuth } from '@auth0/auth0-express';
 import expressLayouts from 'express-ejs-layouts';
 import 'dotenv/config';
 import path from 'node:path';
@@ -34,17 +34,6 @@ app.use(expressLayouts);
 // the same port using the same Auth0 application.
 app.use(createAuth0());
 
-// Middleware to check for session
-async function requireSession(req: Request, res: Response, next: NextFunction) {
-  const session = await req.auth0.client.getSession();
-
-  if (!session) {
-    return res.redirect(`/auth/login?returnTo=${encodeURIComponent(req.url)}`);
-  }
-
-  next();
-}
-
 // Routes
 app.get('/', async (req: Request, res: Response) => {
   const user = await req.auth0.client.getUser();
@@ -63,7 +52,7 @@ app.get('/public', async (req: Request, res: Response) => {
   });
 });
 
-app.get('/private', requireSession, async (req: Request, res: Response) => {
+app.get('/private', requiresAuth(), async (req: Request, res: Response) => {
   const user = await req.auth0.client.getUser();
 
   res.render('private', {
