@@ -6,6 +6,7 @@
   - [Configuring the mounted routes](#configuring-the-mounted-routes)
   - [Configuring a customFetch implementation](#configuring-a-customfetch-implementation)
   - [Dynamic Application Base URLs](#dynamic-application-base-urls)
+  - [Discovery Cache](#discovery-cache)
 - [The `ServerClient` instance](#the-serverclient-instance)
 - [Protecting Routes](#protecting-routes)
   - [Using requiresAuth middleware](#using-requiresauth-middleware)
@@ -15,6 +16,7 @@
   - [Using claimIncludes](#using-claimincludes)
   - [Using claimCheck for custom logic](#using-claimcheck-for-custom-logic)
 - [Requesting an Access Token to call an API](#requesting-an-access-token-to-call-an-api)
+- [Multiple Custom Domains (MCD)](#multiple-custom-domains-mcd)
 
 ## Configuration
 
@@ -183,6 +185,22 @@ APP_BASE_URL=https://app.example.com,https://myapp.vercel.app
 
 > [!NOTE]
 > When relying on dynamic base URLs (omitted `appBaseUrl`) in production (`NODE_ENV=production`), the SDK enforces a secure session cookie. Explicitly setting `sessionConfiguration.cookie.secure = false` throws `InvalidConfigurationError`.
+
+### Discovery Cache
+
+By default the SDK caches OIDC discovery metadata and JWKS in memory (TTL 600s, max 100 entries), delegated to `@auth0/auth0-server-js`. Cache entries are scoped per resolved Auth0 domain, so each domain keeps its own discovery/JWKS data.
+
+```ts
+app.use(createAuth0({
+  // other options...
+  discoveryCache: { ttl: 800, maxEntries: 200 },
+}));
+```
+
+Most apps can keep the defaults. Adjust them when:
+
+- **`maxEntries`** — raise it if one process serves more than ~100 distinct Auth0 domains within the TTL window (common in larger MCD deployments).
+- **`ttl`** — raise it to reduce repeated discovery/JWKS fetches; lower it to pick up metadata/signing-key changes sooner; set `0` to effectively disable the cache.
 
 ## The `ServerClient` instance
 
@@ -383,3 +401,73 @@ Retrieving the token can be achieved by using `getAccessToken`:
 const accessTokenResult = await req.auth0.client.getAccessToken({ request: req, response: res });
 console.log(accessTokenResult.accessToken);
 ```
+
+## Multiple Custom Domains (MCD)
+
+Multiple Custom Domains (MCD) lets you resolve the Auth0 domain per request while using a single `createAuth0` instance. This is useful when one application serves multiple customer domains (for example, `brand-1.my-app.com` and `brand-2.my-app.com`), each mapped to a different Auth0 custom domain.
+
+MCD is enabled by passing a **domain resolver function** to `domain` instead of a static string. The resolver receives the Express request context (`{ request, response }`) and returns the Auth0 custom domain for that request.
+
+> Resolver mode is intended for the custom domains of a **single** Auth0 tenant. It is not a supported way to connect multiple Auth0 tenants to one application.
+
+### Host-based resolver with a default fallback
+
+```ts
+import { createAuth0, DomainResolver, StoreOptions } from '@auth0/auth0-express';
+
+const defaultAuth0Domain = 'auth.custom-domain.com';
+const domainsByHost: Record<string, string> = {
+  'brand-1.my-app.com': 'auth.custom-domain-1.com',
+  'brand-2.my-app.com': 'auth.custom-domain-2.com',
+};
+
+const domainResolver: DomainResolver<StoreOptions> = (storeOptions) => {
+  const host = storeOptions?.request?.headers.host;
+  return (host && domainsByHost[host]) || defaultAuth0Domain;
+};
+
+app.use(createAuth0({
+  domain: domainResolver,
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  sessionSecret: '<SESSION_SECRET>',
+  appBaseUrl: '<APP_BASE_URL>',
+}));
+```
+
+### Header-to-domain map (trusted app routing context)
+
+```ts
+import { DomainResolver, StoreOptions } from '@auth0/auth0-express';
+
+const headerValueToAuth0Domain: Record<string, string> = {
+  workspace_a: 'workspace-a.custom-domain.com',
+  workspace_b: 'workspace-b.custom-domain.com',
+};
+
+const domainResolver: DomainResolver<StoreOptions> = (storeOptions) => {
+  // App-specific routing key, not Auth0 tenant metadata.
+  const routingKey = storeOptions?.request?.headers['x-tenant-id'] as string | undefined;
+  return (routingKey && headerValueToAuth0Domain[routingKey]) || 'auth.custom-domain.com';
+};
+```
+
+### `appBaseUrl` in resolver mode
+
+`appBaseUrl` behaves exactly as documented in [Dynamic Application Base URLs](#dynamic-application-base-urls):
+
+- provide a static string or allow-list, **or**
+- omit it to infer the base URL from the request host (enable Express `trust proxy` when behind a proxy).
+
+If you omit `appBaseUrl`, register every inferred origin in Auth0 as an **Allowed Callback URL** and **Allowed Logout URL**.
+
+### Backchannel logout requests
+
+The backchannel logout route (mounted by default) is called **server-to-server by Auth0**, not by the end-user's browser. Such requests do not carry the tenant's `Host` (or any app-specific routing header), so a host- or header-based resolver will not find a match for them. Make sure your resolver returns a sensible default in that case — the fallback in the examples above (`|| defaultAuth0Domain`) handles this. If you have no meaningful default, detect the backchannel logout path and return the appropriate domain explicitly.
+
+### Security requirements
+
+When resolving tenant custom domains via a resolver, you are responsible for ensuring all resolved domains are trusted. Mis-configuring the resolver is a critical security risk that can lead to authentication bypass on the relying party (RP) or Server-Side Request Forgery (SSRF).
+
+- **Single-tenant only:** resolvers are for multiple custom domains of one Auth0 tenant, not for connecting multiple tenants.
+- **Secure proxy:** when inferring the host from request headers, deploy behind a trusted edge/reverse proxy (Cloudflare, Nginx, AWS ALB) that sanitizes and overwrites `Host` / `X-Forwarded-Host` before they reach the app. Without that, an attacker can influence domain resolution and produce malicious redirects during login/logout. See the `trust proxy` and allow-list guidance under [Dynamic Application Base URLs](#dynamic-application-base-urls).

@@ -1,5 +1,12 @@
-import { SessionConfiguration, SessionStore } from '@auth0/auth0-server-js';
+import type {
+  DiscoveryCacheOptions,
+  DomainResolver,
+  SessionConfiguration,
+  SessionStore,
+} from '@auth0/auth0-server-js';
 import type { Request, Response } from 'express';
+
+export type { DomainResolver, DiscoveryCacheOptions } from '@auth0/auth0-server-js';
 
 /**
  * Options passed to custom session store implementations.
@@ -47,8 +54,14 @@ export interface StoreOptions {
  * ```
  */
 export interface Auth0Options {
-  /** Auth0 domain (e.g., 'tenant.auth0.com') without protocol */
-  domain: string;
+  /**
+   * Auth0 domain (e.g., 'tenant.auth0.com') without protocol.
+   *
+   * Provide a `DomainResolver` function to resolve the Auth0 custom domain
+   * per request (Multiple Custom Domains). The resolver receives the Express
+   * request context (`{ request, response }`) and returns the domain string.
+   */
+  domain: string | DomainResolver<StoreOptions>;
   /** Auth0 application client ID */
   clientId: string;
   /** Auth0 application client secret (required for token exchange) */
@@ -90,6 +103,14 @@ export interface Auth0Options {
    * Useful for proxies, custom headers, or testing.
    */
   customFetch?: typeof fetch;
+
+  /**
+   * Optional discovery cache configuration for OIDC metadata and JWKS.
+   * `ttl` is in seconds. Cache entries are scoped per resolved domain, which
+   * matters for MCD deployments serving many domains. Defaults to the
+   * `ServerClient` defaults (TTL 600s, max 100 entries) when omitted.
+   */
+  discoveryCache?: DiscoveryCacheOptions;
 
   /** Custom paths for authentication routes (only used if mountRoutes is true) */
   routes?: {

@@ -13,6 +13,7 @@ import { claimIncludes } from './middleware/claim-includes.js';
 import { requiresAuth } from './middleware/require-auth.js';
 
 const domain = 'auth0.local';
+const mcdDomain = 'tenant-b.custom-domain.com';
 let accessToken: string;
 let idToken: string;
 let mockOpenIdConfiguration = {
@@ -59,6 +60,17 @@ afterAll(() => server.close());
 beforeEach(async () => {
   accessToken = await generateToken(domain, 'user_123');
   idToken = await generateToken(domain, 'user_123', '<client_id>');
+  server.use(
+    http.get(`https://${mcdDomain}/.well-known/openid-configuration`, () =>
+      HttpResponse.json({
+        issuer: `https://${mcdDomain}/`,
+        authorization_endpoint: `https://${mcdDomain}/authorize`,
+        backchannel_authentication_endpoint: `https://${mcdDomain}/custom-authorize`,
+        token_endpoint: `https://${mcdDomain}/custom/token`,
+        end_session_endpoint: `https://${mcdDomain}/logout`,
+      })
+    )
+  );
 });
 
 afterEach(() => {
@@ -192,6 +204,67 @@ test('auth/login uses custom route when provided', async () => {
   expect(url.host).toBe(domain);
   expect(url.pathname).toBe('/authorize');
   expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3000/custom-auth/callback');
+});
+
+test('auth/login uses the domain resolver to pick the authorize host', async () => {
+  const app = createConfiguredApp({
+    domain: async () => mcdDomain,
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+    appBaseUrl: 'http://localhost:3000',
+    sessionSecret: '<secret>',
+  });
+
+  const res = await request(app).get('/auth/login');
+  const url = new URL(res.headers['location']?.toString() ?? '');
+
+  expect(res.status).toBe(302);
+  expect(url.host).toBe(mcdDomain);
+  expect(url.pathname).toBe('/authorize');
+  expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3000/auth/callback');
+});
+
+test('domain resolver receives the Express request context', async () => {
+  let seenHost: string | undefined;
+  const app = createConfiguredApp({
+    domain: (storeOptions) => {
+      seenHost = storeOptions?.request?.headers['x-tenant'] as string | undefined;
+      return mcdDomain;
+    },
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+    appBaseUrl: 'http://localhost:3000',
+    sessionSecret: '<secret>',
+  });
+
+  const res = await request(app).get('/auth/login').set('x-tenant', 'tenant-b');
+
+  expect(res.status).toBe(302);
+  expect(seenHost).toBe('tenant-b');
+});
+
+test('auth/login with a resolver infers appBaseUrl when omitted', async () => {
+  const app = createConfiguredApp(
+    {
+      domain: async () => mcdDomain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: undefined,
+      sessionSecret: '<secret>',
+    },
+    { trustProxy: true }
+  );
+
+  const res = await request(app)
+    .get('/auth/login')
+    .set('host', 'app.example.com')
+    .set('x-forwarded-proto', 'https')
+    .set('x-forwarded-host', 'app.example.com');
+  const url = new URL(res.headers['location']?.toString() ?? '');
+
+  expect(res.status).toBe(302);
+  expect(url.host).toBe(mcdDomain);
+  expect(url.searchParams.get('redirect_uri')).toBe('https://app.example.com/auth/callback');
 });
 
 test('auth/callback redirects to /', async () => {

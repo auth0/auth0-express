@@ -45,3 +45,34 @@ jobs:
 
       - name: Test example-express-dynamic-app-base-url
         run: npm run test:ci -w example-express-dynamic-app-base-url
+
+  example-express-mcd:
+    name: Multiple Custom Domains
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js with npm caching
+        uses: actions/setup-node@v6
+        with:
+          node-version: 24
+          package-manager-cache: false
+
+      - name: Update npm
+        run: npm install -g npm@11.10.0
+
+      - name: Install dependencies
+        run: npm install
+
+      # The example imports @auth0/auth0-express from its built dist, so the
+      # SDK must be built before the example can build or test.
+      - name: Build auth0-express
+        run: npm run build -w @auth0/auth0-express
+
+      - name: Build example-express-mcd
+        run: npm run build -w example-express-mcd
+
+      - name: Test example-express-mcd
+        run: npm run test:ci -w example-express-mcd
