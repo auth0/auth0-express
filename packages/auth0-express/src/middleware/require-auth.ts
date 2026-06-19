@@ -1,9 +1,9 @@
 import { Request, Response, NextFunction } from 'express';
 
 /**
- * Options for the requireAuth middleware.
+ * Options for the requiresAuth middleware.
  */
-export interface RequireAuthOptions {
+export interface RequiresAuthOptions {
   /**
    * If true, returns a 401 status instead of redirecting to login.
    * Useful for API routes that should not redirect.
@@ -26,23 +26,23 @@ export interface RequireAuthOptions {
  * @example
  * ```typescript
  * // Protect a route
- * app.get('/profile', requireAuth(), (req, res) => {
+ * app.get('/profile', requiresAuth(), (req, res) => {
  *   res.json({ user: await req.auth0.client.getUser() });
  * });
  *
  * // Protect an API route (returns 401 instead of redirecting)
- * app.get('/api/me', requireAuth(), async (req, res) => {
+ * app.get('/api/me', requiresAuth(), async (req, res) => {
  *   const user = await req.auth0.client.getUser();
  *   res.json({ user });
  * });
  *
  * // Custom return URL after login
- * app.get('/admin', requireAuth({ returnTo: '/admin' }), (req, res) => {
+ * app.get('/admin', requiresAuth({ returnTo: '/admin' }), (req, res) => {
  *   res.send('Admin page');
  * });
  * ```
  */
-export function requireAuth(options?: RequireAuthOptions) {
+export function requiresAuth(options?: RequiresAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
       const user = await req.auth0.client.getUser();

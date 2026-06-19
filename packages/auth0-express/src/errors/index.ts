@@ -1,3 +1,5 @@
+export { InvalidConfigurationError } from '@auth0/auth0-server-js';
+
 export class MissingStoreOptionsError extends Error {
   public code: string = 'missing_store_options_error';
 

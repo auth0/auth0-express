@@ -10,9 +10,10 @@ import { decrypt, encrypt } from './test-utils/encryption.js';
 import { claimCheck } from './middleware/claim-check.js';
 import { claimEquals } from './middleware/claim-equals.js';
 import { claimIncludes } from './middleware/claim-includes.js';
-import { requireAuth } from './middleware/require-auth.js';
+import { requiresAuth } from './middleware/require-auth.js';
 
 const domain = 'auth0.local';
+const mcdDomain = 'tenant-b.custom-domain.com';
 let accessToken: string;
 let idToken: string;
 let mockOpenIdConfiguration = {
@@ -59,6 +60,17 @@ afterAll(() => server.close());
 beforeEach(async () => {
   accessToken = await generateToken(domain, 'user_123');
   idToken = await generateToken(domain, 'user_123', '<client_id>');
+  server.use(
+    http.get(`https://${mcdDomain}/.well-known/openid-configuration`, () =>
+      HttpResponse.json({
+        issuer: `https://${mcdDomain}/`,
+        authorization_endpoint: `https://${mcdDomain}/authorize`,
+        backchannel_authentication_endpoint: `https://${mcdDomain}/custom-authorize`,
+        token_endpoint: `https://${mcdDomain}/custom/token`,
+        end_session_endpoint: `https://${mcdDomain}/logout`,
+      })
+    )
+  );
 });
 
 afterEach(() => {
@@ -90,8 +102,14 @@ function parseCookies(setCookieHeader: string | string[] | undefined): Record<st
 }
 
 // Helper function to create a configured Express app
-function createConfiguredApp(options: Parameters<typeof createAuth0>[0]) {
+function createConfiguredApp(
+  options: Parameters<typeof createAuth0>[0],
+  appOptions: { trustProxy?: boolean } = {}
+) {
   const app = express();
+  if (appOptions.trustProxy) {
+    app.set('trust proxy', true);
+  }
   app.use(cookieParser());
   app.use(express.json());
   app.use(createAuth0(options));
@@ -186,6 +204,67 @@ test('auth/login uses custom route when provided', async () => {
   expect(url.host).toBe(domain);
   expect(url.pathname).toBe('/authorize');
   expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3000/custom-auth/callback');
+});
+
+test('auth/login uses the domain resolver to pick the authorize host', async () => {
+  const app = createConfiguredApp({
+    domain: async () => mcdDomain,
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+    appBaseUrl: 'http://localhost:3000',
+    sessionSecret: '<secret>',
+  });
+
+  const res = await request(app).get('/auth/login');
+  const url = new URL(res.headers['location']?.toString() ?? '');
+
+  expect(res.status).toBe(302);
+  expect(url.host).toBe(mcdDomain);
+  expect(url.pathname).toBe('/authorize');
+  expect(url.searchParams.get('redirect_uri')).toBe('http://localhost:3000/auth/callback');
+});
+
+test('domain resolver receives the Express request context', async () => {
+  let seenHost: string | undefined;
+  const app = createConfiguredApp({
+    domain: (storeOptions) => {
+      seenHost = storeOptions?.request?.headers['x-tenant'] as string | undefined;
+      return mcdDomain;
+    },
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+    appBaseUrl: 'http://localhost:3000',
+    sessionSecret: '<secret>',
+  });
+
+  const res = await request(app).get('/auth/login').set('x-tenant', 'tenant-b');
+
+  expect(res.status).toBe(302);
+  expect(seenHost).toBe('tenant-b');
+});
+
+test('auth/login with a resolver infers appBaseUrl when omitted', async () => {
+  const app = createConfiguredApp(
+    {
+      domain: async () => mcdDomain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: undefined,
+      sessionSecret: '<secret>',
+    },
+    { trustProxy: true }
+  );
+
+  const res = await request(app)
+    .get('/auth/login')
+    .set('host', 'app.example.com')
+    .set('x-forwarded-proto', 'https')
+    .set('x-forwarded-host', 'app.example.com');
+  const url = new URL(res.headers['location']?.toString() ?? '');
+
+  expect(res.status).toBe(302);
+  expect(url.host).toBe(mcdDomain);
+  expect(url.searchParams.get('redirect_uri')).toBe('https://app.example.com/auth/callback');
 });
 
 test('auth/callback redirects to /', async () => {
@@ -327,6 +406,30 @@ test('auth/logout uses custom route when provided', async () => {
   expect(res.status).toBe(302);
   expect(url.host).toBe(domain);
   expect(url.pathname).toBe('/logout');
+});
+
+test('auth/logout uses the inferred base URL for post_logout_redirect_uri', async () => {
+  const app = createConfiguredApp(
+    {
+      domain: domain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      sessionSecret: '<secret>',
+      appBaseUrl: undefined,
+    },
+    { trustProxy: true }
+  );
+
+  const res = await request(app)
+    .get('/auth/logout')
+    .set('host', 'preview.example.com')
+    .set('x-forwarded-proto', 'https');
+
+  const url = new URL(res.headers['location']?.toString() || '');
+
+  expect(res.status).toBe(302);
+  expect(url.pathname).toBe('/logout');
+  expect(url.searchParams.get('post_logout_redirect_uri')).toBe('https://preview.example.com');
 });
 
 test('auth/login supports additional authorization parameters', async () => {
@@ -488,7 +591,7 @@ test('sessionConfiguration supports rolling, absolute and inactivity duration', 
   expect(sessionCookieHeader).toContain('SameSite=Strict');
 });
 
-test('requireAuth redirects to login when not authenticated', async () => {
+test('requiresAuth redirects to login when not authenticated', async () => {
   const app = createConfiguredApp({
     domain: domain,
     clientId: '<client_id>',
@@ -497,7 +600,7 @@ test('requireAuth redirects to login when not authenticated', async () => {
     sessionSecret: '<secret>',
   });
 
-  app.get('/protected', requireAuth(), (req, res) => {
+  app.get('/protected', requiresAuth(), (req, res) => {
     res.send('Protected content');
   });
 
@@ -508,7 +611,7 @@ test('requireAuth redirects to login when not authenticated', async () => {
   expect(res.headers.location).toContain('returnTo=%2Fprotected');
 });
 
-test('requireAuth returns 401 for API requests when not authenticated', async () => {
+test('requiresAuth returns 401 for API requests when not authenticated', async () => {
   const app = createConfiguredApp({
     domain: domain,
     clientId: '<client_id>',
@@ -517,7 +620,7 @@ test('requireAuth returns 401 for API requests when not authenticated', async ()
     sessionSecret: '<secret>',
   });
 
-  app.get('/api/me', requireAuth(), (req, res) => {
+  app.get('/api/me', requiresAuth(), (req, res) => {
     res.json({ user: 'test' });
   });
 
@@ -530,7 +633,7 @@ test('requireAuth returns 401 for API requests when not authenticated', async ()
   expect(res.body.message).toBe('Authentication required');
 });
 
-test('requireAuth allows authenticated users to access protected routes', async () => {
+test('requiresAuth allows authenticated users to access protected routes', async () => {
   const app = createConfiguredApp({
     domain: domain,
     clientId: '<client_id>',
@@ -539,7 +642,7 @@ test('requireAuth allows authenticated users to access protected routes', async 
     sessionSecret: '<secret>',
   });
 
-  app.get('/protected', requireAuth(), async (req, res) => {
+  app.get('/protected', requiresAuth(), async (req, res) => {
     const user = await req.auth0.client.getUser();
     res.json({ user });
   });

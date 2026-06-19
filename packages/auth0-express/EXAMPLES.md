@@ -5,15 +5,18 @@
   - [Using environment variables](#using-environment-variables)
   - [Configuring the mounted routes](#configuring-the-mounted-routes)
   - [Configuring a customFetch implementation](#configuring-a-customfetch-implementation)
+  - [Dynamic Application Base URLs](#dynamic-application-base-urls)
+  - [Discovery Cache](#discovery-cache)
 - [The `ServerClient` instance](#the-serverclient-instance)
 - [Protecting Routes](#protecting-routes)
-  - [Using requireAuth middleware](#using-requireauth-middleware)
+  - [Using requiresAuth middleware](#using-requiresauth-middleware)
   - [Using custom middleware](#using-custom-middleware)
 - [Authorization with Claims](#authorization-with-claims)
   - [Using claimEquals](#using-claimequals)
   - [Using claimIncludes](#using-claimincludes)
   - [Using claimCheck for custom logic](#using-claimcheck-for-custom-logic)
 - [Requesting an Access Token to call an API](#requesting-an-access-token-to-call-an-api)
+- [Multiple Custom Domains (MCD)](#multiple-custom-domains-mcd)
 
 ## Configuration
 
@@ -137,6 +140,68 @@ app.use(createAuth0({
 }));
 ```
 
+### Dynamic Application Base URLs
+
+By default the SDK uses a static `appBaseUrl` (or `APP_BASE_URL` / `BASE_URL`). For preview/deploy environments where the host is not known at startup, you can either omit it (host inference) or provide an allow-list.
+
+#### Host inference (omit `appBaseUrl`)
+
+```ts
+import { createAuth0 } from '@auth0/auth0-express';
+
+// APP_BASE_URL omitted; the base URL is inferred from each request's host.
+app.use(createAuth0());
+```
+
+The SDK builds the base URL per request from the request protocol and host. When your app runs behind a reverse proxy (most preview platforms such as Vercel and Netlify do), enable Express's [`trust proxy`](https://expressjs.com/en/guide/behind-proxies.html) setting so the forwarded `x-forwarded-proto` / `x-forwarded-host` headers are honored:
+
+```ts
+const app = express();
+app.set('trust proxy', true); // or a more specific value (e.g. number of hops, subnet)
+
+app.use(createAuth0());
+```
+
+When `trust proxy` is not enabled, the SDK ignores the `x-forwarded-*` headers and uses the connection protocol and the `Host` header — matching how `req.protocol`, `req.secure`, and the rest of Express behave. This works the same on Express 4 and 5.
+
+#### Allow-list (recommended for production)
+
+Provide an array of permitted base URLs. The SDK matches the incoming request origin against the list and rejects anything else:
+
+```ts
+app.use(createAuth0({
+  appBaseUrl: ['https://app.example.com', 'https://myapp.vercel.app'],
+}));
+```
+
+Via environment variable, use a comma-separated value:
+
+```env
+APP_BASE_URL=https://app.example.com,https://myapp.vercel.app
+```
+
+> [!IMPORTANT]
+> The host comes from the request and is ultimately untrusted input. Enabling `trust proxy` only when you are genuinely behind a trusted proxy, and using the allow-list above, are your first line of defense. Auth0's **Allowed Callback URLs** are the primary safeguard: if the resolved host is not registered in your Auth0 application, Auth0 rejects the authorize request. Register every dynamic/preview host you expect.
+
+> [!NOTE]
+> When relying on dynamic base URLs (omitted `appBaseUrl`) in production (`NODE_ENV=production`), the SDK enforces a secure session cookie. Explicitly setting `sessionConfiguration.cookie.secure = false` throws `InvalidConfigurationError`.
+
+### Discovery Cache
+
+By default the SDK caches OIDC discovery metadata and JWKS in memory (TTL 600s, max 100 entries), delegated to `@auth0/auth0-server-js`. Cache entries are scoped per resolved Auth0 domain, so each domain keeps its own discovery/JWKS data.
+
+```ts
+app.use(createAuth0({
+  // other options...
+  discoveryCache: { ttl: 800, maxEntries: 200 },
+}));
+```
+
+Most apps can keep the defaults. Adjust them when:
+
+- **`maxEntries`** — raise it if one process serves more than ~100 distinct Auth0 domains within the TTL window (common in larger MCD deployments).
+- **`ttl`** — raise it to reduce repeated discovery/JWKS fetches; lower it to pick up metadata/signing-key changes sooner; set `0` to effectively disable the cache.
+
 ## The `ServerClient` instance
 
 Once the router is registered, an instance of the Auth0 `ServerClient` is available via `req.auth0.client` on the request object. This instance can be used to call any of the methods available on the `ServerClient`, such as `getUser()`, `getSession()`, and `getAccessToken()`.
@@ -145,32 +210,32 @@ For the complete list of available methods, please refer to the [@auth0/auth0-se
 
 ## Protecting Routes
 
-### Using requireAuth middleware
+### Using requiresAuth middleware
 
-The SDK provides a `requireAuth` middleware that automatically protects routes and handles authentication redirects:
+The SDK provides a `requiresAuth` middleware that automatically protects routes and handles authentication redirects:
 
 ```ts
-import { requireAuth } from '@auth0/auth0-express';
+import { requiresAuth } from '@auth0/auth0-express';
 
 // Protect a route - redirects to login if not authenticated
-app.get('/profile', requireAuth(), async (req, res) => {
+app.get('/profile', requiresAuth(), async (req, res) => {
   const user = await req.auth0.client.getUser();
   res.render('profile.ejs', { name: user!.name });
 });
 
 // For API routes - returns 401 instead of redirecting
-app.get('/api/me', requireAuth(), async (req, res) => {
+app.get('/api/me', requiresAuth(), async (req, res) => {
   const user = await req.auth0.client.getUser();
   res.json({ user });
 });
 
 // Custom return URL after login
-app.get('/admin', requireAuth({ returnTo: '/admin/dashboard' }), (req, res) => {
+app.get('/admin', requiresAuth({ returnTo: '/admin/dashboard' }), (req, res) => {
   res.send('Admin page');
 });
 ```
 
-The `requireAuth` middleware automatically:
+The `requiresAuth` middleware automatically:
 - Redirects HTML requests to `/auth/login` with a `returnTo` parameter
 - Returns `401 Unauthorized` for API requests (those that accept JSON but not HTML)
 - Preserves the original URL for post-login redirect
@@ -208,11 +273,11 @@ The SDK provides middleware for claim-based authorization, useful for implementi
 Check if a specific claim equals an expected value:
 
 ```ts
-import { claimEquals, requireAuth } from '@auth0/auth0-express';
+import { claimEquals, requiresAuth } from '@auth0/auth0-express';
 
 // Only allow users with role 'admin'
 app.get('/admin',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('role', 'admin'),
   (req, res) => {
     res.send('Admin dashboard');
@@ -221,7 +286,7 @@ app.get('/admin',
 
 // Check a namespace claim
 app.get('/internal',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('https://myapp.com/department', 'engineering'),
   (req, res) => {
     res.send('Engineering portal');
@@ -233,7 +298,7 @@ By default, `claimEquals` checks the ID token claims. You can specify to check a
 
 ```ts
 app.get('/admin',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('role', 'admin', { tokenType: 'access' }),
   (req, res) => {
     res.send('Admin dashboard');
@@ -246,11 +311,11 @@ app.get('/admin',
 Check if a claim array includes a specific value, useful for permissions:
 
 ```ts
-import { claimIncludes, requireAuth } from '@auth0/auth0-express';
+import { claimIncludes, requiresAuth } from '@auth0/auth0-express';
 
 // Check if user has 'delete:users' permission
 app.delete('/users/:id',
-  requireAuth(),
+  requiresAuth(),
   claimIncludes('permissions', 'delete:users'),
   async (req, res) => {
     // Delete user logic
@@ -260,7 +325,7 @@ app.delete('/users/:id',
 
 // Check for multiple permissions (user needs at least one)
 app.get('/admin/users',
-  requireAuth(),
+  requiresAuth(),
   claimIncludes('permissions', ['read:users', 'admin:all']),
   (req, res) => {
     res.render('users-list');
@@ -273,11 +338,11 @@ app.get('/admin/users',
 For complex authorization rules, use `claimCheck` with a custom validation function:
 
 ```ts
-import { claimCheck, requireAuth } from '@auth0/auth0-express';
+import { claimCheck, requiresAuth } from '@auth0/auth0-express';
 
 // Check multiple conditions
 app.get('/premium',
-  requireAuth(),
+  requiresAuth(),
   claimCheck((req, claims) => {
     return claims.subscription === 'premium' && claims.email_verified === true;
   }),
@@ -288,7 +353,7 @@ app.get('/premium',
 
 // Check if user is in specific organization with required role
 app.get('/org/:orgId/settings',
-  requireAuth(),
+  requiresAuth(),
   claimCheck((req, claims) => {
     const orgId = req.params.orgId;
     return claims.org_id === orgId && claims.org_role === 'owner';
@@ -300,7 +365,7 @@ app.get('/org/:orgId/settings',
 
 // Check access token claims
 app.post('/api/admin',
-  requireAuth(),
+  requiresAuth(),
   claimCheck((req, claims) => {
     return claims.scope?.includes('admin:write');
   }, { tokenType: 'access' }),
@@ -336,3 +401,73 @@ Retrieving the token can be achieved by using `getAccessToken`:
 const accessTokenResult = await req.auth0.client.getAccessToken({ request: req, response: res });
 console.log(accessTokenResult.accessToken);
 ```
+
+## Multiple Custom Domains (MCD)
+
+Multiple Custom Domains (MCD) lets you resolve the Auth0 domain per request while using a single `createAuth0` instance. This is useful when one application serves multiple customer domains (for example, `brand-1.my-app.com` and `brand-2.my-app.com`), each mapped to a different Auth0 custom domain.
+
+MCD is enabled by passing a **domain resolver function** to `domain` instead of a static string. The resolver receives the Express request context (`{ request, response }`) and returns the Auth0 custom domain for that request.
+
+> Resolver mode is intended for the custom domains of a **single** Auth0 tenant. It is not a supported way to connect multiple Auth0 tenants to one application.
+
+### Host-based resolver with a default fallback
+
+```ts
+import { createAuth0, DomainResolver, StoreOptions } from '@auth0/auth0-express';
+
+const defaultAuth0Domain = 'auth.custom-domain.com';
+const domainsByHost: Record<string, string> = {
+  'brand-1.my-app.com': 'auth.custom-domain-1.com',
+  'brand-2.my-app.com': 'auth.custom-domain-2.com',
+};
+
+const domainResolver: DomainResolver<StoreOptions> = (storeOptions) => {
+  const host = storeOptions?.request?.headers.host;
+  return (host && domainsByHost[host]) || defaultAuth0Domain;
+};
+
+app.use(createAuth0({
+  domain: domainResolver,
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  sessionSecret: '<SESSION_SECRET>',
+  appBaseUrl: '<APP_BASE_URL>',
+}));
+```
+
+### Header-to-domain map (trusted app routing context)
+
+```ts
+import { DomainResolver, StoreOptions } from '@auth0/auth0-express';
+
+const headerValueToAuth0Domain: Record<string, string> = {
+  workspace_a: 'workspace-a.custom-domain.com',
+  workspace_b: 'workspace-b.custom-domain.com',
+};
+
+const domainResolver: DomainResolver<StoreOptions> = (storeOptions) => {
+  // App-specific routing key, not Auth0 tenant metadata.
+  const routingKey = storeOptions?.request?.headers['x-tenant-id'] as string | undefined;
+  return (routingKey && headerValueToAuth0Domain[routingKey]) || 'auth.custom-domain.com';
+};
+```
+
+### `appBaseUrl` in resolver mode
+
+`appBaseUrl` behaves exactly as documented in [Dynamic Application Base URLs](#dynamic-application-base-urls):
+
+- provide a static string or allow-list, **or**
+- omit it to infer the base URL from the request host (enable Express `trust proxy` when behind a proxy).
+
+If you omit `appBaseUrl`, register every inferred origin in Auth0 as an **Allowed Callback URL** and **Allowed Logout URL**.
+
+### Backchannel logout requests
+
+The backchannel logout route (mounted by default) is called **server-to-server by Auth0**, not by the end-user's browser. Such requests do not carry the tenant's `Host` (or any app-specific routing header), so a host- or header-based resolver will not find a match for them. Make sure your resolver returns a sensible default in that case — the fallback in the examples above (`|| defaultAuth0Domain`) handles this. If you have no meaningful default, detect the backchannel logout path and return the appropriate domain explicitly.
+
+### Security requirements
+
+When resolving tenant custom domains via a resolver, you are responsible for ensuring all resolved domains are trusted. Mis-configuring the resolver is a critical security risk that can lead to authentication bypass on the relying party (RP) or Server-Side Request Forgery (SSRF).
+
+- **Single-tenant only:** resolvers are for multiple custom domains of one Auth0 tenant, not for connecting multiple tenants.
+- **Secure proxy:** when inferring the host from request headers, deploy behind a trusted edge/reverse proxy (Cloudflare, Nginx, AWS ALB) that sanitizes and overwrites `Host` / `X-Forwarded-Host` before they reach the app. Without that, an attacker can influence domain resolution and produce malicious redirects during login/logout. See the `trust proxy` and allow-list guidance under [Dynamic Application Base URLs](#dynamic-application-base-urls).

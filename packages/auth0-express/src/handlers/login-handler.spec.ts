@@ -201,3 +201,68 @@ describe('login handler - query parameter sanitization', () => {
     });
   });
 });
+
+describe('login handler - dynamic app base URL', () => {
+  test('infers redirect_uri from the request host when appBaseUrl is omitted', async () => {
+    // Explicitly set appBaseUrl to undefined to override any environment variable
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: undefined,
+      },
+      { trustProxy: true }
+    );
+
+    const res = await request(app)
+      .get('/auth/login')
+      .set('host', 'preview.example.com')
+      .set('x-forwarded-proto', 'https');
+
+    expect(res.status).toBe(302);
+    const url = new URL(res.headers['location']?.toString() ?? '');
+    expect(url.searchParams.get('redirect_uri')).toBe('https://preview.example.com/auth/callback');
+  });
+
+  test('uses the matching allow-list entry for redirect_uri', async () => {
+    const app = createConfiguredApp(
+      {
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        sessionSecret: '<secret>',
+        appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'], // allow-list mode
+      },
+      { trustProxy: true }
+    );
+
+    const res = await request(app)
+      .get('/auth/login')
+      .set('host', 'app2.example.com')
+      .set('x-forwarded-proto', 'https');
+
+    expect(res.status).toBe(302);
+    const url = new URL(res.headers['location']?.toString() ?? '');
+    expect(url.searchParams.get('redirect_uri')).toBe('https://app2.example.com/auth/callback');
+  });
+
+  test('returns 500 when the request host is not in the allow-list', async () => {
+    const app = createConfiguredApp({
+      domain: domain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      sessionSecret: '<secret>',
+      appBaseUrl: ['https://app1.example.com'], // allow-list mode
+    });
+
+    const res = await request(app)
+      .get('/auth/login')
+      .set('host', 'evil.example.com')
+      .set('x-forwarded-proto', 'https');
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('InvalidConfigurationError');
+  });
+});

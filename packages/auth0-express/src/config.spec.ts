@@ -1,5 +1,6 @@
 import { expect, test, describe, beforeEach, afterEach } from 'vitest';
 import { getConfig } from './config.js';
+import { InvalidConfigurationError } from './errors/index.js';
 
 describe('getConfig', () => {
   const originalEnv = process.env;
@@ -159,14 +160,15 @@ describe('getConfig', () => {
     expect(() => getConfig()).toThrow(`The argument 'clientId' is required but was not provided.`);
   });
 
-  test('throws error when appBaseUrl is missing', () => {
+  test('does not throw when appBaseUrl is missing (dynamic mode)', () => {
     process.env.AUTH0_DOMAIN = 'auth0.com';
     process.env.AUTH0_CLIENT_ID = 'client_id';
     process.env.AUTH0_SESSION_SECRET = 'secret';
     delete process.env.BASE_URL;
     delete process.env.APP_BASE_URL;
 
-    expect(() => getConfig()).toThrow(`The argument 'appBaseUrl' is required but was not provided.`);
+    const config = getConfig();
+    expect(config.appBaseUrl).toBeUndefined();
   });
 
   test('throws error when sessionSecret is missing', () => {
@@ -213,5 +215,197 @@ describe('getConfig', () => {
     expect(config.pushedAuthorizationRequests).toBe(true);
     expect(config.routes?.login).toBe('/custom-login');
     expect(config.hooks?.onLogin).toBeDefined();
+  });
+
+  test('accepts a domain resolver function', () => {
+    const resolver = async () => 'tenant.custom-domain.com';
+    const config = getConfig({
+      domain: resolver,
+      clientId: 'client_id',
+      clientSecret: 'client_secret',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: 'secret',
+    });
+
+    expect(config.domain).toBe(resolver);
+  });
+
+  test('accepts a domain resolver with appBaseUrl omitted (dynamic mode)', () => {
+    const resolver = () => 'tenant.custom-domain.com';
+    delete process.env.APP_BASE_URL;
+    delete process.env.BASE_URL;
+    const config = getConfig({
+      domain: resolver,
+      clientId: 'client_id',
+      clientSecret: 'client_secret',
+      sessionSecret: 'secret',
+    });
+
+    expect(config.domain).toBe(resolver);
+    expect(config.appBaseUrl).toBeUndefined();
+  });
+
+  describe('appBaseUrl parsing and validation', () => {
+    test('parses comma-separated APP_BASE_URL into an array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+      process.env.APP_BASE_URL = 'https://app1.example.com, https://app2.example.com';
+
+      const config = getConfig();
+
+      expect(config.appBaseUrl).toEqual(['https://app1.example.com', 'https://app2.example.com']);
+    });
+
+    test('parses a comma-separated appBaseUrl passed explicitly into an array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+
+      const config = getConfig({
+        appBaseUrl: 'https://app1.example.com, https://app2.example.com',
+      });
+
+      expect(config.appBaseUrl).toEqual(['https://app1.example.com', 'https://app2.example.com']);
+    });
+
+    test('keeps a single explicit appBaseUrl as a string', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+
+      const config = getConfig({ appBaseUrl: 'https://app.example.com' });
+
+      expect(config.appBaseUrl).toBe('https://app.example.com');
+    });
+
+    test('keeps a single APP_BASE_URL as a string', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+      process.env.APP_BASE_URL = 'https://app.example.com';
+
+      const config = getConfig();
+
+      expect(config.appBaseUrl).toBe('https://app.example.com');
+    });
+
+    test('collapses trailing-comma APP_BASE_URL to a string, not a single-element array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+      process.env.APP_BASE_URL = 'https://app.example.com,';
+
+      const config = getConfig();
+
+      expect(config.appBaseUrl).toBe('https://app.example.com');
+    });
+
+    test('allows appBaseUrl to be omitted (dynamic mode)', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+      delete process.env.APP_BASE_URL;
+      delete process.env.BASE_URL;
+
+      const config = getConfig();
+
+      expect(config.appBaseUrl).toBeUndefined();
+    });
+
+    test('throws when a static appBaseUrl is not a valid http(s) URL', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+
+      expect(() => getConfig({ appBaseUrl: 'not-a-url' })).toThrowError(InvalidConfigurationError);
+    });
+
+    test('throws when appBaseUrl is an empty array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+
+      expect(() => getConfig({ appBaseUrl: [] })).toThrowError(
+        /APP_BASE_URL array configuration cannot be empty/
+      );
+    });
+
+    test('throws when an appBaseUrl array contains an invalid URL, naming the entry', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+
+      expect(() =>
+        getConfig({ appBaseUrl: ['https://valid.com', 'not-a-url'] })
+      ).toThrowError(/not-a-url/);
+    });
+  });
+
+  describe('secure cookie enforcement in production dynamic mode', () => {
+    const baseEnv = () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+      delete process.env.APP_BASE_URL;
+      delete process.env.BASE_URL;
+    };
+
+    test('forces session cookie secure=true when production and appBaseUrl omitted', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig();
+
+      expect(config.sessionConfiguration?.cookie?.secure).toBe(true);
+    });
+
+    test('throws when secure is explicitly false in production dynamic mode', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      expect(() =>
+        getConfig({ sessionConfiguration: { cookie: { secure: false } } })
+      ).toThrowError(InvalidConfigurationError);
+    });
+
+    test('does not force secure when a static appBaseUrl is configured', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig({ appBaseUrl: 'https://app.example.com' });
+
+      expect(config.sessionConfiguration?.cookie?.secure).toBeUndefined();
+    });
+
+    test('does not force secure outside production', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'development';
+
+      const config = getConfig();
+
+      expect(config.sessionConfiguration?.cookie?.secure).toBeUndefined();
+    });
+
+    test('forces session cookie secure=true when production and appBaseUrl is an allow-list array', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig({ appBaseUrl: ['https://app1.example.com', 'https://app2.example.com'] });
+
+      expect(config.sessionConfiguration?.cookie?.secure).toBe(true);
+    });
+
+    test('throws when secure is explicitly false in production allow-list mode', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      expect(() =>
+        getConfig({
+          appBaseUrl: ['https://app1.example.com'],
+          sessionConfiguration: { cookie: { secure: false } },
+        })
+      ).toThrowError(InvalidConfigurationError);
+    });
   });
 });

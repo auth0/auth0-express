@@ -1,6 +1,6 @@
 import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
-import { requireAuth } from './require-auth.js';
+import { requiresAuth } from './require-auth.js';
 import {
   server,
   setupTests,
@@ -26,7 +26,7 @@ afterEach(() => {
   server.resetHandlers();
 });
 
-describe('requireAuth middleware', () => {
+describe('requiresAuth middleware', () => {
   test('redirects to login when not authenticated', async () => {
     const app = createConfiguredApp({
       domain: 'auth0.local',
@@ -36,7 +36,7 @@ describe('requireAuth middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/protected', requireAuth(), (req, res) => {
+    app.get('/protected', requiresAuth(), (req, res) => {
       res.send('Protected content');
     });
 
@@ -59,7 +59,7 @@ describe('requireAuth middleware', () => {
       },
     });
 
-    app.get('/protected', requireAuth(), (req, res) => {
+    app.get('/protected', requiresAuth(), (req, res) => {
       res.send('Protected content');
     });
 
@@ -79,7 +79,7 @@ describe('requireAuth middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/protected', requireAuth(), (req, res) => {
+    app.get('/protected', requiresAuth(), (req, res) => {
       res.send('Protected content');
     });
 
@@ -99,7 +99,7 @@ describe('requireAuth middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/api/data', requireAuth(), (req, res) => {
+    app.get('/api/data', requiresAuth(), (req, res) => {
       res.json({ data: 'test' });
     });
 
@@ -119,7 +119,7 @@ describe('requireAuth middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/admin', requireAuth({ returnTo: '/admin/dashboard' }), (req, res) => {
+    app.get('/admin', requiresAuth({ returnTo: '/admin/dashboard' }), (req, res) => {
       res.send('Admin content');
     });
 
@@ -138,7 +138,7 @@ describe('requireAuth middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/protected', requireAuth(), async (req, res) => {
+    app.get('/protected', requiresAuth(), async (req, res) => {
       const user = await req.auth0.client.getUser();
       res.json({ user });
     });
@@ -160,7 +160,7 @@ describe('requireAuth middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/protected', requireAuth(), (req, res) => {
+    app.get('/protected', requiresAuth(), (req, res) => {
       res.send('Protected content');
     });
 
@@ -184,7 +184,7 @@ describe('requireAuth middleware', () => {
       sessionSecret: '<secret>',
     });
 
-    app.get('/protected', requireAuth(), (req, res) => {
+    app.get('/protected', requiresAuth(), (req, res) => {
       res.send('Protected content');
     });
 

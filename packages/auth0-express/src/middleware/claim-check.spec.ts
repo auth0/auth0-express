@@ -1,6 +1,6 @@
 import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
-import { requireAuth } from './require-auth.js';
+import { requiresAuth } from './require-auth.js';
 import { claimCheck } from './claim-check.js';
 import {
   server,
@@ -39,7 +39,7 @@ describe('claimCheck middleware', () => {
 
     app.get(
       '/premium',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => claims.subscription === 'premium' && claims.email_verified === true),
       (req, res) => {
         res.send('Premium content');
@@ -67,7 +67,7 @@ describe('claimCheck middleware', () => {
 
     app.get(
       '/premium',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => claims.subscription === 'premium'),
       (req, res) => {
         res.send('Premium content');
@@ -93,7 +93,7 @@ describe('claimCheck middleware', () => {
 
     app.get(
       '/org/settings',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => {
         return claims.org_id === 'org_123';
       }),
@@ -122,7 +122,7 @@ describe('claimCheck middleware', () => {
 
     app.get(
       '/org/settings',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => {
         return claims.org_id === 'org_123';
       }),
@@ -150,7 +150,7 @@ describe('claimCheck middleware', () => {
 
     app.get(
       '/admin',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => {
         // Complex logic: admin role OR owner with verified email
         return claims.role === 'admin' || (claims.role === 'owner' && claims.email_verified === true);
@@ -188,7 +188,7 @@ describe('claimCheck middleware', () => {
     // Authorize only when the route param matches the user's sub.
     app.get(
       '/users/:id',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => claims.sub === req.params.id),
       (req, res) => {
         res.send('Own profile');
@@ -216,7 +216,7 @@ describe('claimCheck middleware', () => {
 
     app.get(
       '/beta',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => claims.beta_access === true, {
         statusCode: 402,
         errorMessage: 'Beta access required',
@@ -245,7 +245,7 @@ describe('claimCheck middleware', () => {
 
     app.get(
       '/admin',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => claims.role === 'admin'),
       (req, res) => {
         res.send('Admin page');
@@ -274,7 +274,7 @@ describe('claimCheck middleware', () => {
 
     app.get(
       '/admin',
-      requireAuth(),
+      requiresAuth(),
       claimCheck((req, claims) => claims.role === 'admin'),
       (req, res) => {
         res.send('Admin page');
