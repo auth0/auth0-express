@@ -24,7 +24,6 @@
     },
     "dependencies": {
         "@auth0/auth0-express": "*",
-        "@auth0/auth0-express-api": "*",
         "dotenv": "^17.2.3",
         "ejs": "^4.0.1",
         "express": "^5.2.1",
