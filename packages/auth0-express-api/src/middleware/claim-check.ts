@@ -5,7 +5,7 @@ import { ClaimAuthOptions, sendBearerError, ClaimCheckFunction } from './claim-a
  * Middleware that validates token claims using a custom function.
  * Returns 401 invalid_token error if the function returns false.
  *
- * @param fn - Function that receives the token payload and the Express request
+ * @param fn - Function that receives the Express request and the token payload
  *   and returns true if valid
  * @param options - Optional configuration
  * @returns Express middleware function
@@ -14,18 +14,18 @@ import { ClaimAuthOptions, sendBearerError, ClaimCheckFunction } from './claim-a
  * ```ts
  * // Require admin with editor role
  * router.get('/admin/edit', requireAuth(), claimCheck(
- *   ({ isAdmin, roles }) => isAdmin && roles?.includes('editor'),
+ *   (req, { isAdmin, roles }) => isAdmin && roles?.includes('editor'),
  *   { errorMessage: 'Requires admin with editor role' }
  * ), handler);
  *
  * // Authorization that depends on the request
  * router.get('/users/:id', requireAuth(), claimCheck(
- *   (claims, req) => claims.sub === req.params.id
+ *   (req, claims) => claims.sub === req.params.id
  * ), handler);
  *
  * // Legacy string support
  * router.get('/admin/edit', requireAuth(), claimCheck(
- *   ({ isAdmin, roles }) => isAdmin && roles?.includes('editor'),
+ *   (req, { isAdmin, roles }) => isAdmin && roles?.includes('editor'),
  *   'Requires admin with editor role'
  * ), handler);
  * ```
@@ -46,7 +46,7 @@ export function claimCheck(fn: ClaimCheckFunction, options?: ClaimAuthOptions) {
       }
 
       try {
-        const isValid = await fn(token, req);
+        const isValid = await fn(req, token);
 
         if (!isValid) {
           return sendBearerError(res, 401, 'invalid_token', errorDescription);

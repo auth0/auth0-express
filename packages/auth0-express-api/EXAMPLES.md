@@ -278,7 +278,7 @@ app.get(
   '/premium-content',
   requireAuth(),
   claimCheck(
-    (token) => {
+    (req, token) => {
       // Custom logic: require either premium tier OR admin role
       return token.tier === 'premium' || token.roles?.includes('admin');
     },
@@ -290,7 +290,7 @@ app.get(
 );
 ```
 
-The validation function receives the full token payload and should return `true` to grant access.
+The validation function receives the Express request and the full token payload, and should return `true` to grant access.
 
 The second parameter is an optional configuration object that can include a custom error message to be returned if the check fails. If not provided, a default error message will be used.
 

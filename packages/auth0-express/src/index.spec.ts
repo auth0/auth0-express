@@ -699,7 +699,7 @@ test('claimCheck allows custom validation logic', async () => {
     sessionSecret: '<secret>',
   });
 
-  app.get('/premium', claimCheck((claims) => {
+  app.get('/premium', claimCheck((req, claims) => {
     return claims.subscription === 'premium';
   }), (req, res) => {
     res.send('Premium content');

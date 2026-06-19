@@ -3,13 +3,13 @@ import { Request, Response } from 'express';
 /**
  * Type for a function that checks claims and returns true if authorized.
  *
- * @param claims - The validated token claims.
  * @param req - The Express request, for authorization logic that depends on the
  *   request (e.g. route params, query, headers).
+ * @param claims - The validated token claims.
  */
 export type ClaimCheckFunction = (
-  claims: Record<string, unknown>,
-  req: Request
+  req: Request,
+  claims: Record<string, unknown>
 ) => boolean | Promise<boolean>;
 
 /**

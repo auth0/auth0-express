@@ -40,7 +40,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/premium',
       requireAuth(),
-      claimCheck((claims) => claims.subscription === 'premium' && claims.email_verified === true),
+      claimCheck((req, claims) => claims.subscription === 'premium' && claims.email_verified === true),
       (req, res) => {
         res.send('Premium content');
       }
@@ -68,7 +68,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/premium',
       requireAuth(),
-      claimCheck((claims) => claims.subscription === 'premium'),
+      claimCheck((req, claims) => claims.subscription === 'premium'),
       (req, res) => {
         res.send('Premium content');
       }
@@ -94,7 +94,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/org/settings',
       requireAuth(),
-      claimCheck((claims) => {
+      claimCheck((req, claims) => {
         return claims.org_id === 'org_123';
       }),
       (req, res) => {
@@ -123,7 +123,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/org/settings',
       requireAuth(),
-      claimCheck((claims) => {
+      claimCheck((req, claims) => {
         return claims.org_id === 'org_123';
       }),
       (req, res) => {
@@ -151,7 +151,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/admin',
       requireAuth(),
-      claimCheck((claims) => {
+      claimCheck((req, claims) => {
         // Complex logic: admin role OR owner with verified email
         return claims.role === 'admin' || (claims.role === 'owner' && claims.email_verified === true);
       }),
@@ -176,7 +176,7 @@ describe('claimCheck middleware', () => {
     expect(res.status).toBe(403);
   });
 
-  test('passes the request as the second argument to the check function', async () => {
+  test('passes the request as the first argument to the check function', async () => {
     const app = createConfiguredApp({
       domain: 'auth0.local',
       clientId: '<client_id>',
@@ -189,7 +189,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/users/:id',
       requireAuth(),
-      claimCheck((claims, req) => claims.sub === req.params.id),
+      claimCheck((req, claims) => claims.sub === req.params.id),
       (req, res) => {
         res.send('Own profile');
       }
@@ -217,7 +217,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/beta',
       requireAuth(),
-      claimCheck((claims) => claims.beta_access === true, {
+      claimCheck((req, claims) => claims.beta_access === true, {
         statusCode: 402,
         errorMessage: 'Beta access required',
       }),
@@ -246,7 +246,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/admin',
       requireAuth(),
-      claimCheck((claims) => claims.role === 'admin'),
+      claimCheck((req, claims) => claims.role === 'admin'),
       (req, res) => {
         res.send('Admin page');
       }
@@ -275,7 +275,7 @@ describe('claimCheck middleware', () => {
     app.get(
       '/admin',
       requireAuth(),
-      claimCheck((claims) => claims.role === 'admin'),
+      claimCheck((req, claims) => claims.role === 'admin'),
       (req, res) => {
         res.send('Admin page');
       }

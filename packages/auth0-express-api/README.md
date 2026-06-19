@@ -84,7 +84,7 @@ app.get('/admin/edit', requireAuth(), claimIncludes('roles', 'admin', 'editor'),
 
 // Custom validation logic
 app.get('/premium', requireAuth(), claimCheck(
-  (token) => token.tier === 'premium' || token.roles?.includes('admin'),
+  (req, token) => token.tier === 'premium' || token.roles?.includes('admin'),
   'Premium tier or admin role required'
 ), handler);
 
