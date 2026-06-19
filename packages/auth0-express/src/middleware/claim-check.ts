@@ -7,23 +7,23 @@ import { ClaimAuthOptions, ClaimCheckFunction } from './claim-auth.js';
  * Returns 403 Forbidden if the validation function returns false
  * or user is not authenticated.
  *
- * @param checkFn - A function that receives the user claims and returns true if authorized
+ * @param checkFn - A function that receives the Express request and the user
+ *   claims and returns true if authorized
  * @param options - Optional configuration
  * @returns Express middleware function
  *
  * @example
  * ```typescript
  * // Custom claim validation
- * app.get('/premium', claimCheck((claims) => {
+ * app.get('/premium', claimCheck((req, claims) => {
  *   return claims.subscription === 'premium' && !claims.subscription_expired;
  * }), (req, res) => {
  *   res.send('Premium content');
  * });
  *
- * // Complex authorization logic
- * app.delete('/posts/:id', claimCheck(async (claims) => {
- *   const postId = req.params.id;
- *   const post = await getPost(postId);
+ * // Complex authorization logic using the request
+ * app.delete('/posts/:id', claimCheck(async (req, claims) => {
+ *   const post = await getPost(req.params.id);
  *   return claims.sub === post.authorId || claims.role === 'admin';
  * }), (req, res) => {
  *   res.send('Post deleted');
@@ -31,7 +31,7 @@ import { ClaimAuthOptions, ClaimCheckFunction } from './claim-auth.js';
  *
  * // With custom error message
  * app.get('/beta', claimCheck(
- *   (claims) => claims.beta_access === true,
+ *   (req, claims) => claims.beta_access === true,
  *   { errorMessage: 'Beta access required' }
  * ), (req, res) => {
  *   res.send('Beta features');
@@ -50,7 +50,7 @@ export function claimCheck(checkFn: ClaimCheckFunction, options?: ClaimAuthOptio
         });
       }
 
-      const isAuthorized = await checkFn(user as Record<string, unknown>);
+      const isAuthorized = await checkFn(req, user as Record<string, unknown>);
 
       if (!isAuthorized) {
         return res.status(options?.statusCode || 403).json({

@@ -24,7 +24,7 @@ describe('claimCheck', () => {
   };
 
   it('should call next() when validation function returns true', async () => {
-    const middleware = claimCheck((token) => token.sub === 'user123');
+    const middleware = claimCheck((req, token) => token.sub === 'user123');
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
     const res = createMockResponse();
 
@@ -36,7 +36,7 @@ describe('claimCheck', () => {
 
   it('should call next() with complex validation logic', async () => {
     const middleware = claimCheck(
-      (token: any) => token.isAdmin === true && token.roles?.includes('editor')
+      (req, token: any) => token.isAdmin === true && token.roles?.includes('editor')
     );
     const req = createMockRequest({
       sub: 'user123',
@@ -52,8 +52,24 @@ describe('claimCheck', () => {
     expect(mockNext).toHaveBeenCalled();
   });
 
+  it('should pass the request as the first argument to the check function', async () => {
+    const middleware = claimCheck(
+      (req, claims) => claims.sub === (req.params as Record<string, string>).id
+    );
+    const req = {
+      auth0: { user: { sub: 'user123', aud: 'api', iss: 'issuer' } },
+      params: { id: 'user123' },
+    } as unknown as Request;
+    const res = createMockResponse();
+
+    await middleware(req, res as Response, mockNext as NextFunction);
+
+    expect(mockNext).toHaveBeenCalled();
+    expect(res.status).not.toHaveBeenCalled();
+  });
+
   it('should return 401 when validation function returns false', async () => {
-    const middleware = claimCheck((token) => token.sub === 'admin123');
+    const middleware = claimCheck((req, token) => token.sub === 'admin123');
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
     const res = createMockResponse();
 
@@ -68,7 +84,7 @@ describe('claimCheck', () => {
   });
 
   it('should return 401 when validation function resolves false', async () => {
-    const middleware = await claimCheck((token) => Promise.resolve(token.sub === 'admin123'));
+    const middleware = await claimCheck((req, token) => Promise.resolve(token.sub === 'admin123'));
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
     const res = createMockResponse();
 
@@ -84,7 +100,7 @@ describe('claimCheck', () => {
 
   it('should use custom error message with options object', async () => {
     const middleware = claimCheck(
-      (token) => token.sub === 'admin123',
+      (req, token) => token.sub === 'admin123',
       { errorMessage: 'Administrator access required' }
     );
     const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer' });
@@ -151,7 +167,7 @@ describe('claimCheck', () => {
 
     await middleware(req as Request, res as Response, mockNext as NextFunction);
 
-    expect(validationFn).toHaveBeenCalledWith(token);
+    expect(validationFn).toHaveBeenCalledWith(req, token);
     expect(mockNext).toHaveBeenCalled();
   });
 

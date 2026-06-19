@@ -343,7 +343,7 @@ import { claimCheck, requiresAuth } from '@auth0/auth0-express';
 // Check multiple conditions
 app.get('/premium',
   requiresAuth(),
-  claimCheck((claims) => {
+  claimCheck((req, claims) => {
     return claims.subscription === 'premium' && claims.email_verified === true;
   }),
   (req, res) => {
@@ -354,7 +354,7 @@ app.get('/premium',
 // Check if user is in specific organization with required role
 app.get('/org/:orgId/settings',
   requiresAuth(),
-  claimCheck((claims, req) => {
+  claimCheck((req, claims) => {
     const orgId = req.params.orgId;
     return claims.org_id === orgId && claims.org_role === 'owner';
   }),
@@ -366,7 +366,7 @@ app.get('/org/:orgId/settings',
 // Check access token claims
 app.post('/api/admin',
   requiresAuth(),
-  claimCheck((claims) => {
+  claimCheck((req, claims) => {
     return claims.scope?.includes('admin:write');
   }, { tokenType: 'access' }),
   (req, res) => {

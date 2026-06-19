@@ -1,9 +1,16 @@
-import { Response } from 'express';
+import { Request, Response } from 'express';
 
 /**
  * Type for a function that checks claims and returns true if authorized.
+ *
+ * @param req - The Express request, for authorization logic that depends on the
+ *   request (e.g. route params, query, headers).
+ * @param claims - The validated token claims.
  */
-export type ClaimCheckFunction = (claims: Record<string, unknown>) => boolean | Promise<boolean>;
+export type ClaimCheckFunction = (
+  req: Request,
+  claims: Record<string, unknown>
+) => boolean | Promise<boolean>;
 
 /**
  * Options for claim-based authorization middleware.

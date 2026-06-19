@@ -2,13 +2,17 @@ import { Request, Response, NextFunction } from 'express';
 import { ClaimAuthOptions } from './claim-auth.js';
 
 /**
- * Middleware to check if an array claim includes specific values.
+ * Middleware to check if a claim includes specific values.
+ *
+ * The claim may be an array, or a space-delimited string (such as a
+ * scope-style `"read:users delete:users"` claim), which is split on spaces
+ * before checking.
  *
  * Returns 403 Forbidden if the claim doesn't include all required values
  * or user is not authenticated.
  *
- * @param claim - The name of the array claim to check
- * @param values - The values that must be present in the claim array
+ * @param claim - The name of the claim to check
+ * @param values - The values that must be present in the claim
  * @param options - Optional configuration
  * @returns Express middleware function
  *
@@ -42,7 +46,12 @@ export function claimIncludes(claim: string, values: unknown[], options?: ClaimA
         });
       }
 
-      const claimValue = (user as Record<string, unknown>)[claim];
+      const rawClaim = (user as Record<string, unknown>)[claim];
+
+      // Accept both array claims and space-delimited string claims
+      // (e.g. scope-style `"read:users delete:users"`).
+      const claimValue =
+        typeof rawClaim === 'string' ? rawClaim.split(' ') : rawClaim;
 
       if (!Array.isArray(claimValue)) {
         return res.status(options?.statusCode || 403).json({
