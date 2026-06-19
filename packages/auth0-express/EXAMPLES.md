@@ -8,7 +8,7 @@
   - [Dynamic Application Base URLs](#dynamic-application-base-urls)
 - [The `ServerClient` instance](#the-serverclient-instance)
 - [Protecting Routes](#protecting-routes)
-  - [Using requireAuth middleware](#using-requireauth-middleware)
+  - [Using requiresAuth middleware](#using-requiresauth-middleware)
   - [Using custom middleware](#using-custom-middleware)
 - [Authorization with Claims](#authorization-with-claims)
   - [Using claimEquals](#using-claimequals)
@@ -192,32 +192,32 @@ For the complete list of available methods, please refer to the [@auth0/auth0-se
 
 ## Protecting Routes
 
-### Using requireAuth middleware
+### Using requiresAuth middleware
 
-The SDK provides a `requireAuth` middleware that automatically protects routes and handles authentication redirects:
+The SDK provides a `requiresAuth` middleware that automatically protects routes and handles authentication redirects:
 
 ```ts
-import { requireAuth } from '@auth0/auth0-express';
+import { requiresAuth } from '@auth0/auth0-express';
 
 // Protect a route - redirects to login if not authenticated
-app.get('/profile', requireAuth(), async (req, res) => {
+app.get('/profile', requiresAuth(), async (req, res) => {
   const user = await req.auth0.client.getUser();
   res.render('profile.ejs', { name: user!.name });
 });
 
 // For API routes - returns 401 instead of redirecting
-app.get('/api/me', requireAuth(), async (req, res) => {
+app.get('/api/me', requiresAuth(), async (req, res) => {
   const user = await req.auth0.client.getUser();
   res.json({ user });
 });
 
 // Custom return URL after login
-app.get('/admin', requireAuth({ returnTo: '/admin/dashboard' }), (req, res) => {
+app.get('/admin', requiresAuth({ returnTo: '/admin/dashboard' }), (req, res) => {
   res.send('Admin page');
 });
 ```
 
-The `requireAuth` middleware automatically:
+The `requiresAuth` middleware automatically:
 - Redirects HTML requests to `/auth/login` with a `returnTo` parameter
 - Returns `401 Unauthorized` for API requests (those that accept JSON but not HTML)
 - Preserves the original URL for post-login redirect
@@ -255,11 +255,11 @@ The SDK provides middleware for claim-based authorization, useful for implementi
 Check if a specific claim equals an expected value:
 
 ```ts
-import { claimEquals, requireAuth } from '@auth0/auth0-express';
+import { claimEquals, requiresAuth } from '@auth0/auth0-express';
 
 // Only allow users with role 'admin'
 app.get('/admin',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('role', 'admin'),
   (req, res) => {
     res.send('Admin dashboard');
@@ -268,7 +268,7 @@ app.get('/admin',
 
 // Check a namespace claim
 app.get('/internal',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('https://myapp.com/department', 'engineering'),
   (req, res) => {
     res.send('Engineering portal');
@@ -280,7 +280,7 @@ By default, `claimEquals` checks the ID token claims. You can specify to check a
 
 ```ts
 app.get('/admin',
-  requireAuth(),
+  requiresAuth(),
   claimEquals('role', 'admin', { tokenType: 'access' }),
   (req, res) => {
     res.send('Admin dashboard');
@@ -293,11 +293,11 @@ app.get('/admin',
 Check if a claim array includes a specific value, useful for permissions:
 
 ```ts
-import { claimIncludes, requireAuth } from '@auth0/auth0-express';
+import { claimIncludes, requiresAuth } from '@auth0/auth0-express';
 
 // Check if user has 'delete:users' permission
 app.delete('/users/:id',
-  requireAuth(),
+  requiresAuth(),
   claimIncludes('permissions', 'delete:users'),
   async (req, res) => {
     // Delete user logic
@@ -307,7 +307,7 @@ app.delete('/users/:id',
 
 // Check for multiple permissions (user needs at least one)
 app.get('/admin/users',
-  requireAuth(),
+  requiresAuth(),
   claimIncludes('permissions', ['read:users', 'admin:all']),
   (req, res) => {
     res.render('users-list');
@@ -320,11 +320,11 @@ app.get('/admin/users',
 For complex authorization rules, use `claimCheck` with a custom validation function:
 
 ```ts
-import { claimCheck, requireAuth } from '@auth0/auth0-express';
+import { claimCheck, requiresAuth } from '@auth0/auth0-express';
 
 // Check multiple conditions
 app.get('/premium',
-  requireAuth(),
+  requiresAuth(),
   claimCheck((claims) => {
     return claims.subscription === 'premium' && claims.email_verified === true;
   }),
@@ -335,7 +335,7 @@ app.get('/premium',
 
 // Check if user is in specific organization with required role
 app.get('/org/:orgId/settings',
-  requireAuth(),
+  requiresAuth(),
   claimCheck((claims, req) => {
     const orgId = req.params.orgId;
     return claims.org_id === orgId && claims.org_role === 'owner';
@@ -347,7 +347,7 @@ app.get('/org/:orgId/settings',
 
 // Check access token claims
 app.post('/api/admin',
-  requireAuth(),
+  requiresAuth(),
   claimCheck((claims) => {
     return claims.scope?.includes('admin:write');
   }, { tokenType: 'access' }),

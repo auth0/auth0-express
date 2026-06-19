@@ -10,7 +10,7 @@ import { decrypt, encrypt } from './test-utils/encryption.js';
 import { claimCheck } from './middleware/claim-check.js';
 import { claimEquals } from './middleware/claim-equals.js';
 import { claimIncludes } from './middleware/claim-includes.js';
-import { requireAuth } from './middleware/require-auth.js';
+import { requiresAuth } from './middleware/require-auth.js';
 
 const domain = 'auth0.local';
 let accessToken: string;
@@ -518,7 +518,7 @@ test('sessionConfiguration supports rolling, absolute and inactivity duration', 
   expect(sessionCookieHeader).toContain('SameSite=Strict');
 });
 
-test('requireAuth redirects to login when not authenticated', async () => {
+test('requiresAuth redirects to login when not authenticated', async () => {
   const app = createConfiguredApp({
     domain: domain,
     clientId: '<client_id>',
@@ -527,7 +527,7 @@ test('requireAuth redirects to login when not authenticated', async () => {
     sessionSecret: '<secret>',
   });
 
-  app.get('/protected', requireAuth(), (req, res) => {
+  app.get('/protected', requiresAuth(), (req, res) => {
     res.send('Protected content');
   });
 
@@ -538,7 +538,7 @@ test('requireAuth redirects to login when not authenticated', async () => {
   expect(res.headers.location).toContain('returnTo=%2Fprotected');
 });
 
-test('requireAuth returns 401 for API requests when not authenticated', async () => {
+test('requiresAuth returns 401 for API requests when not authenticated', async () => {
   const app = createConfiguredApp({
     domain: domain,
     clientId: '<client_id>',
@@ -547,7 +547,7 @@ test('requireAuth returns 401 for API requests when not authenticated', async ()
     sessionSecret: '<secret>',
   });
 
-  app.get('/api/me', requireAuth(), (req, res) => {
+  app.get('/api/me', requiresAuth(), (req, res) => {
     res.json({ user: 'test' });
   });
 
@@ -560,7 +560,7 @@ test('requireAuth returns 401 for API requests when not authenticated', async ()
   expect(res.body.message).toBe('Authentication required');
 });
 
-test('requireAuth allows authenticated users to access protected routes', async () => {
+test('requiresAuth allows authenticated users to access protected routes', async () => {
   const app = createConfiguredApp({
     domain: domain,
     clientId: '<client_id>',
@@ -569,7 +569,7 @@ test('requireAuth allows authenticated users to access protected routes', async 
     sessionSecret: '<secret>',
   });
 
-  app.get('/protected', requireAuth(), async (req, res) => {
+  app.get('/protected', requiresAuth(), async (req, res) => {
     const user = await req.auth0.client.getUser();
     res.json({ user });
   });
