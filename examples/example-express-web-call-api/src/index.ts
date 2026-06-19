@@ -74,12 +74,19 @@ app.get('/call-api', requireSession, async (req: Request, res: Response) => {
   const response = await fetch(`${apiBaseUrl}/api/private`, {
     headers: { Authorization: `Bearer ${accessToken}` },
   });
+
+  // Surface a failed API call as an error. Express 5 forwards rejected promises
+  // from async route handlers to the error-handling middleware automatically.
+  if (!response.ok) {
+    throw new Error(`API request failed: ${response.status} ${response.statusText}`);
+  }
+
   const apiResponse = await response.text();
 
   res.render('api', {
     isLoggedIn: !!user,
     user,
-    audience: process.env.AUTH0_AUDIENCE,
+    audience: process.env.AUTH0_AUDIENCE as string,
     apiResponse,
     layout: 'layout',
   });
