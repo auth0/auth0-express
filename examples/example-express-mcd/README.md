@@ -43,7 +43,9 @@ The `AUTH0_SESSION_SECRET` is the key used to encrypt the session cookie. You ca
 openssl rand -hex 64
 ```
 
-`APP_BASE_URL` is a **comma-separated allow-list** of the origins this app serves. The SDK parses this into an array and validates each request's origin against it.
+`APP_BASE_URL` is a **comma-separated allow-list** of the origins this app serves.
+
+Note that the example's `createAuth0()` call only passes the MCD-specific options (`domain` and `discoveryCache`) — it does **not** pass `appBaseUrl`. The SDK reads `APP_BASE_URL` (along with `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, and `AUTH0_SESSION_SECRET`) from the environment automatically. Because the value is comma-separated, the SDK parses it into an array and, on each request, matches the incoming origin against this allow-list to pick the base URL used for the callback `redirect_uri`, post-login redirect, and logout. So even though it isn't referenced in `src/index.ts`, the allow-list is what drives per-host base URL resolution. (Passing the raw comma-separated string explicitly as `appBaseUrl` is not equivalent — let the SDK read it from the environment so it is parsed into the allow-list.)
 
 ## Configure your Auth0 tenant
 
