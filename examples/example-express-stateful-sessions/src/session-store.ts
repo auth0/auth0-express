@@ -46,8 +46,13 @@ export class InMemorySessionStore implements SessionStore<StoreOptions> {
     }
   }
 
-  /** Test/inspection helper: number of sessions currently stored. */
+  /** Inspection helper: number of sessions currently stored. */
   get size(): number {
     return this.store.size;
+  }
+
+  /** Inspection helper: the identifiers of all stored sessions. */
+  keys(): string[] {
+    return [...this.store.keys()];
   }
 }
