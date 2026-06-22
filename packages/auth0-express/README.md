@@ -23,7 +23,7 @@ The Auth0 Express SDK is a library for implementing user authentication in Expre
 npm i @auth0/auth0-express@beta
 ```
 
-This library requires Node.js 20 LTS and newer LTS versions.
+This library requires Node.js 22 LTS and newer LTS versions.
 
 ### 2. Register the Auth0 Express Router
 
