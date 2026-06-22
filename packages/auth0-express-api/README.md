@@ -23,7 +23,7 @@ The Auth0 Express-API SDK is a library for protecting API's in Express applicati
 npm i @auth0/auth0-express-api@beta
 ```
 
-This library requires Node.js 20 LTS and newer LTS versions.
+This library requires Node.js 22 LTS and newer LTS versions.
 
 ### 3. Register the Auth0 Express API router
 
