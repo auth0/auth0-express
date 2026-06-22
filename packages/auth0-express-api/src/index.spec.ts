@@ -54,7 +54,7 @@ afterEach(() => {
   server.resetHandlers();
 });
 
-test('should return 400 when no token', async () => {
+test('should return 401 when no token', async () => {
   const app = express();
   app.use(express.json());
 
@@ -71,9 +71,9 @@ test('should return 400 when no token', async () => {
 
   const res = await request(app).get('/test');
 
-  expect(res.status).toBe(400);
-  expect(res.body.error).toBe('invalid_request');
-  expect(res.body.error_description).toBe('No Authorization provided');
+  expect(res.status).toBe(401);
+  expect(res.headers['www-authenticate']).toBe('Bearer');
+  expect(res.body.error).toBeUndefined();
 });
 
 test('should return 200 when valid token', async () => {

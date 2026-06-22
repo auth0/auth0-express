@@ -37,7 +37,7 @@ export function requiresAuth(options: RequiresAuthOptions = {}) {
     const accessToken = getToken(req);
 
     if (!accessToken) {
-      return sendBearerError(res, 400, 'invalid_request', 'No Authorization provided');
+      return res.status(401).header('WWW-Authenticate', 'Bearer').end();
     }
 
     try {
