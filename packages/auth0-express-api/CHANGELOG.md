@@ -1,5 +1,11 @@
 # Change Log
 
+## [v1.0.0-beta.2](https://github.com/auth0/auth0-express/releases/tag/auth0-express-api-v1.0.0-beta.2) (2026-06-22)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-api-v1.0.0-beta.1...auth0-express-api-v1.0.0-beta.2)
+
+**Fixed**
+- fix(auth0-express-api): return 401 instead of 400 when no token is provided [\#18](https://github.com/auth0/auth0-express/pull/18) ([frederikprijck](https://github.com/frederikprijck))
+
 ## [v1.0.0-beta.1](https://github.com/auth0/auth0-express/releases/tag/auth0-express-api-v1.0.0-beta.1) (2026-06-19)
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-api-v1.0.0-beta.0...auth0-express-api-v1.0.0-beta.1)
 
