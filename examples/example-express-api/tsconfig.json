@@ -21,11 +21,5 @@
     "target": "ES2022",
     "outDir": "dist",
     "rootDir": "src"
-  },
-  "ts-node": {
-    "esm": true,
-    "compilerOptions": {
-      "module": "nodenext",
-    }
   }
 }
