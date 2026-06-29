@@ -57,6 +57,7 @@ The following examples can be found in the examples directory:
 
 - [Express Web App Example](./examples/example-express-web/README.md)
 - [Express API Example](./examples/example-express-api/README.md)
+- [Express Web App Calling an API Example](./examples/example-express-web-call-api/README.md)
 
 Before running the examples, you need to install the dependencies for the monorepo and build all the packages.
 
