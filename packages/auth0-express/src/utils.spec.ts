@@ -30,10 +30,25 @@ describe('createRouteUrl', () => {
 
   test('throws when path has multiple leading slashes', () => {
     expect(() => createRouteUrl('///evil.com/auth/callback', BASE)).toThrow(
-      "Invalid route configuration: '///evil.com/auth/callback' contains multiple leading slashes"
+      "Invalid route configuration: '///evil.com/auth/callback' contains multiple leading slashes or backslashes"
     );
     expect(() => createRouteUrl('///custom-auth/callback', BASE)).toThrow(
-      "Invalid route configuration: '///custom-auth/callback' contains multiple leading slashes"
+      "Invalid route configuration: '///custom-auth/callback' contains multiple leading slashes or backslashes"
+    );
+  });
+
+  test('throws when path has multiple leading backslashes', () => {
+    expect(() => createRouteUrl('\\\\evil.com/path', BASE)).toThrow(
+      "Invalid route configuration: '\\\\evil.com/path' contains multiple leading slashes or backslashes"
+    );
+  });
+
+  test('throws when path has mixed leading slash and backslash', () => {
+    expect(() => createRouteUrl('/\\evil.com/path', BASE)).toThrow(
+      "Invalid route configuration: '/\\evil.com/path' contains multiple leading slashes or backslashes"
+    );
+    expect(() => createRouteUrl('\\/evil.com/path', BASE)).toThrow(
+      "Invalid route configuration: '\\/evil.com/path' contains multiple leading slashes or backslashes"
     );
   });
 
@@ -46,16 +61,38 @@ describe('createRouteUrl', () => {
   });
 
   test('throws when path is an absolute URL with a scheme', () => {
-    expect(() => createRouteUrl('https://evil.com/auth/callback', BASE)).toThrow();
+    expect(() => createRouteUrl('https://evil.com/auth/callback', BASE)).toThrow(
+      "Invalid route configuration: 'https://evil.com/auth/callback' must not contain a URL scheme"
+    );
   });
 
   test('throws when path uses http scheme to override the base URL origin', () => {
-    expect(() => createRouteUrl('http://evil.com/auth/callback', BASE)).toThrow();
+    expect(() => createRouteUrl('http://evil.com/auth/callback', BASE)).toThrow(
+      "Invalid route configuration: 'http://evil.com/auth/callback' must not contain a URL scheme"
+    );
+  });
+
+  test('throws when path uses javascript scheme', () => {
+    expect(() => createRouteUrl('javascript:alert(1)', BASE)).toThrow(
+      "Invalid route configuration: 'javascript:alert(1)' must not contain a URL scheme"
+    );
+  });
+
+  test('throws when path uses data scheme', () => {
+    expect(() => createRouteUrl('data:text/html,<h1>x</h1>', BASE)).toThrow(
+      "Invalid route configuration: 'data:text/html,<h1>x</h1>' must not contain a URL scheme"
+    );
+  });
+
+  test('throws when path uses file scheme', () => {
+    expect(() => createRouteUrl('file:///etc/passwd', BASE)).toThrow(
+      "Invalid route configuration: 'file:///etc/passwd' must not contain a URL scheme"
+    );
   });
 
   test('throws for protocol-relative-looking paths with multiple leading slashes', () => {
     expect(() => createRouteUrl('////evil.com/path', BASE)).toThrow(
-      "Invalid route configuration: '////evil.com/path' contains multiple leading slashes"
+      "Invalid route configuration: '////evil.com/path' contains multiple leading slashes or backslashes"
     );
   });
 });

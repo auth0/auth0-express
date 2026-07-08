@@ -15,13 +15,13 @@ function ensureTrailingSlash(value: string) {
 }
 
 /**
- * Ensures the value does not have any leading slashes.
+ * Ensures the value does not have any leading slashes or backslashes.
  * If it does, it will trim all of them.
- * @param value The value to ensure has no leading slashes.
- * @returns The value without leading slashes.
+ * @param value The value to ensure has no leading slashes or backslashes.
+ * @returns The value without leading slashes or backslashes.
  */
 function ensureNoLeadingSlash(value: string) {
-  return value.replace(/^\/+/, '');
+  return value.replace(/^[/\\]*/g, '');
 }
 
 /**
@@ -56,8 +56,12 @@ export function createRouteUrl(url: string, base: string) {
   const baseUrl = new URL(ensureTrailingSlash(base));
   const normalized = ensureNoLeadingSlash(url);
 
-  if (normalized !== url.replace(/^\//, '')) {
-    throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes`);
+  if (normalized !== url.replace(/^[/\\]/, '')) {
+    throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes or backslashes`);
+  }
+
+  if (/^[a-zA-Z0-9.+-]*:/.test(normalized)) {
+    throw new Error(`Invalid route configuration: '${url}' must not contain a URL scheme`);
   }
 
   const result = new URL(normalized, baseUrl);
@@ -69,24 +73,23 @@ export function createRouteUrl(url: string, base: string) {
 
 /**
  * Function to ensure a redirect URL is safe to use, as in, it has the same origin as the safeBaseUrl.
+ * Accepts both absolute same-origin URLs and relative paths.
  * @param dangerousRedirect The redirect URL to check.
  * @param safeBaseUrl The base URL to check against.
  * @returns A safe redirect URL or undefined if the redirect URL is not safe.
  */
 export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): string | undefined {
-  let url: URL;
+  const safeOrigin = new URL(safeBaseUrl).origin;
 
   try {
-    url = createRouteUrl(dangerousRedirect, safeBaseUrl);
+    const url = /^[a-zA-Z0-9.+-]*:/.test(dangerousRedirect)
+      ? new URL(dangerousRedirect)
+      : createRouteUrl(dangerousRedirect, safeBaseUrl);
+
+    return url.origin === safeOrigin ? url.toString() : undefined;
   } catch {
     return undefined;
   }
-
-  if (url.origin === new URL(safeBaseUrl).origin) {
-    return url.toString();
-  }
-
-  return undefined;
 }
 
 export function createServerClientInstance(options: Auth0Options) {
