@@ -60,6 +60,21 @@ describe('createRouteUrl', () => {
     expect(createRouteUrl('auth/callback', BASE).href).toBe('https://myapp.com/auth/callback');
   });
 
+  test('single leading backslash is stripped and resolves as a same-origin relative path', () => {
+    // A single \ is stripped to a plain relative path — not a protocol-relative bypass.
+    // The WHATWG URL parser also normalises \ to / within the path.
+    expect(createRouteUrl('\\auth\\callback', BASE).href).toBe('https://myapp.com/auth/callback');
+  });
+
+  test('allows paths with a colon in non-first segment', () => {
+    expect(createRouteUrl('/a/b:c', BASE).href).toBe('https://myapp.com/a/b:c');
+  });
+
+  test('allows paths whose first segment starts with a digit followed by a colon', () => {
+    // "2024-report:summary" starts with a digit — not a valid URI scheme per RFC 3986.
+    expect(createRouteUrl('/2024-report:summary', BASE).href).toBe('https://myapp.com/2024-report:summary');
+  });
+
   test('throws when path is an absolute URL with a scheme', () => {
     expect(() => createRouteUrl('https://evil.com/auth/callback', BASE)).toThrow(
       "Invalid route configuration: 'https://evil.com/auth/callback' must not contain a URL scheme"
@@ -125,6 +140,19 @@ describe('toSafeRedirect', () => {
 
   test('returns undefined for a URL with a different port (different origin)', () => {
     expect(toSafeRedirect('http://localhost:4000/path', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined for double backslash (protocol-relative bypass attempt)', () => {
+    expect(toSafeRedirect('\\\\evil.com', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined for mixed slash and backslash', () => {
+    expect(toSafeRedirect('/\\evil.com', BASE)).toBeUndefined();
+    expect(toSafeRedirect('\\/evil.com', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined when safeBaseUrl is not a valid URL', () => {
+    expect(toSafeRedirect('/dashboard', 'not-a-url')).toBeUndefined();
   });
 });
 

@@ -21,8 +21,10 @@ function ensureTrailingSlash(value: string) {
  * @returns The value without leading slashes or backslashes.
  */
 function ensureNoLeadingSlash(value: string) {
-  return value.replace(/^[/\\]*/g, '');
+  return value.replace(/^[/\\]+/, '');
 }
+
+const SCHEME_REGEX = /^[a-zA-Z][a-zA-Z0-9.+-]*:/;
 
 /**
  * Wraps a user-provided domain resolver so it always receives the Express
@@ -60,7 +62,7 @@ export function createRouteUrl(url: string, base: string) {
     throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes or backslashes`);
   }
 
-  if (/^[a-zA-Z0-9.+-]*:/.test(normalized)) {
+  if (SCHEME_REGEX.test(normalized)) {
     throw new Error(`Invalid route configuration: '${url}' must not contain a URL scheme`);
   }
 
@@ -79,10 +81,9 @@ export function createRouteUrl(url: string, base: string) {
  * @returns A safe redirect URL or undefined if the redirect URL is not safe.
  */
 export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): string | undefined {
-  const safeOrigin = new URL(safeBaseUrl).origin;
-
   try {
-    const url = /^[a-zA-Z0-9.+-]*:/.test(dangerousRedirect)
+    const safeOrigin = new URL(safeBaseUrl).origin;
+    const url = SCHEME_REGEX.test(dangerousRedirect)
       ? new URL(dangerousRedirect)
       : createRouteUrl(dangerousRedirect, safeBaseUrl);
 
