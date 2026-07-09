@@ -23,6 +23,14 @@ const RESERVED_OAUTH_PARAMS = new Set([
   'nonce',
   'scope',
   'audience',
+  // Request Objects and related params must be SDK/tenant-controlled, not
+  // user-supplied via a login link. prompt/login_hint are
+  // intentionally NOT reserved — integrators commonly forward them.
+  'request',
+  'request_uri',
+  'id_token_hint',
+  'claims',
+  'response_mode',
 ]);
 
 /**

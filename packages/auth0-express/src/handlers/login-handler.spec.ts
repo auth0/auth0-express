@@ -173,9 +173,30 @@ describe('login handler - query parameter sanitization', () => {
         expect(url.searchParams.get(param)).not.toBe('evil');
       }
     );
+
+    // Request-Object and related params must not be user-forwardable
+    test.each(['request', 'request_uri', 'id_token_hint', 'claims', 'response_mode'])(
+      'strips %s from the authorization URL',
+      async (param) => {
+        const app = createConfiguredApp(appConfig);
+        const res = await request(app).get('/auth/login').query({ [param]: 'evil' });
+        expect(res.status).toBe(302);
+        const url = new URL(res.headers['location']?.toString() ?? '');
+        expect(url.searchParams.get(param)).not.toBe('evil');
+      }
+    );
   });
 
   describe('safe parameters still pass through', () => {
+    test('still forwards prompt and login_hint (intentionally not reserved)', async () => {
+      const app = createConfiguredApp(appConfig);
+      const res = await request(app).get('/auth/login').query({ prompt: 'none', login_hint: 'a@b.com' });
+      expect(res.status).toBe(302);
+      const url = new URL(res.headers['location']?.toString() ?? '');
+      expect(url.searchParams.get('prompt')).toBe('none');
+      expect(url.searchParams.get('login_hint')).toBe('a@b.com');
+    });
+
     test('allows safe params when mixed with dangerous ones', async () => {
       const app = createConfiguredApp(appConfig);
 
