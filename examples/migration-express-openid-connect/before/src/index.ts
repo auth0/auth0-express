@@ -13,11 +13,9 @@ const store = redisUrl ? await createRedisStore(redisUrl) : undefined;
 
 app.use(
   auth({
-    issuerBaseURL: process.env.ISSUER_BASE_URL as string,
-    baseURL: process.env.BASE_URL as string,
-    clientID: process.env.CLIENT_ID as string,
-    clientSecret: process.env.CLIENT_SECRET as string,
-    secret: process.env.SECRET as string,
+    // issuerBaseURL, baseURL, clientID, clientSecret and secret are read from the
+    // ISSUER_BASE_URL / BASE_URL / CLIENT_ID / CLIENT_SECRET / SECRET env vars by
+    // express-openid-connect, so we only spell out what is specific to this example.
     authRequired: false,
     // express-openid-connect needs a client secret + response_type=code to obtain tokens.
     // Requesting an audience makes Auth0 issue an API access token (offline_access adds a

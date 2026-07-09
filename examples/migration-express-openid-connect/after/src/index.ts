@@ -1,5 +1,5 @@
-import express, { Request, Response, NextFunction } from 'express';
-import { createAuth0 } from '@auth0/auth0-express';
+import express, { Request, Response } from 'express';
+import { createAuth0, requiresAuth } from '@auth0/auth0-express';
 import 'dotenv/config';
 import { createRedisSessionStore } from './redis-store.js';
 
@@ -15,21 +15,17 @@ app.use(express.urlencoded({ extended: false }));
 
 app.use(
   createAuth0({
-    domain: process.env.AUTH0_DOMAIN as string,
-    clientId: process.env.AUTH0_CLIENT_ID as string,
-    clientSecret: process.env.AUTH0_CLIENT_SECRET as string,
-    appBaseUrl: process.env.APP_BASE_URL as string,
-    sessionSecret: process.env.AUTH0_SESSION_SECRET as string,
-    // Must equal the audience express-openid-connect requested — getAccessToken looks up the
-    // token set by audience, so a mismatch means the carried-over token is not found.
-    audience: process.env.AUTH0_AUDIENCE,
+    // domain, clientId, clientSecret, appBaseUrl, sessionSecret and audience are read from the
+    // AUTH0_* / APP_BASE_URL env vars by createAuth0, so we only spell out what is specific to
+    // this migration example.
     // Read sessions written by express-openid-connect.
     legacyCompatibility: {
       enabled: true,
       legacySecret: process.env.AUTH0_SESSION_SECRET as string,
       legacyScope: 'openid profile email offline_access',
-      // The migration transformer stamps the legacy access token with this audience. It must
-      // match the `audience` above so getAccessToken finds the transformed token set.
+      // The migration transformer stamps the legacy access token with this audience. getAccessToken
+      // looks up the token set by audience, so this must equal the audience the SDK requests — both
+      // derive from AUTH0_AUDIENCE here — or the carried-over token is not found.
       legacyAudience: process.env.AUTH0_AUDIENCE,
     },
     // Match express-openid-connect's default cookie name so the same-browser cookie is picked up.
@@ -38,12 +34,6 @@ app.use(
     sessionStore,
   })
 );
-
-async function requireSession(req: Request, res: Response, next: NextFunction) {
-  const session = await req.auth0.client.getSession();
-  if (!session) return res.redirect(`/auth/login?returnTo=${encodeURIComponent(req.url)}`);
-  next();
-}
 
 // We never render the access token itself — it is a bearer secret and does not belong in a
 // page. To confirm the session carried over from express-openid-connect we show non-secret
@@ -85,7 +75,7 @@ app.get('/', async (req: Request, res: Response) => {
   res.send(renderSessionFacts(user as Record<string, unknown>, session ?? {}));
 });
 
-app.get('/private', requireSession, async (req: Request, res: Response) => {
+app.get('/private', requiresAuth(), async (req: Request, res: Response) => {
   const user = await req.auth0.client.getUser();
   res.send(`<h1>Private</h1><pre>${JSON.stringify(user, null, 2)}</pre>`);
 });
@@ -98,7 +88,7 @@ app.get('/private', requireSession, async (req: Request, res: Response) => {
 // metadata (audience / scope / expiry) rather than the token itself. Reload / afterwards to
 // confirm the original session survived the rewrite. Requires AUTH0_SECOND_AUDIENCE to be a
 // second API registered in the tenant that this client is authorized for.
-app.get('/refresh-token', requireSession, async (req: Request, res: Response) => {
+app.get('/refresh-token', requiresAuth(), async (req: Request, res: Response) => {
   const secondAudience = process.env.AUTH0_SECOND_AUDIENCE;
   if (!secondAudience) {
     return res.status(400).send('Set AUTH0_SECOND_AUDIENCE to a different API identifier to run this.');
