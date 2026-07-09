@@ -46,7 +46,7 @@ Jump straight to the capability you need.
 | [Environment variables](./packages/auth0-express-api/EXAMPLES.md#using-environment-variables) | Configure from `AUTH0_*` env vars instead of hardcoding |
 | [Protect an API route (`requiresAuth`)](./packages/auth0-express-api/README.md#protecting-api-routes) | Require a valid bearer access token |
 | [Read token claims (`req.auth0.user`)](./packages/auth0-express-api/README.md#protecting-api-routes) | Access claims extracted from the verified token |
-| [Require specific scopes](./packages/auth0-express-api/EXAMPLES.md#requiring-specific-scopes) | Gate routes with `scopesInclude` (match any or all) |
+| [Require specific scopes](./packages/auth0-express-api/EXAMPLES.md#requiring-specific-scopes) | Gate routes with `scopesInclude` (match all or any) |
 | [Authorization with claims](./packages/auth0-express-api/README.md#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Custom token / user type](./packages/auth0-express-api/README.md#custom-types) | Type your custom claims via module augmentation |
 | [Custom `fetch`](./packages/auth0-express-api/EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |

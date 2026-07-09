@@ -155,21 +155,21 @@ The `scopesInclude` middleware allows you to check for multiple scopes with flex
 ```ts
 import { requiresAuth, scopesInclude } from '@auth0/auth0-express-api';
 
-// Match ANY of the scopes (default behavior)
+// Match ANY of the scopes
 app.get(
   '/messages',
   requiresAuth(),
-  scopesInclude('read:messages read:admin'),
+  scopesInclude('read:messages read:admin', { match: 'any' }),
   async (req, res) => {
     res.json({ message: 'Access granted with either scope' });
   }
 );
 
-// Match ALL of the scopes
+// Match ALL of the scopes (default behavior)
 app.get(
   '/admin/edit',
   requiresAuth(),
-  scopesInclude('read:admin write:admin', { match: 'all' }),
+  scopesInclude('read:admin write:admin'),
   async (req, res) => {
     res.json({ message: 'Access granted with both scopes' });
   }
@@ -179,11 +179,11 @@ app.get(
 You can also pass an array of scopes:
 
 ```ts
-// Match ANY (default)
-app.get('/messages', requiresAuth(), scopesInclude(['read:messages', 'read:admin']), handler);
+// Match ANY
+app.get('/messages', requiresAuth(), scopesInclude(['read:messages', 'read:admin'], { match: 'any' }), handler);
 
-// Match ALL
-app.get('/admin/edit', requiresAuth(), scopesInclude(['read:admin', 'write:admin'], { match: 'all' }), handler);
+// Match ALL (default)
+app.get('/admin/edit', requiresAuth(), scopesInclude(['read:admin', 'write:admin']), handler);
 ```
 
 ### Custom user type
