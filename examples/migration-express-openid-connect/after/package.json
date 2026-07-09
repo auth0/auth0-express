@@ -1,0 +1,20 @@
+{
+  "name": "migration-after",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "start": "tsx src/index.ts --project tsconfig.json"
+  },
+  "devDependencies": {
+    "@types/express": "^5.0.6",
+    "tsx": "^4.21.0",
+    "typescript": "~5.9.3"
+  },
+  "dependencies": {
+    "@auth0/auth0-express": "*",
+    "dotenv": "^17.2.3",
+    "express": "^5.2.1",
+    "redis": "^4.7.0"
+  }
+}
