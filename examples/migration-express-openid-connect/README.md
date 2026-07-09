@@ -37,12 +37,21 @@ cookie name so the same-browser cookie is picked up across the migration.
    `npm start --workspace examples/migration-express-openid-connect/before`
 2. Open `http://localhost:3000`, click Login, complete auth. Confirm home shows
    your user and an `appSession` cookie exists (DevTools → Application → Cookies).
+   Note the **Session facts** panel: your `sub`, the token audience/scope, and that
+   a refresh + id token are present. (The apps intentionally never print the access
+   token itself — it is a bearer secret.)
 3. Stop the legacy app (Ctrl-C).
 4. Start the new app (no `REDIS_URL` in its `.env`):
    `npm start --workspace examples/migration-express-openid-connect/after`
 5. Reload `http://localhost:3000` in the **same browser**. Expected: still logged
    in — the legacy cookie was decrypted, transformed, and re-encrypted in modern
-   format. Confirm `/private` is accessible without a new login.
+   format. Confirm the **Session facts** match the legacy app's (same `sub`, same
+   audience/scope, refresh token still present) — this is what proves the session
+   carried over. Confirm `/private` is accessible without a new login.
+6. (Optional, strongest proof) With `AUTH0_SECOND_AUDIENCE` set to a second API
+   in your tenant, open `/refresh-token`. It exchanges the **carried-over refresh
+   token** for a fresh token set — succeeding proves the migrated refresh token is
+   intact — and reports the new token set's audience/scope/expiry (never the token).
 
 ## Scenario 2 — Stateful (Redis) migration + backchannel logout
 

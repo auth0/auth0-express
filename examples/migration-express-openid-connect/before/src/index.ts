@@ -35,14 +35,26 @@ app.use(
 
 app.get('/', (req, res) => {
   const user = req.oidc.user;
-  const accessToken = req.oidc.accessToken?.access_token;
+  if (!user) {
+    return res.send(`<h1>express-openid-connect</h1><p>Not logged in</p><a href="/login">Login</a>`);
+  }
+
+  // We never render the access token itself — it is a bearer secret. Instead we show the same
+  // non-secret facts the after/ app shows, so you can compare the two side by side and confirm
+  // the session carried over: same user `sub`, same audience/scope, refresh token still present.
+  const accessToken = req.oidc.accessToken;
+  const expiresAt = accessToken?.expires_in ? new Date((Math.floor(Date.now() / 1000) + accessToken.expires_in) * 1000).toISOString() : '(unknown)';
   res.send(
-    user
-      ? `<h1>express-openid-connect</h1><p>Logged in as ${user.name ?? user.sub}</p>` +
-          `<h2>Access token (audience: ${process.env.AUDIENCE ?? 'none'})</h2>` +
-          `<pre style="white-space:pre-wrap;word-break:break-all">${accessToken ?? '(none — set AUDIENCE)'}</pre>` +
-          `<h2>User</h2><pre>${JSON.stringify(user, null, 2)}</pre><a href="/logout">Logout</a>`
-      : `<h1>express-openid-connect</h1><p>Not logged in</p><a href="/login">Login</a>`
+    `<h1>express-openid-connect</h1><p>Logged in as ${user.name ?? user.sub}</p>` +
+      `<h2>Session facts</h2>` +
+      `<ul>` +
+      `<li>Access token present: <b>${accessToken?.access_token ? 'yes' : 'no'}</b> (audience: ${process.env.AUDIENCE ?? 'none'})</li>` +
+      `<li>Scope requested: <b>openid profile email offline_access</b></li>` +
+      `<li>Access token expires (UTC): <b>${expiresAt}</b></li>` +
+      `<li>Refresh token present: <b>${req.oidc.refreshToken ? 'yes' : 'no'}</b></li>` +
+      `<li>ID token present: <b>${req.oidc.idToken ? 'yes' : 'no'}</b></li>` +
+      `</ul>` +
+      `<h2>User</h2><pre>${JSON.stringify(user, null, 2)}</pre><a href="/logout">Logout</a>`
   );
 });
 
