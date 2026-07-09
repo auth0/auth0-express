@@ -239,6 +239,15 @@ const accessTokenResult = await req.auth0.client.getAccessToken();
 console.log(accessTokenResult.accessToken);
 ```
 
+## Error Handling
+
+The SDK's route handlers forward errors to Express via `next(error)` rather than writing error detail to the response themselves. This means the response your users see is determined by Express, not by the SDK.
+
+By default, Express's built-in error handler includes the error's stack trace, message, and other internal detail in the response body unless `NODE_ENV` is set to `production`. To avoid leaking internal error detail (stack traces, messages, file paths) to clients, make sure to:
+
+- Run your app with `NODE_ENV=production` in any deployed environment, and/or
+- Mount your own [Express error-handling middleware](https://expressjs.com/en/guide/error-handling.html) after the Auth0 router to control exactly what is returned to clients.
+
 ## Feedback
 
 ### Contributing

@@ -42,96 +42,142 @@ describe('callback handler', () => {
     const res = await request(app).get('/auth/callback').query({ code: '123' });
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBeDefined();
-    expect(res.body.message).toBeDefined();
   });
 
   test('handles login_required error with 500 status', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
-    });
+    // Express's default error handler (finalhandler) only omits the stack
+    // trace when NODE_ENV === 'production'; that setting is captured at
+    // app-construction time, so it must be set before createConfiguredApp
+    // runs, to exercise the sanitized contract apps see in a real deployment.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
 
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
 
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ error: 'login_required', error_description: 'Login required' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ error: 'login_required', error_description: 'Login required' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
 
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe('login_required');
-    expect(res.body.message).toBe('Login required');
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // handler responds without the internal error_description/name.
+      expect(res.text).not.toContain('Login required');
+      expect(res.text).not.toContain('login_required');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   test('handles consent_required error with 500 status', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
-    });
+    // Express's default error handler (finalhandler) only omits the stack
+    // trace when NODE_ENV === 'production'; that setting is captured at
+    // app-construction time, so it must be set before createConfiguredApp
+    // runs, to exercise the sanitized contract apps see in a real deployment.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
 
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
 
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ error: 'consent_required', error_description: 'Consent required' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ error: 'consent_required', error_description: 'Consent required' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
 
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe('consent_required');
-    expect(res.body.message).toBe('Consent required');
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // handler responds without the internal error_description/name.
+      expect(res.text).not.toContain('Consent required');
+      expect(res.text).not.toContain('consent_required');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   test('handles interaction_required error with 500 status', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
-    });
+    // Express's default error handler (finalhandler) only omits the stack
+    // trace when NODE_ENV === 'production'; that setting is captured at
+    // app-construction time, so it must be set before createConfiguredApp
+    // runs, to exercise the sanitized contract apps see in a real deployment.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
 
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
 
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ error: 'interaction_required', error_description: 'Interaction required' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ error: 'interaction_required', error_description: 'Interaction required' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
 
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe('interaction_required');
-    expect(res.body.message).toBe('Interaction required');
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // handler responds without the internal error_description/name.
+      expect(res.text).not.toContain('Interaction required');
+      expect(res.text).not.toContain('interaction_required');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   test('handles other errors with 500 status', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
-    });
+    // Express's default error handler (finalhandler) only omits the stack
+    // trace when NODE_ENV === 'production'; that setting is captured at
+    // app-construction time, so it must be set before createConfiguredApp
+    // runs, to exercise the sanitized contract apps see in a real deployment.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
 
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
 
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ error: 'server_error', error_description: 'Something went wrong' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ error: 'server_error', error_description: 'Something went wrong' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
 
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe('server_error');
-    expect(res.body.message).toBe('Something went wrong');
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // handler responds without the internal error_description/name.
+      expect(res.text).not.toContain('Something went wrong');
+      expect(res.text).not.toContain('server_error');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   test('returns error name when cause.error is not available', async () => {
@@ -159,8 +205,6 @@ describe('callback handler', () => {
       .set('cookie', `${cookieName}=${cookieValue}`);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBeDefined();
-    expect(res.body.message).toBeDefined();
   });
 
   test('redirects to returnTo from appState after successful login', async () => {
@@ -256,7 +300,6 @@ describe('callback handler', () => {
       .set('cookie', `${cookieName}=${cookieValue}`);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBe('InvalidConfigurationError');
   });
 
   test('redirects to appState.returnTo from a different allowed origin (no re-validation at callback time)', async () => {

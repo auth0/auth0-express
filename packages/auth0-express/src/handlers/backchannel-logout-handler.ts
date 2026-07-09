@@ -1,6 +1,6 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 
-export async function handleBackchannelLogout(req: Request, res: Response): Promise<void> {
+export async function handleBackchannelLogout(req: Request, res: Response, next: NextFunction): Promise<void> {
   const logoutToken = req.body.logout_token;
 
   if (!logoutToken) {
@@ -11,7 +11,7 @@ export async function handleBackchannelLogout(req: Request, res: Response): Prom
   try {
     await req.auth0.client.handleBackchannelLogout(logoutToken);
     res.status(204).send(null);
-  } catch (e) {
-    res.status(400).send((e as Error).message);
+  } catch (error) {
+    next(error);
   }
 }

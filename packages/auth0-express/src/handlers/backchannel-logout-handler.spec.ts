@@ -53,8 +53,9 @@ describe('backchannel logout handler', () => {
 
     const res = await request(app).post('/auth/backchannel-logout').send({ logout_token: 'invalid_token' });
 
-    expect(res.status).toBe(400);
-    expect(res.text).toBeDefined();
+    // Invalid tokens now surface through Express error handling (SDK-4)
+    // rather than a handler-authored 400 with leaked detail.
+    expect(res.status).toBe(500);
   });
 
   test('returns 204 on successful logout token processing', async () => {
@@ -84,8 +85,9 @@ describe('backchannel logout handler', () => {
 
     const res = await request(app).post('/auth/backchannel-logout').send({ logout_token: logoutToken });
 
-    // Note: This might return 400 due to additional validation in auth0-server-js
-    // but we're testing that the handler processes it correctly
-    expect([204, 400]).toContain(res.status);
+    // Note: This might return 500 (via Express error middleware; SDK-4) due to
+    // additional validation in auth0-server-js, but we're testing that the
+    // handler processes it correctly.
+    expect([204, 500]).toContain(res.status);
   });
 });
