@@ -2,6 +2,8 @@ import { CookieTransactionStore, ServerClient, StatefulStateStore, StatelessStat
 import type { DomainResolver } from '@auth0/auth0-server-js';
 import { Auth0Options, StoreOptions } from './types.js';
 import { ExpressCookieHandler } from './store/express-cookie-handler.js';
+import { MigrationStatelessStateStore } from './store/legacy-compatible-stateless-state-store.js';
+import { MigrationStatefulStateStore } from './store/legacy-compatible-stateful-state-store.js';
 import { getRequestContext } from './store/request-context.js';
 
 /**
@@ -126,6 +128,67 @@ export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): 
   }
 }
 
+/**
+ * Factory function to create the appropriate state store based on the provided options.
+ * @param options The Auth0 options to determine which state store to create and configure.
+ * @returns An instance of a state store: stateful, stateless, or their legacy-compatible variants.
+ */
+function getStateStore(options: Auth0Options) {
+  const isLegacy = options.legacyCompatibility?.enabled;
+
+  if (options.sessionStore) {
+    // Use stateful store with custom session store (Redis, MongoDB, etc.)
+    if (isLegacy) {
+      // Legacy-compatible stateful store for express-openid-connect migration
+      return new MigrationStatefulStateStore(
+        {
+          secret: options.sessionSecret,
+          store: options.sessionStore,
+          legacySecret: options.legacyCompatibility?.legacySecret,
+          legacyAudience: options.legacyCompatibility?.legacyAudience,
+          legacyScope: options.legacyCompatibility?.legacyScope,
+          requireSignedLegacyCookie: options.legacyCompatibility?.requireSignedLegacyCookie,
+          sessionConfiguration: options.sessionConfiguration,
+        },
+        new ExpressCookieHandler()
+      );
+    }
+
+    // Standard stateful store
+    return new StatefulStateStore(
+      {
+        ...options.sessionConfiguration,
+        secret: options.sessionSecret,
+        store: options.sessionStore,
+      },
+      new ExpressCookieHandler()
+    );
+  }
+
+  if (isLegacy) {
+    // Legacy-compatible stateless store for express-openid-connect migration
+    return new MigrationStatelessStateStore(
+      {
+        secret: options.sessionSecret,
+        legacySecret: options.legacyCompatibility?.legacySecret,
+        legacyAudience: options.legacyCompatibility?.legacyAudience,
+        legacyScope: options.legacyCompatibility?.legacyScope,
+        sessionConfiguration: options.sessionConfiguration,
+      },
+      new ExpressCookieHandler()
+    );
+  }
+
+  // Standard stateless store
+  return new StatelessStateStore(
+    {
+      ...options.sessionConfiguration,
+      secret: options.sessionSecret,
+    },
+    new ExpressCookieHandler()
+  );
+}
+
 export function createServerClientInstance(options: Auth0Options) {
   const callbackPath = options.routes?.callback ?? '/auth/callback';
   // Only a static string base URL yields a startup redirect_uri. In dynamic
@@ -147,22 +210,7 @@ export function createServerClientInstance(options: Auth0Options) {
       redirect_uri: redirectUri,
     },
     transactionStore: new CookieTransactionStore({ secret: options.sessionSecret }, new ExpressCookieHandler()),
-    stateStore: options.sessionStore
-      ? new StatefulStateStore(
-          {
-            ...options.sessionConfiguration,
-            secret: options.sessionSecret,
-            store: options.sessionStore,
-          },
-          new ExpressCookieHandler()
-        )
-      : new StatelessStateStore(
-          {
-            ...options.sessionConfiguration,
-            secret: options.sessionSecret,
-          },
-          new ExpressCookieHandler()
-        ),
+    stateStore: getStateStore(options),
     stateIdentifier: options.sessionConfiguration?.cookie?.name,
     customFetch: options.customFetch,
     discoveryCache: options.discoveryCache,

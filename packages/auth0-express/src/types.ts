@@ -92,6 +92,59 @@ export interface Auth0Options {
   sessionStore?: SessionStore<StoreOptions>;
   /** Advanced session configuration (cookie settings, timeouts, etc.) */
   sessionConfiguration?: SessionConfiguration;
+
+  /**
+   * Legacy compatibility options for migrating from express-openid-connect.
+   * When enabled, the SDK will automatically detect and decrypt sessions from
+   * express-openid-connect, allowing seamless migration without forcing users to re-authenticate.
+   */
+  legacyCompatibility?: {
+    /**
+     * Enable legacy session compatibility with express-openid-connect.
+     * @default false
+     */
+    enabled: boolean;
+
+    /**
+     * The secret(s) that were used by express-openid-connect for session encryption.
+     * Supports key rotation: provide an array to try multiple secrets in order.
+     * If not provided, uses the same secret as the current sessionSecret.
+     */
+    legacySecret?: string | string[];
+
+    /**
+     * The audience to assign to access tokens migrated from express-openid-connect sessions.
+     *
+     * Token sets are looked up by audience, so this must equal the `audience` your app requests
+     * (e.g. via `getAccessToken`) or the migrated access token will not be found. The default
+     * `'default'` only matches callers that request no audience.
+     *
+     * @default 'default'
+     */
+    legacyAudience?: string;
+
+    /**
+     * The scope to assign to access tokens migrated from express-openid-connect sessions.
+     * @default 'openid profile email offline_access'
+     */
+    legacyScope?: string;
+
+    /**
+     * Mirror of express-openid-connect's `requireSignedSessionStoreCookie`. Only applies when a
+     * server-side `sessionStore` is configured (stateful sessions); ignored for cookie-based
+     * (stateless) sessions, whose payload is already encrypted and authenticated.
+     *
+     * When `true`, a legacy session-store cookie is only honored if it carries a valid JWS
+     * signature (verified against one of {@link legacySecret}); an unsigned cookie or one whose
+     * signature does not verify resolves to no session instead of being used verbatim as the
+     * store key. Set this when migrating a deployment that ran express-openid-connect with
+     * `requireSignedSessionStoreCookie: true`, so the signature remains the required integrity
+     * control over the store key.
+     *
+     * @default false
+     */
+    requireSignedLegacyCookie?: boolean;
+  };
   /**
    * Whether to mount the default routes for login, logout, callback and backchannel logout.
    * Routes: /auth/login, /auth/callback, /auth/logout, /auth/backchannel-logout
