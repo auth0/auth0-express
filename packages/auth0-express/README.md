@@ -8,12 +8,33 @@ The Auth0 Express SDK is a library for implementing user authentication in Expre
 ![Downloads](https://img.shields.io/npm/dw/@auth0/auth0-express)
 [![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://opensource.org/license/apache-2-0)
 
-📚 [Documentation](#documentation) - 🚀 [Getting Started](#getting-started) - 💬 [Feedback](#feedback)
+📚 [Documentation](#documentation) - 🔎 [Features](#features) - 🚀 [Getting Started](#getting-started) - 💬 [Feedback](#feedback)
 
 ## Documentation
 
 - [Examples](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express/EXAMPLES.md) - examples for your different use cases.
 - [Docs Site](https://auth0.com/docs) - explore our docs site and learn more about Auth0.
+
+## Features
+
+Jump straight to the capability you need.
+
+| Feature | What it does |
+| --- | --- |
+| [Quick start](#getting-started) | Mount Auth0 with `createAuth0` in a few lines |
+| [Environment variables](#using-environment-variables) | Configure from `AUTH0_*` env vars instead of hardcoding |
+| [Migrate from `express-openid-connect`](#using-environment-variables) | Supported legacy env var aliases for an easier move |
+| [Built-in routes](#routes) | `/auth/login`, `/logout`, `/callback`, back-channel logout |
+| [Custom login / logout / callback](#3-adding-login-and-logout) | Roll your own routes instead of the mounted ones |
+| [Configure mounted routes](./EXAMPLES.md#configuring-the-mounted-routes) | Rename, re-path, or disable the built-in routes |
+| [Protect a route with a session](#4-protecting-routes) | Gate server-rendered pages behind a login session |
+| [Get the current session / user](#4-protecting-routes) | Read the authenticated user from `req.auth0` |
+| [Call an API (`getAccessToken`)](#requesting-an-access-token-to-call-an-api) | Get an access token to call APIs as the user |
+| [Authorization with claims](./EXAMPLES.md#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
+| [Dynamic app base URLs](./EXAMPLES.md#dynamic-application-base-urls) | Infer the base URL per host or use an allow-list |
+| [Multiple Custom Domains (MCD)](./EXAMPLES.md#multiple-custom-domains-mcd) | Resolve the Auth0 domain per request |
+| [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
+| [Discovery cache](./EXAMPLES.md#discovery-cache) | Control caching of OIDC discovery metadata |
 
 ## Getting Started
 
@@ -23,7 +44,7 @@ The Auth0 Express SDK is a library for implementing user authentication in Expre
 npm i @auth0/auth0-express@beta
 ```
 
-This library requires Node.js 20 LTS and newer LTS versions.
+This library requires Node.js 22 LTS and newer LTS versions.
 
 ### 2. Register the Auth0 Express Router
 

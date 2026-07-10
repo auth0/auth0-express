@@ -6,12 +6,50 @@ Auth0-Express Mono Repo, containing SDKs for implementing user authentication in
 [![License](https://img.shields.io/badge/license-Apache%20License%202.0-blue)](https://opensource.org/license/apache-2-0)
 [![Ask DeepWiki](https://deepwiki.com/badge.svg)](https://deepwiki.com/auth0/auth0-express)
 
-📚 [Packages](#packages) - 💬 [Feedback](#feedback)
+📚 [Packages](#packages) - 🔎 [Features](#features) - 💬 [Feedback](#feedback)
 
 ## Packages
 
-- [`auth0-express`](./packages/auth0-express/README.md) - Authentication SDK for Express Applications on JavaScript runtimes.
-- [`auth0-express-api`](./packages/auth0-express-api/README.md) - Authentication SDK for Express API's on JavaScript runtimes.
+Two SDKs — pick the one that matches your application:
+
+- [`@auth0/auth0-express`](./packages/auth0-express/README.md) — for server-rendered **web apps** where users log in. Authenticates with a browser session cookie and handles login, logout, callback, and session management.
+- [`@auth0/auth0-express-api`](./packages/auth0-express-api/README.md) — for **APIs** / resource servers consumed by SPAs, mobile, or services. Authenticates with an `Authorization: Bearer <access_token>` and authorizes by scopes and claims.
+
+## Features
+
+Jump straight to the capability you need.
+
+### `@auth0/auth0-express` — Web applications
+
+| Feature | What it does |
+| --- | --- |
+| [Quick start](./packages/auth0-express/README.md#getting-started) | Mount Auth0 with `createAuth0` in a few lines |
+| [Environment variables](./packages/auth0-express/README.md#using-environment-variables) | Configure from `AUTH0_*` env vars instead of hardcoding |
+| [Migrate from `express-openid-connect`](./packages/auth0-express/README.md#using-environment-variables) | Supported legacy env var aliases for an easier move |
+| [Built-in routes](./packages/auth0-express/README.md#routes) | `/auth/login`, `/logout`, `/callback`, back-channel logout |
+| [Custom login / logout / callback](./packages/auth0-express/README.md#3-adding-login-and-logout) | Roll your own routes instead of the mounted ones |
+| [Configure mounted routes](./packages/auth0-express/EXAMPLES.md#configuring-the-mounted-routes) | Rename, re-path, or disable the built-in routes |
+| [Protect a route with a session](./packages/auth0-express/README.md#4-protecting-routes) | Gate server-rendered pages behind a login session |
+| [Get the current session / user](./packages/auth0-express/README.md#4-protecting-routes) | Read the authenticated user from `req.auth0` |
+| [Call an API (`getAccessToken`)](./packages/auth0-express/README.md#requesting-an-access-token-to-call-an-api) | Get an access token to call APIs as the user |
+| [Authorization with claims](./packages/auth0-express/EXAMPLES.md#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
+| [Dynamic app base URLs](./packages/auth0-express/EXAMPLES.md#dynamic-application-base-urls) | Infer the base URL per host or use an allow-list |
+| [Multiple Custom Domains (MCD)](./packages/auth0-express/EXAMPLES.md#multiple-custom-domains-mcd) | Resolve the Auth0 domain per request |
+| [Custom `fetch`](./packages/auth0-express/EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
+| [Discovery cache](./packages/auth0-express/EXAMPLES.md#discovery-cache) | Control caching of OIDC discovery metadata |
+
+### `@auth0/auth0-express-api` — APIs
+
+| Feature | What it does |
+| --- | --- |
+| [Quick start](./packages/auth0-express-api/README.md#getting-started) | Protect an API with `createAuth0Api` in a few lines |
+| [Environment variables](./packages/auth0-express-api/EXAMPLES.md#using-environment-variables) | Configure from `AUTH0_*` env vars instead of hardcoding |
+| [Protect an API route (`requiresAuth`)](./packages/auth0-express-api/README.md#protecting-api-routes) | Require a valid bearer access token |
+| [Read token claims (`req.auth0.user`)](./packages/auth0-express-api/README.md#protecting-api-routes) | Access claims extracted from the verified token |
+| [Require specific scopes](./packages/auth0-express-api/EXAMPLES.md#requiring-specific-scopes) | Gate routes with `scopesInclude` (match any or all) |
+| [Authorization with claims](./packages/auth0-express-api/README.md#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
+| [Custom token / user type](./packages/auth0-express-api/README.md#custom-types) | Type your custom claims via module augmentation |
+| [Custom `fetch`](./packages/auth0-express-api/EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
 
 ## Running Examples
 
@@ -19,6 +57,7 @@ The following examples can be found in the examples directory:
 
 - [Express Web App Example](./examples/example-express-web/README.md)
 - [Express API Example](./examples/example-express-api/README.md)
+- [Express Web App Calling an API Example](./examples/example-express-web-call-api/README.md)
 - [Express Stateful Sessions Example](./examples/example-express-stateful-sessions/README.md)
 
 Before running the examples, you need to install the dependencies for the monorepo and build all the packages.

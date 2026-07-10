@@ -31,8 +31,11 @@ app.get('/api/public', async (req: Request, res: Response) => {
 
 const start = async () => {
   try {
-    app.listen(3000, () => {
-      console.log('API server listening on http://localhost:3000');
+    // Defaults to 3000; set PORT to run on another port (e.g. 3001 when running
+    // alongside the example-express-web-call-api web app).
+    const port = Number(process.env.PORT ?? 3000);
+    app.listen(port, () => {
+      console.log(`API server listening on http://localhost:${port}`);
     });
   } catch (err) {
     console.error(err);
