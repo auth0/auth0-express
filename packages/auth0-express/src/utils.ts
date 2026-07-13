@@ -88,6 +88,10 @@ export function createRouteUrl(url: string, base: string) {
 export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): string | undefined {
   try {
     const safeOrigin = new URL(safeBaseUrl).origin;
+    // Absolute URLs are validated by origin check directly.
+    // Relative paths go through createRouteUrl rather than new URL(input, base) because
+    // new URL() treats a leading slash as origin-absolute, dropping the subpath in
+    // subpath deployments.
     const url = SCHEME_REGEX.test(dangerousRedirect)
       ? new URL(dangerousRedirect)
       : createRouteUrl(dangerousRedirect, safeBaseUrl);
