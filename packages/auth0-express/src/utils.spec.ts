@@ -75,33 +75,45 @@ describe('createRouteUrl', () => {
     expect(createRouteUrl('/2024-report:summary', BASE).href).toBe('https://myapp.com/2024-report:summary');
   });
 
-  test('throws when path is an absolute URL with a scheme', () => {
+  test('accepts an absolute same-origin URL (e.g. from a reverse proxy)', () => {
+    expect(createRouteUrl('https://myapp.com/auth/callback?code=abc', BASE).href).toBe(
+      'https://myapp.com/auth/callback?code=abc'
+    );
+  });
+
+  test('accepts an absolute same-origin URL with subpath base', () => {
+    expect(createRouteUrl('https://myapp.com/subapp/auth/callback?code=abc', BASE_WITH_SUBPATH).href).toBe(
+      'https://myapp.com/subapp/auth/callback?code=abc'
+    );
+  });
+
+  test('throws when absolute URL has a different origin', () => {
     expect(() => createRouteUrl('https://evil.com/auth/callback', BASE)).toThrow(
-      "Invalid route configuration: 'https://evil.com/auth/callback' must not contain a URL scheme"
+      'URL is not allowed: origin does not match base URL'
     );
   });
 
   test('throws when path uses http scheme to override the base URL origin', () => {
     expect(() => createRouteUrl('http://evil.com/auth/callback', BASE)).toThrow(
-      "Invalid route configuration: 'http://evil.com/auth/callback' must not contain a URL scheme"
+      'URL is not allowed: origin does not match base URL'
     );
   });
 
   test('throws when path uses javascript scheme', () => {
     expect(() => createRouteUrl('javascript:alert(1)', BASE)).toThrow(
-      "Invalid route configuration: 'javascript:alert(1)' must not contain a URL scheme"
+      'URL is not allowed: origin does not match base URL'
     );
   });
 
   test('throws when path uses data scheme', () => {
     expect(() => createRouteUrl('data:text/html,<h1>x</h1>', BASE)).toThrow(
-      "Invalid route configuration: 'data:text/html,<h1>x</h1>' must not contain a URL scheme"
+      'URL is not allowed: origin does not match base URL'
     );
   });
 
   test('throws when path uses file scheme', () => {
     expect(() => createRouteUrl('file:///etc/passwd', BASE)).toThrow(
-      "Invalid route configuration: 'file:///etc/passwd' must not contain a URL scheme"
+      'URL is not allowed: origin does not match base URL'
     );
   });
 
@@ -120,7 +132,6 @@ describe('toSafeRedirect', () => {
   });
 
   test('returns undefined for triple-slash path', () => {
-    // ///evil.com → throws due to multiple leading slashes → caught → returns undefined
     expect(toSafeRedirect('///evil.com/path', BASE)).toBeUndefined();
   });
 
@@ -142,11 +153,8 @@ describe('toSafeRedirect', () => {
     expect(toSafeRedirect('http://localhost:4000/path', BASE)).toBeUndefined();
   });
 
-  test('returns undefined for double backslash (protocol-relative bypass attempt)', () => {
+  test('returns undefined for backslash-based protocol-relative bypass attempts', () => {
     expect(toSafeRedirect('\\\\evil.com', BASE)).toBeUndefined();
-  });
-
-  test('returns undefined for mixed slash and backslash', () => {
     expect(toSafeRedirect('/\\evil.com', BASE)).toBeUndefined();
     expect(toSafeRedirect('\\/evil.com', BASE)).toBeUndefined();
   });

@@ -56,14 +56,19 @@ export function wrapDomainResolver(
  */
 export function createRouteUrl(url: string, base: string) {
   const baseUrl = new URL(ensureTrailingSlash(base));
+
+  if (SCHEME_REGEX.test(url)) {
+    const absolute = new URL(url);
+    if (absolute.origin !== baseUrl.origin) {
+      throw new Error('URL is not allowed: origin does not match base URL');
+    }
+    return absolute;
+  }
+
   const normalized = ensureNoLeadingSlash(url);
 
   if (normalized !== url.replace(/^[/\\]/, '')) {
     throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes or backslashes`);
-  }
-
-  if (SCHEME_REGEX.test(normalized)) {
-    throw new Error(`Invalid route configuration: '${url}' must not contain a URL scheme`);
   }
 
   const result = new URL(normalized, baseUrl);
@@ -83,10 +88,7 @@ export function createRouteUrl(url: string, base: string) {
 export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): string | undefined {
   try {
     const safeOrigin = new URL(safeBaseUrl).origin;
-    const url = SCHEME_REGEX.test(dangerousRedirect)
-      ? new URL(dangerousRedirect)
-      : createRouteUrl(dangerousRedirect, safeBaseUrl);
-
+    const url = new URL(dangerousRedirect, safeBaseUrl);
     return url.origin === safeOrigin ? url.toString() : undefined;
   } catch {
     return undefined;
