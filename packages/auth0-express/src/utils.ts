@@ -88,7 +88,9 @@ export function createRouteUrl(url: string, base: string) {
 export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): string | undefined {
   try {
     const safeOrigin = new URL(safeBaseUrl).origin;
-    const url = new URL(dangerousRedirect, safeBaseUrl);
+    const url = SCHEME_REGEX.test(dangerousRedirect)
+      ? new URL(dangerousRedirect)
+      : createRouteUrl(dangerousRedirect, safeBaseUrl);
     return url.origin === safeOrigin ? url.toString() : undefined;
   } catch {
     return undefined;
