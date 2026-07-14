@@ -23,14 +23,14 @@ app.use(expressLayouts);
 
 // Multiple Custom Domains (MCD) configuration.
 //
-// This single app serves two hostnames — tenant-1.localhost and
-// tenant-2.localhost — on the same port, each mapped to a different Auth0
+// This single app serves two hostnames — brand-a.localhost and
+// brand-b.localhost — on the same port, each mapped to a different Auth0
 // custom domain of the SAME Auth0 tenant. The mapping is driven by env vars so
 // you can point it at your own custom domains.
 const defaultAuth0Domain = process.env.AUTH0_DOMAIN as string;
 const domainsByHost: Record<string, string> = {
-  'tenant-1.localhost:3000': process.env.AUTH0_CUSTOM_DOMAIN_1 as string,
-  'tenant-2.localhost:3000': process.env.AUTH0_CUSTOM_DOMAIN_2 as string,
+  'brand-a.localhost:3000': process.env.AUTH0_CUSTOM_DOMAIN_1 as string,
+  'brand-b.localhost:3000': process.env.AUTH0_CUSTOM_DOMAIN_2 as string,
 };
 
 // Resolve the Auth0 custom domain for a given request host, falling back to the
@@ -107,7 +107,7 @@ app.get('/private', requiresAuth(), async (req: Request, res: Response) => {
 const start = async () => {
   try {
     app.listen(3000, () => {
-      console.log('Server listening on http://tenant-1.localhost:3000 and http://tenant-2.localhost:3000');
+      console.log('Server listening on http://brand-a.localhost:3000 and http://brand-b.localhost:3000');
     });
   } catch (err) {
     console.error(err);
