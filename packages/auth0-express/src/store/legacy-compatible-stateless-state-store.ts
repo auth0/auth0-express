@@ -146,8 +146,10 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
         // A genuine express-openid-connect cookie always carries a numeric exp; reject a cookie
         // that lacks one or is expired, mirroring appSession's `exp > epoch()` assertion rather
         // than accepting an exp-less cookie indefinitely.
+        // Reject once exp has been reached, mirroring appSession's `exp > epoch()` assertion
+        // (i.e. invalid when `exp <= now`), not one second later.
         const headerExp = header.exp;
-        if (typeof headerExp !== 'number' || headerExp < Math.floor(Date.now() / 1000)) {
+        if (typeof headerExp !== 'number' || headerExp <= Math.floor(Date.now() / 1000)) {
           return undefined;
         }
 

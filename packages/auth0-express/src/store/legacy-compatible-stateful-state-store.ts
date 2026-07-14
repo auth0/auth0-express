@@ -221,7 +221,7 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
 
     // The header timestamps are trusted downstream: `exp` gates expiry and `iat` becomes
     // `createdAt`. Require them to be numbers so a malformed envelope with a non-numeric `exp`
-    // cannot slip past the `exp < now` comparison (which would coerce and read as "not expired").
+    // cannot slip past the `exp <= now` comparison (which would coerce and read as "not expired").
     const header = payload.header as Record<string, unknown>;
     return typeof header.iat === 'number' && typeof header.uat === 'number' && typeof header.exp === 'number';
   }
@@ -231,7 +231,9 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
    * Rejects expired sessions.
    */
   #transformLegacyStorePayload(payload: ExpressOpenidConnectStorePayload): StateData | undefined {
-    if (payload.header.exp < Math.floor(Date.now() / 1000)) {
+    // Reject once exp has been reached, mirroring appSession's `exp > epoch()` assertion
+    // (i.e. invalid when `exp <= now`), not one second later.
+    if (payload.header.exp <= Math.floor(Date.now() / 1000)) {
       return undefined;
     }
     const sessionData = this.#transformer.transformLegacySession(payload.data);

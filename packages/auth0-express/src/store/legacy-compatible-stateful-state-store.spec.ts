@@ -188,6 +188,39 @@ describe('MigrationStatefulStateStore', () => {
       expect(result).toBeUndefined();
     });
 
+    it('should reject a legacy session whose header exp equals now (exp <= now parity)', async () => {
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore(
+        {
+          secret,
+          store: mockStore,
+        },
+        handler
+      );
+
+      const nowSeconds = Math.floor(Date.now() / 1000);
+      const plainSessionId = 'sess:boundary';
+      // express-openid-connect treats a session invalid once `exp <= now` (`assert(exp > epoch())`),
+      // so a payload whose exp is exactly the current second must be rejected, not accepted for one
+      // extra second.
+      const boundaryPayload = {
+        header: { iat: nowSeconds - 100, uat: nowSeconds - 50, exp: nowSeconds },
+        data: {
+          id_token: sampleIdToken,
+          access_token: 'boundary-token',
+          expires_at: nowSeconds,
+        },
+        cookie: { expires: nowSeconds, maxAge: 3600 },
+      };
+
+      await mockStore.set(plainSessionId, boundaryPayload);
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue(plainSessionId);
+
+      const result = await store.get('__a0_session', {});
+
+      expect(result).toBeUndefined();
+    });
+
     it('should not treat a payload with a non-numeric exp as a valid legacy session', async () => {
       const handler = createCookieHandler();
       const store = new MigrationStatefulStateStore(

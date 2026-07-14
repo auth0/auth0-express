@@ -465,6 +465,28 @@ describe('MigrationStatelessStateStore', () => {
       expect(result).toBeUndefined();
     });
 
+    it('should reject a legacy session whose header exp equals now (exp <= now parity)', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+        },
+        cookieHandler
+      );
+
+      const legacySession = {
+        id_token: sampleIdToken,
+        access_token: 'boundary-access-token',
+      };
+      // express-openid-connect treats a session invalid once `exp <= now` (`assert(exp > epoch())`),
+      // so a cookie whose exp is exactly the current second must be rejected, not accepted for one
+      // extra second.
+      const boundaryEncrypted = await encryptLegacyWithHeaderExp(legacySession, secret, Math.floor(Date.now() / 1000));
+
+      const result = await (store as any).decrypt('test-id', boundaryEncrypted);
+      expect(result).toBeUndefined();
+    });
+
     it('should return undefined for a legacy session with no header-level exp', async () => {
       const store = new MigrationStatelessStateStore(
         {
