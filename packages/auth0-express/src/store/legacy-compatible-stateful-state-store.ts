@@ -14,9 +14,12 @@ import { deriveHkdfKey } from './express-oidc-hkdf.js';
  */
 export interface MigrationStatefulStateStoreOptions {
   /**
-   * The secret used by auth0-server-js for encryption
+   * The secret used by auth0-server-js for encryption.
+   *
+   * Provide an array to support secret rotation: the first secret encrypts new cookies, while
+   * all secrets are tried, in order, when decrypting.
    */
-  secret: string;
+  secret: string | string[];
 
   /**
    * The secret(s) that were used by express-openid-connect for signing cookies.
@@ -117,9 +120,10 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
       cookieHandler
     );
 
-    this.#legacySecrets = Array.isArray(options.legacySecret)
-      ? options.legacySecret
-      : [options.legacySecret ?? options.secret];
+    // Fall back to the app's session secret(s) when no explicit legacy secret is given. Either
+    // may be an array (rotation), so normalize both to a flat string[] tried in order.
+    const legacySecret = options.legacySecret ?? options.secret;
+    this.#legacySecrets = Array.isArray(legacySecret) ? legacySecret : [legacySecret];
 
     this.#requireSignedLegacyCookie = options.requireSignedLegacyCookie ?? false;
 

@@ -11,9 +11,12 @@ import { deriveHkdfKey } from './express-oidc-hkdf.js';
  */
 export interface MigrationStatelessStateStoreOptions {
   /**
-   * The secret used by auth0-server-js for encryption
+   * The secret used by auth0-server-js for encryption.
+   *
+   * Provide an array to support secret rotation: the first secret encrypts new cookies, while
+   * all secrets are tried, in order, when decrypting.
    */
-  secret: string;
+  secret: string | string[];
 
   /**
    * The secret(s) that were used by express-openid-connect for encryption.
@@ -89,9 +92,10 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
       cookieHandler
     );
 
-    this.#legacySecrets = Array.isArray(options.legacySecret)
-      ? options.legacySecret
-      : [options.legacySecret ?? options.secret];
+    // Fall back to the app's session secret(s) when no explicit legacy secret is given. Either
+    // may be an array (rotation), so normalize both to a flat string[] tried in order.
+    const legacySecret = options.legacySecret ?? options.secret;
+    this.#legacySecrets = Array.isArray(legacySecret) ? legacySecret : [legacySecret];
 
     const legacyAudience = options.legacyAudience ?? 'default';
     const legacyScope = options.legacyScope ?? 'openid profile email offline_access';
@@ -159,7 +163,13 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
           iat: typeof headerIat === 'number' ? headerIat : undefined,
         };
       } catch (err) {
-        if (!(err instanceof errors.JWEDecryptionFailed) && !(err instanceof errors.JWEInvalid)) {
+        // Swallow any JOSE-level failure and try the next secret / fall through to "no session".
+        // Besides the expected JWEDecryptionFailed / JWEInvalid (wrong key or malformed JWE), a
+        // modern auth0-server-js cookie (A256CBC-HS512) fed into this A256GCM-only path throws
+        // JOSEAlgNotAllowed. All jose errors extend JOSEError, so this fails soft to `undefined`
+        // ("logged out"), matching the base store, while genuine programming errors (e.g.
+        // TypeError from a broken Web Crypto) are not JOSEError and still propagate.
+        if (!(err instanceof errors.JOSEError)) {
           throw err;
         }
         continue;

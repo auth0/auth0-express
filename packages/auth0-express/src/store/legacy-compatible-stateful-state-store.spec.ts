@@ -568,6 +568,38 @@ describe('MigrationStatefulStateStore', () => {
       expect(result).toBeDefined();
       expect(result!.tokenSets[0]!.accessToken).toBe('rotated-token');
     });
+
+    it('supports an array session secret for rotation (resolves a modern cookie made with the old secret)', async () => {
+      const oldSecret = 'old-modern-secret-at-least-32-characters!';
+      const newSecret = 'new-modern-secret-at-least-32-characters!';
+
+      const modernStateData = {
+        user: { sub: 'auth0|rotated' },
+        idToken: undefined,
+        refreshToken: 'refresh',
+        tokenSets: [],
+        internal: { sid: 'sid-rotated', createdAt: Math.floor(Date.now() / 1000) },
+      };
+
+      // Write a modern session under the OLD secret; capture the encrypted cookie the base emits.
+      const oldHandler = createCookieHandler();
+      (oldHandler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue(undefined);
+      const oldStore = new MigrationStatefulStateStore({ secret: oldSecret, store: mockStore }, oldHandler);
+      await oldStore.set('__a0_session', modernStateData, false, {});
+      const encryptedCookie = (oldHandler.setCookie as ReturnType<typeof vi.fn>).mock.calls.at(-1)![1] as string;
+
+      // After rotating to [new, old], reading the old-secret cookie must still resolve the session.
+      const newHandler = createCookieHandler();
+      (newHandler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue(encryptedCookie);
+      const newStore = new MigrationStatefulStateStore(
+        { secret: [newSecret, oldSecret], store: mockStore },
+        newHandler
+      );
+
+      const result = await newStore.get('__a0_session', {});
+
+      expect(result).toEqual(modernStateData);
+    });
   });
 
   describe('requireSignedLegacyCookie', () => {

@@ -367,6 +367,71 @@ describe('MigrationStatelessStateStore', () => {
       expect(result).toBeUndefined();
     });
 
+    it('returns undefined (does not throw) for an undecryptable modern-format cookie', async () => {
+      // A cookie encrypted under a DIFFERENT modern secret is a genuine 5-segment
+      // A256CBC-HS512 JWE that this store cannot decrypt. The base StatelessStateStore
+      // returns undefined ("logged out") in this case; the migration store must match it
+      // rather than routing the modern ciphertext into the A256GCM-only legacy path (which
+      // throws JOSEAlgNotAllowed and would surface as a 500 from getUser/getSession).
+      const otherSecret = 'a-completely-different-secret-32-chars-xx';
+      const maker = new MigrationStatelessStateStore({ secret: otherSecret }, cookieHandler);
+      const modernSession: StateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: undefined,
+        refreshToken: 'r',
+        tokenSets: [],
+        internal: { sid: 's', createdAt: Math.floor(Date.now() / 1000) },
+      };
+      const foreignCookie = await (maker as any).encrypt('appSession', modernSession, Math.floor(Date.now() / 1000) + 3600);
+      expect(foreignCookie.split('.').length).toBe(5);
+
+      const store = new MigrationStatelessStateStore({ secret, legacySecret: secret }, cookieHandler);
+
+      const result = await (store as any).decrypt('appSession', foreignCookie);
+      expect(result).toBeUndefined();
+    });
+
+    it('returns undefined (does not throw) for an expired modern-format cookie', async () => {
+      // An expired modern cookie throws JWTExpired from the base decrypt (not a decryption
+      // failure). The migration store must still resolve to undefined, not fall into the
+      // legacy path and throw JOSEAlgNotAllowed.
+      const store = new MigrationStatelessStateStore({ secret, legacySecret: secret }, cookieHandler);
+      const modernSession: StateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: undefined,
+        refreshToken: 'r',
+        tokenSets: [],
+        internal: { sid: 's', createdAt: Math.floor(Date.now() / 1000) },
+      };
+      const expiredCookie = await (store as any).encrypt('appSession', modernSession, Math.floor(Date.now() / 1000) - 3600);
+      expect(expiredCookie.split('.').length).toBe(5);
+
+      const result = await (store as any).decrypt('appSession', expiredCookie);
+      expect(result).toBeUndefined();
+    });
+
+    it('supports an array secret for rotation (decrypts a modern cookie made with the old secret)', async () => {
+      const oldSecret = 'old-modern-secret-at-least-32-characters!';
+      const newSecret = 'new-modern-secret-at-least-32-characters!';
+
+      // Cookie was written under the old secret before rotation.
+      const maker = new MigrationStatelessStateStore({ secret: oldSecret }, cookieHandler);
+      const modernSession: StateData = {
+        user: { sub: 'auth0|rotated' },
+        idToken: undefined,
+        refreshToken: 'r',
+        tokenSets: [],
+        internal: { sid: 's', createdAt: Math.floor(Date.now() / 1000) },
+      };
+      const cookie = await (maker as any).encrypt('appSession', modernSession, Math.floor(Date.now() / 1000) + 3600);
+
+      // After rotating to [new, old], the old-secret cookie must still decrypt.
+      const store = new MigrationStatelessStateStore({ secret: [newSecret, oldSecret] }, cookieHandler);
+
+      const result = await (store as any).decrypt('appSession', cookie);
+      expect(result?.user?.sub).toBe('auth0|rotated');
+    });
+
     it('should propagate non-decryption errors instead of silently swallowing them', async () => {
       const store = new MigrationStatelessStateStore(
         {
