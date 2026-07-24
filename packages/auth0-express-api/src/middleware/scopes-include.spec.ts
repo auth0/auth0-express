@@ -57,6 +57,7 @@ describe('scopesInclude', () => {
       middleware(req as Request, res as Response, mockNext);
       expect(res.status).toHaveBeenCalledWith(403);
       expect(res.header).toHaveBeenCalledWith('WWW-Authenticate', expect.stringContaining('error="insufficient_scope"'));
+      expect(res.header).toHaveBeenCalledWith('WWW-Authenticate', expect.stringContaining('scope="read:msg write:msg"'));
       expect(mockNext).not.toHaveBeenCalled();
     });
   });
@@ -131,8 +132,16 @@ describe('scopesInclude', () => {
   });
 
   describe('common behavior', () => {
-    it('should call next() with explicit match: "any" when token has one of several scopes', () => {
+    it('should call next() with explicit match: "any" when token has one of several scopes (string)', () => {
       const middleware = scopesInclude('read:msg write:msg', { match: 'any' });
+      const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer', scope: 'read:msg' });
+      const res = createMockResponse();
+      middleware(req as Request, res as Response, mockNext);
+      expect(mockNext).toHaveBeenCalled();
+    });
+
+    it('should call next() with explicit match: "any" when token has one of several scopes (array)', () => {
+      const middleware = scopesInclude(['read:msg', 'write:msg'], { match: 'any' });
       const req = createMockRequest({ sub: 'user123', aud: 'api', iss: 'issuer', scope: 'read:msg' });
       const res = createMockResponse();
       middleware(req as Request, res as Response, mockNext);
