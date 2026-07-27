@@ -6,7 +6,7 @@ export default defineConfig([
       "src/index.ts",
       "src/api/index.ts",
     ],
-    format: ["cjs", "esm"],
+    format: ["esm"],
     dts: true,
     sourcemap: true,
   },
