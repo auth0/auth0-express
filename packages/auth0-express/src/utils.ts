@@ -24,7 +24,15 @@ function ensureNoLeadingSlash(value: string) {
   return value.replace(/^[/\\]+/, '');
 }
 
-const SCHEME_REGEX = /^[a-zA-Z][a-zA-Z0-9.+-]*:/;
+// Matches only URLs with an authority component (e.g. https://, http://, file://).
+// Bare-scheme inputs like `javascript:alert(1)` or `report:summary` do NOT match
+// and are treated as relative paths — resolved safely against the base URL.
+const AUTHORITY_URL_REGEX = /^[a-zA-Z][a-zA-Z0-9.+-]*:\/\//;
+
+// Matches any scheme-like prefix (e.g. `javascript:`, `data:`, `report:`).
+// Used to detect first-segment colons that would confuse the WHATWG URL parser
+// when resolving relative paths, so we can prefix them with `./`.
+const SCHEME_PREFIX_REGEX = /^[a-zA-Z][a-zA-Z0-9.+-]*:/;
 
 /**
  * Wraps a user-provided domain resolver so it always receives the Express
@@ -58,8 +66,15 @@ export function wrapDomainResolver(
 export function createRouteUrl(url: string, base: string) {
   const baseUrl = new URL(ensureTrailingSlash(base));
 
-  if (SCHEME_REGEX.test(url)) {
-    const absolute = new URL(url);
+  if (AUTHORITY_URL_REGEX.test(url)) {
+    // Absolute URL with authority (https://, http://, file://, etc.).
+    // Resolve against the base so the subpath is validated, then check origin.
+    let absolute: URL;
+    try {
+      absolute = new URL(url);
+    } catch {
+      throw new Error(`URL is not allowed: '${url}' is not a valid URL`);
+    }
     if (absolute.origin !== baseUrl.origin) {
       throw new Error('URL is not allowed: origin does not match base URL');
     }
@@ -72,7 +87,12 @@ export function createRouteUrl(url: string, base: string) {
     throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes or backslashes`);
   }
 
-  const result = new URL(normalized, baseUrl);
+  // Prepend `./` when the normalized path starts with a scheme-like prefix
+  // (e.g. `report:summary`, `javascript:alert(1)`) so the WHATWG URL parser
+  // treats it as a relative path rather than a scheme.
+  const resolvable = SCHEME_PREFIX_REGEX.test(normalized) ? `./${normalized}` : normalized;
+
+  const result = new URL(resolvable, baseUrl);
   if (result.origin !== baseUrl.origin) {
     throw new Error('URL is not allowed: origin does not match base URL');
   }
@@ -89,15 +109,10 @@ export function createRouteUrl(url: string, base: string) {
  */
 export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): string | undefined {
   try {
-    const safeOrigin = new URL(safeBaseUrl).origin;
-    // Absolute URLs are validated by origin check directly.
-    // Relative paths go through createRouteUrl rather than new URL(input, base) because
-    // new URL() treats a leading slash as origin-absolute, dropping the subpath in
-    // subpath deployments.
-    const url = SCHEME_REGEX.test(dangerousRedirect)
-      ? new URL(dangerousRedirect)
-      : createRouteUrl(dangerousRedirect, safeBaseUrl);
-    return url.origin === safeOrigin ? url.toString() : undefined;
+    // createRouteUrl validates origin for both absolute and relative inputs.
+    // Using it for both branches avoids duplicating AUTHORITY_URL_REGEX logic here
+    // and ensures subpath preservation for relative paths in subpath deployments.
+    return createRouteUrl(dangerousRedirect, safeBaseUrl).toString();
   } catch {
     return undefined;
   }

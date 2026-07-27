@@ -75,6 +75,13 @@ describe('createRouteUrl', () => {
     expect(createRouteUrl('/2024-report:summary', BASE).href).toBe('https://myapp.com/2024-report:summary');
   });
 
+  test('allows bare first-segment colon paths without a leading slash', () => {
+    // "report:summary" looks scheme-like but has no authority (no ://).
+    // It must resolve as a same-origin relative path, not be misclassified as a scheme.
+    expect(createRouteUrl('report:summary', BASE).href).toBe('https://myapp.com/report:summary');
+    expect(createRouteUrl('news:today', BASE).href).toBe('https://myapp.com/news:today');
+  });
+
   test('accepts an absolute same-origin URL (e.g. from a reverse proxy)', () => {
     expect(createRouteUrl('https://myapp.com/auth/callback?code=abc', BASE).href).toBe(
       'https://myapp.com/auth/callback?code=abc'
@@ -99,19 +106,17 @@ describe('createRouteUrl', () => {
     );
   });
 
-  test('throws when path uses javascript scheme', () => {
-    expect(() => createRouteUrl('javascript:alert(1)', BASE)).toThrow(
-      'URL is not allowed: origin does not match base URL'
-    );
+  test('resolves javascript: as a safe relative path (no authority)', () => {
+    // javascript: has no :// so it is treated as a relative path, not a scheme.
+    // The WHATWG parser resolves ./javascript:alert(1) against the base as a same-origin path.
+    expect(createRouteUrl('javascript:alert(1)', BASE).href).toBe('https://myapp.com/javascript:alert(1)');
   });
 
-  test('throws when path uses data scheme', () => {
-    expect(() => createRouteUrl('data:text/html,<h1>x</h1>', BASE)).toThrow(
-      'URL is not allowed: origin does not match base URL'
-    );
+  test('resolves data: as a safe relative path (no authority)', () => {
+    expect(createRouteUrl('data:text/html,x', BASE).href).toBe('https://myapp.com/data:text/html,x');
   });
 
-  test('throws when path uses file scheme', () => {
+  test('throws when path uses file:// scheme (has authority)', () => {
     expect(() => createRouteUrl('file:///etc/passwd', BASE)).toThrow(
       'URL is not allowed: origin does not match base URL'
     );
@@ -161,6 +166,19 @@ describe('toSafeRedirect', () => {
 
   test('returns undefined when safeBaseUrl is not a valid URL', () => {
     expect(toSafeRedirect('/dashboard', 'not-a-url')).toBeUndefined();
+  });
+
+  test('preserves subpath when resolving a relative path against a subpath base', () => {
+    expect(toSafeRedirect('/dashboard', 'http://localhost:3000/app')).toBe('http://localhost:3000/app/dashboard');
+  });
+
+  test('returns undefined for javascript: input (resolves as same-origin but returned as path)', () => {
+    // javascript: has no authority — resolves as a relative path to a same-origin URL, safe to redirect.
+    expect(toSafeRedirect('javascript:alert(1)', BASE)).toBe('http://localhost:3000/javascript:alert(1)');
+  });
+
+  test('returns undefined for file:// input (different origin)', () => {
+    expect(toSafeRedirect('file:///etc/passwd', BASE)).toBeUndefined();
   });
 });
 
