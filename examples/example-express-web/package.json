@@ -11,12 +11,12 @@
         "@types/ejs": "^3.1.5",
         "@types/express": "^5.0.6",
         "tsx": "^4.21.0",
-        "typescript": "~5.9.3"
+        "typescript": "~7.0.2"
     },
     "dependencies": {
         "@auth0/auth0-express": "*",
         "dotenv": "^17.2.3",
-        "ejs": "^4.0.1",
+        "ejs": "^6.0.1",
         "express": "^5.2.1"
     }
 }
