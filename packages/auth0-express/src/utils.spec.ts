@@ -106,14 +106,22 @@ describe('createRouteUrl', () => {
     );
   });
 
-  test('resolves javascript: as a safe relative path (no authority)', () => {
-    // javascript: has no :// so it is treated as a relative path, not a scheme.
-    // The WHATWG parser resolves ./javascript:alert(1) against the base as a same-origin path.
-    expect(createRouteUrl('javascript:alert(1)', BASE).href).toBe('https://myapp.com/javascript:alert(1)');
+  test('throws when path uses javascript scheme', () => {
+    expect(() => createRouteUrl('javascript:alert(1)', BASE)).toThrow(
+      "URL is not allowed: 'javascript:alert(1)' uses an unsafe scheme"
+    );
   });
 
-  test('resolves data: as a safe relative path (no authority)', () => {
-    expect(createRouteUrl('data:text/html,x', BASE).href).toBe('https://myapp.com/data:text/html,x');
+  test('throws when path uses data scheme', () => {
+    expect(() => createRouteUrl('data:text/html,<h1>x</h1>', BASE)).toThrow(
+      "URL is not allowed: 'data:text/html,<h1>x</h1>' uses an unsafe scheme"
+    );
+  });
+
+  test('throws when path uses vbscript scheme', () => {
+    expect(() => createRouteUrl('vbscript:msgbox(1)', BASE)).toThrow(
+      "URL is not allowed: 'vbscript:msgbox(1)' uses an unsafe scheme"
+    );
   });
 
   test('throws when path uses file:// scheme (has authority)', () => {
@@ -172,9 +180,16 @@ describe('toSafeRedirect', () => {
     expect(toSafeRedirect('/dashboard', 'http://localhost:3000/app')).toBe('http://localhost:3000/app/dashboard');
   });
 
-  test('returns undefined for javascript: input (resolves as same-origin but returned as path)', () => {
-    // javascript: has no authority — resolves as a relative path to a same-origin URL, safe to redirect.
-    expect(toSafeRedirect('javascript:alert(1)', BASE)).toBe('http://localhost:3000/javascript:alert(1)');
+  test('returns undefined for javascript: input (unsafe scheme)', () => {
+    expect(toSafeRedirect('javascript:alert(1)', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined for data: input (unsafe scheme)', () => {
+    expect(toSafeRedirect('data:text/html,x', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined for vbscript: input (unsafe scheme)', () => {
+    expect(toSafeRedirect('vbscript:msgbox(1)', BASE)).toBeUndefined();
   });
 
   test('returns undefined for file:// input (different origin)', () => {

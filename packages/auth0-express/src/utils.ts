@@ -34,6 +34,10 @@ const AUTHORITY_URL_REGEX = /^[a-zA-Z][a-zA-Z0-9.+-]*:\/\//;
 // when resolving relative paths, so we can prefix them with `./`.
 const SCHEME_PREFIX_REGEX = /^[a-zA-Z][a-zA-Z0-9.+-]*:/;
 
+// Schemes that must never be used as a redirect or route destination.
+// These can execute code or render arbitrary content in a browser.
+const UNSAFE_SCHEME_REGEX = /^(javascript|data|vbscript):/i;
+
 /**
  * Wraps a user-provided domain resolver so it always receives the Express
  * request context. `@auth0/auth0-server-js` invokes the resolver with the
@@ -87,9 +91,13 @@ export function createRouteUrl(url: string, base: string) {
     throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes or backslashes`);
   }
 
+  if (UNSAFE_SCHEME_REGEX.test(normalized)) {
+    throw new Error(`URL is not allowed: '${url}' uses an unsafe scheme`);
+  }
+
   // Prepend `./` when the normalized path starts with a scheme-like prefix
-  // (e.g. `report:summary`, `javascript:alert(1)`) so the WHATWG URL parser
-  // treats it as a relative path rather than a scheme.
+  // (e.g. `report:summary`) so the WHATWG URL parser treats it as a relative
+  // path rather than a scheme.
   const resolvable = SCHEME_PREFIX_REGEX.test(normalized) ? `./${normalized}` : normalized;
 
   const result = new URL(resolvable, baseUrl);
