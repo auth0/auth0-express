@@ -15,14 +15,28 @@ function ensureTrailingSlash(value: string) {
 }
 
 /**
- * Ensures the value does not have any leading slashes.
+ * Ensures the value does not have any leading slashes or backslashes.
  * If it does, it will trim all of them.
- * @param value The value to ensure has no leading slashes.
- * @returns The value without leading slashes.
+ * @param value The value to ensure has no leading slashes or backslashes.
+ * @returns The value without leading slashes or backslashes.
  */
 function ensureNoLeadingSlash(value: string) {
-  return value.replace(/^\/+/, '');
+  return value.replace(/^[/\\]+/, '');
 }
+
+// Matches only URLs with an authority component (e.g. https://, http://, file://).
+// Bare-scheme inputs like `javascript:alert(1)` or `report:summary` do NOT match
+// and are treated as relative paths — resolved safely against the base URL.
+const AUTHORITY_URL_REGEX = /^[a-zA-Z][a-zA-Z0-9.+-]*:\/\//;
+
+// Matches any scheme-like prefix (e.g. `javascript:`, `data:`, `report:`).
+// Used to detect first-segment colons that would confuse the WHATWG URL parser
+// when resolving relative paths, so we can prefix them with `./`.
+const SCHEME_PREFIX_REGEX = /^[a-zA-Z][a-zA-Z0-9.+-]*:/;
+
+// Schemes that must never be used as a redirect or route destination.
+// These can execute code or render arbitrary content in a browser.
+const UNSAFE_SCHEME_REGEX = /^(javascript|data|vbscript):/i;
 
 /**
  * Wraps a user-provided domain resolver so it always receives the Express
@@ -46,21 +60,47 @@ export function wrapDomainResolver(
 
 /**
  * Utility function to ensure Route URLs are created correctly when using both the root and subpath as base URL.
+ * Accepts a relative path or an absolute same-origin URL, such as one forwarded by a reverse proxy.
  * Validates that the constructed URL has the same origin as the base URL to prevent host override attacks.
- * @param url The URL to use.
- * @param base The base URL to use.
+ * @param url Relative path (e.g. `/auth/callback`) or absolute same-origin URL.
+ * @param base The base URL to use, including any subpath.
  * @returns A URL object, combining the base and url.
- * @throws {Error} If the constructed URL origin does not match the base URL origin.
+ * @throws {Error} If the input contains multiple leading slashes/backslashes or the origin does not match the base URL.
  */
 export function createRouteUrl(url: string, base: string) {
   const baseUrl = new URL(ensureTrailingSlash(base));
-  const normalized = ensureNoLeadingSlash(url);
 
-  if (normalized !== url.replace(/^\//, '')) {
-    throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes`);
+  if (AUTHORITY_URL_REGEX.test(url)) {
+    // Absolute URL with authority (https://, http://, file://, etc.).
+    // Resolve against the base so the subpath is validated, then check origin.
+    let absolute: URL;
+    try {
+      absolute = new URL(url);
+    } catch {
+      throw new Error(`URL is not allowed: '${url}' is not a valid URL`);
+    }
+    if (absolute.origin !== baseUrl.origin) {
+      throw new Error('URL is not allowed: origin does not match base URL');
+    }
+    return absolute;
   }
 
-  const result = new URL(normalized, baseUrl);
+  const normalized = ensureNoLeadingSlash(url);
+
+  if (normalized !== url.replace(/^[/\\]/, '')) {
+    throw new Error(`Invalid route configuration: '${url}' contains multiple leading slashes or backslashes`);
+  }
+
+  if (UNSAFE_SCHEME_REGEX.test(normalized)) {
+    throw new Error(`URL is not allowed: '${url}' uses an unsafe scheme`);
+  }
+
+  // Prepend `./` when the normalized path starts with a scheme-like prefix
+  // (e.g. `report:summary`) so the WHATWG URL parser treats it as a relative
+  // path rather than a scheme.
+  const resolvable = SCHEME_PREFIX_REGEX.test(normalized) ? `./${normalized}` : normalized;
+
+  const result = new URL(resolvable, baseUrl);
   if (result.origin !== baseUrl.origin) {
     throw new Error('URL is not allowed: origin does not match base URL');
   }
@@ -68,25 +108,22 @@ export function createRouteUrl(url: string, base: string) {
 }
 
 /**
- * Function to ensure a redirect URL is safe to use, as in, it has the same origin as the safeBaseUrl.
- * @param dangerousRedirect The redirect URL to check.
+ * Validates a user-supplied redirect URL (e.g. a `returnTo` query parameter) against the application base URL.
+ * Accepts relative paths and absolute same-origin URLs. Rejects different-origin URLs and injection attempts.
+ * Never throws — returns undefined for any invalid or unsafe input.
+ * @param dangerousRedirect Untrusted redirect URL from user input.
  * @param safeBaseUrl The base URL to check against.
- * @returns A safe redirect URL or undefined if the redirect URL is not safe.
+ * @returns A safe redirect URL, or undefined if the input is not safe.
  */
 export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): string | undefined {
-  let url: URL;
-
   try {
-    url = createRouteUrl(dangerousRedirect, safeBaseUrl);
+    // createRouteUrl validates origin for both absolute and relative inputs.
+    // Using it for both branches avoids duplicating AUTHORITY_URL_REGEX logic here
+    // and ensures subpath preservation for relative paths in subpath deployments.
+    return createRouteUrl(dangerousRedirect, safeBaseUrl).toString();
   } catch {
     return undefined;
   }
-
-  if (url.origin === new URL(safeBaseUrl).origin) {
-    return url.toString();
-  }
-
-  return undefined;
 }
 
 export function createServerClientInstance(options: Auth0Options) {
