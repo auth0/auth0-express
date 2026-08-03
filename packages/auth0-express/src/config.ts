@@ -12,6 +12,8 @@ function stripProtocol(url: string | undefined): string | undefined {
  * A single value (or one with a trailing comma) collapses to a string; multiple values
  * become an array preserving order. Empty/whitespace entries are dropped.
  */
+function parseCommaSeparatedEnv(value: string): string | string[];
+function parseCommaSeparatedEnv(value: string | undefined): string | string[] | undefined;
 function parseCommaSeparatedEnv(value: string | undefined): string | string[] | undefined {
   if (!value) {
     return undefined;
