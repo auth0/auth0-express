@@ -97,11 +97,15 @@ export function getConfig(config: Partial<Auth0Options> = {}): Auth0Options {
     ...config,
   } as Auth0Options;
 
-  // A comma-separated allow-list is normalized into an array whether it comes
-  // from the environment or is passed explicitly as `appBaseUrl`, so both
-  // sources behave identically.
+  // A comma-separated value is normalized into an array whether it comes from
+  // the environment or is passed explicitly as `appBaseUrl`/`sessionSecret`,
+  // so both sources behave identically.
   if (typeof mergedConfig.appBaseUrl === 'string') {
     mergedConfig.appBaseUrl = parseCommaSeparatedEnv(mergedConfig.appBaseUrl);
+  }
+
+  if (typeof mergedConfig.sessionSecret === 'string') {
+    mergedConfig.sessionSecret = parseCommaSeparatedEnv(mergedConfig.sessionSecret);
   }
 
   if (!mergedConfig.domain) {

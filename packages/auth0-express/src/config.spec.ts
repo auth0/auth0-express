@@ -256,6 +256,16 @@ describe('getConfig', () => {
       expect(config.sessionSecret).toEqual(['new-secret', 'old-secret']);
     });
 
+    test('parses a comma-separated sessionSecret passed explicitly into an array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+
+      const config = getConfig({ sessionSecret: 'new-secret, old-secret' });
+
+      expect(config.sessionSecret).toEqual(['new-secret', 'old-secret']);
+    });
+
     test('parses a comma-separated AUTH0_SESSION_SECRET into an array', () => {
       process.env.AUTH0_DOMAIN = 'auth0.com';
       process.env.AUTH0_CLIENT_ID = 'client_id';
