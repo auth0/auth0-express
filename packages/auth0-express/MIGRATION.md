@@ -580,7 +580,7 @@ app.use(createAuth0({
 ### Stateless (cookie) vs. stateful (server-side store)
 
 - **Stateless** (no `sessionStore`): the legacy encrypted cookie is decrypted and transformed on read; the next write re-encrypts it in the new format.
-- **Stateful** (`sessionStore` provided): the legacy session is read from your store (Redis, etc.) and upgraded in place on the next write. **Backchannel logout works** for migrated stateful sessions. If your express-openid-connect deployment set `requireSignedSessionStoreCookie: true`, set `requireSignedLegacyCookie: true` to keep the store-key signature as a required integrity control.
+- **Stateful** (`sessionStore` provided): the legacy session is read from your store (Redis, etc.), transformed, and immediately written back to the same store key — upgrading the session in place on that first read, not just on the caller's next write. **Backchannel logout works right away** for a migrated stateful session, since the write on read gives your store a chance to index the session by `sid` (if it does so) before any logout token can arrive for it. If your express-openid-connect deployment set `requireSignedSessionStoreCookie: true`, set `requireSignedLegacyCookie: true` to keep the store-key signature as a required integrity control.
 
 > **Note:** `legacyAudience` and `legacyScope` only apply to a legacy session's single access token, which is migrated into one token set. Match `legacyAudience` to your requested `audience` or the carried-over token will not be found.
 

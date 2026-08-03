@@ -11,9 +11,10 @@ import type { StateData, SessionStore, LogoutTokenClaims } from '@auth0/auth0-se
  * and transforms the legacy shape on read, so this adapter can store/return values verbatim.
  *
  * On set() we also maintain a `logout:sid:<sid> -> <sessionId>` index so deleteByLogoutToken
- * (which only receives { sub, sid }) can resolve to the session key. This index only exists
- * for sessions this adapter has written — a purely migrated session that was never re-written
- * has no index yet (documented in the test flow).
+ * (which only receives { sub, sid }) can resolve to the session key. MigrationStatefulStateStore
+ * writes the transformed StateData back on the first get() of a legacy session (not just on the
+ * caller's next write), so this index exists as soon as a migrated session is read, not only
+ * after some later action re-writes it.
  */
 export async function createRedisSessionStore(url: string): Promise<SessionStore<unknown>> {
   const client = createClient({ url });

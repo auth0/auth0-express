@@ -65,12 +65,11 @@ cookie name so the same-browser cookie is picked up across the migration.
 4. Stop the legacy app. Start the new app:
    `npm start --workspace examples/migration-express-openid-connect/after`.
 5. Reload `http://localhost:3000`. Expected: still logged in (migration store read
-   the eoc envelope from Redis and transformed it).
-6. Log in again via the new app (`/auth/login`) — or perform any action that writes
-   the session — so the adapter writes modern `StateData` and a `logout:sid:<sid>`
-   index. Confirm the index key exists:
+   the eoc envelope from Redis, transformed it, and immediately wrote the modern
+   `StateData` plus a `logout:sid:<sid>` index back to the same key — no further
+   action needed). Confirm the index key exists:
    `... redis-cli keys 'logout:sid:*'`
-7. Trigger backchannel logout. In production Auth0 posts this automatically on
+6. Trigger backchannel logout. In production Auth0 posts this automatically on
    logout elsewhere; to test locally, POST a real `logout_token` obtained from your
    tenant:
    `curl -i -X POST http://localhost:3000/auth/backchannel-logout -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode "logout_token=<JWT>"`
@@ -79,9 +78,6 @@ cookie name so the same-browser cookie is picked up across the migration.
 
 ### Notes
 
-- A purely migrated session (picked up in step 5 but never re-written) has no
-  `sid` index yet, so it is not deletable by `deleteByLogoutToken` until step 6
-  writes it. This is expected and documented in the design.
 - `logout_token` is a signed JWT issued by Auth0; you cannot hand-craft one that
   passes `verifyLogoutToken`. Obtain it from a real logout event (tenant logs /
   a second app), or observe the automatic POST when logging out from another app

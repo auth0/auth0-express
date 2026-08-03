@@ -697,6 +697,48 @@ describe('MigrationStatefulStateStore', () => {
     });
   });
 
+  describe('in-place upgrade on read (eager write-through)', () => {
+    it('upgrades the legacy session in the store immediately on get(), before any explicit write', async () => {
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore(
+        { secret, store: mockStore, legacyAudience: 'https://api.example.com' },
+        handler
+      );
+
+      const legacyId = 'sess:eager-upgrade';
+      await mockStore.set(legacyId, createFutureLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue(legacyId);
+
+      const result = await store.get('__a0_session', {});
+
+      // The store now holds modern StateData under the same key — the caller never had to
+      // call set() themselves for the upgrade (and its sid index, if any) to happen.
+      expect(mockStore.keys()).toEqual([legacyId]);
+      const stored = await mockStore.get(legacyId);
+      expect(stored).toEqual(result);
+      expect((stored as { header?: unknown }).header).toBeUndefined();
+    });
+
+    it('does not re-transform or re-write on a second get() once the session is modern', async () => {
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore(
+        { secret, store: mockStore, legacyAudience: 'https://api.example.com' },
+        handler
+      );
+
+      const legacyId = 'sess:eager-idempotent';
+      await mockStore.set(legacyId, createFutureLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue(legacyId);
+
+      const first = await store.get('__a0_session', {});
+      const setSpy = vi.spyOn(mockStore, 'set');
+      const second = await store.get('__a0_session', {});
+
+      expect(second).toEqual(first);
+      expect(setSpy).not.toHaveBeenCalled();
+    });
+  });
+
   describe('in-place upgrade on write', () => {
     const modernStateData = {
       user: { sub: 'auth0|123456' },

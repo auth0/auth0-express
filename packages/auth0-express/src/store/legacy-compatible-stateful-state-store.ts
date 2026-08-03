@@ -85,9 +85,13 @@ export interface MigrationStatefulStateStoreOptions {
  * envelope and stores a plain or JWS-signed session ID in the cookie. `auth0-server-js` stores
  * {@link StateData} directly and encrypts the session ID in the cookie. This store overrides
  * `decrypt` so the base machinery resolves the session ID from either cookie format, then reads
- * the store by that ID. On `get`, a legacy envelope is transformed into {@link StateData}; on the
- * next write the base rewrites the same store key with modern `StateData`, upgrading the session
- * in place. A login (`removeIfExists=true`) still deletes the old key and rotates to a fresh ID.
+ * the store by that ID. On `get`, a legacy envelope is transformed into {@link StateData} and
+ * immediately written back to the same store key via `set`, upgrading the session in place on
+ * first read rather than waiting for the caller's next write. This is what makes backchannel
+ * logout (`deleteByLogoutToken`) work for a migrated session right away: the app's store
+ * typically needs to index sessions by `sid` to resolve a logout token, and that index is
+ * naturally populated by `set`. A login (`removeIfExists=true`) still deletes the old key and
+ * rotates to a fresh ID.
  *
  * @example
  * ```typescript
@@ -169,16 +173,31 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
   }
 
   /**
-   * Overrides get() to transform legacy express-openid-connect envelopes into StateData.
+   * Overrides get() to transform legacy express-openid-connect envelopes into StateData, and
+   * eagerly upgrades the session in place by writing the transformed data back immediately.
    *
    * ID resolution (modern or legacy) is handled by the decrypt() override, so this only needs
    * to detect whether the value the base read from the store is a legacy `{ header, data, cookie }`
    * envelope and, if so, transform it. Modern StateData passes through unchanged.
+   *
+   * Without the eager write, a migrated session would only be upgraded on the caller's next
+   * `set()` (e.g. token refresh, claim update) — until then, backchannel logout could not resolve
+   * it, since the app's store commonly builds its `sid` index inside `set()`. Writing here trades
+   * one extra store write on the session's first read after migration for backchannel logout
+   * working immediately, rather than only after some unrelated future write. The write reuses the
+   * same store key (`removeIfExists: false`) via the public `set()`, so it goes through the same
+   * cookie/session-id resolution as any other write and is a no-op cost-wise for legacy sessions
+   * that were about to be written anyway. A second `get()` within the same request re-reads the
+   * now-modern payload and skips the transform/write, so this only happens once per session.
    */
   override async get(identifier: string, options?: TStoreOptions): Promise<StateData | undefined> {
     const data = await super.get(identifier, options);
     if (data && this.#isLegacyStorePayload(data)) {
-      return this.#transformLegacyStorePayload(data);
+      const stateData = this.#transformLegacyStorePayload(data);
+      if (stateData) {
+        await this.set(identifier, stateData, false, options);
+      }
+      return stateData;
     }
     return data;
   }
