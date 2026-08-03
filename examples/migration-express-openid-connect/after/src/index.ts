@@ -20,7 +20,6 @@ app.use(
     // this migration example.
     // Read sessions written by express-openid-connect.
     legacyCompatibility: {
-      enabled: true,
       legacySecret: process.env.AUTH0_SESSION_SECRET as string,
       legacyScope: 'openid profile email offline_access',
       // The migration transformer stamps the legacy access token with this audience. getAccessToken

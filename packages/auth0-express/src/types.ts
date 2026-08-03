@@ -95,16 +95,10 @@ export interface Auth0Options {
 
   /**
    * Legacy compatibility options for migrating from express-openid-connect.
-   * When enabled, the SDK will automatically detect and decrypt sessions from
+   * When set, the SDK will automatically detect and decrypt sessions from
    * express-openid-connect, allowing seamless migration without forcing users to re-authenticate.
    */
   legacyCompatibility?: {
-    /**
-     * Enable legacy session compatibility with express-openid-connect.
-     * @default false
-     */
-    enabled: boolean;
-
     /**
      * The secret(s) that were used by express-openid-connect for session encryption.
      * Supports key rotation: provide an array to try multiple secrets in order.

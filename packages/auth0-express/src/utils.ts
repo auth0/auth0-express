@@ -134,7 +134,7 @@ export function toSafeRedirect(dangerousRedirect: string, safeBaseUrl: string): 
  * @returns An instance of a state store: stateful, stateless, or their legacy-compatible variants.
  */
 function getStateStore(options: Auth0Options) {
-  const isLegacy = options.legacyCompatibility?.enabled;
+  const isLegacy = options.legacyCompatibility !== undefined;
 
   if (options.sessionStore) {
     // Use stateful store with custom session store (Redis, MongoDB, etc.)

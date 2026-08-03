@@ -541,7 +541,7 @@ class DatabaseStore {
 ## Zero-Downtime Session Migration
 
 By default, users with an existing `express-openid-connect` session are logged out when you
-switch SDKs, because `@auth0/auth0-express` cannot read the old session format. Enable
+switch SDKs, because `@auth0/auth0-express` cannot read the old session format. Set
 `legacyCompatibility` to have the SDK transparently read existing `express-openid-connect`
 sessions and upgrade them to the new format on the next write — so users stay logged in:
 
@@ -554,7 +554,6 @@ app.use(createAuth0({
   sessionSecret: 'LONG_RANDOM_STRING',
 
   legacyCompatibility: {
-    enabled: true,
     // The secret express-openid-connect used (its `secret` option). Defaults to sessionSecret.
     // Pass an array to support secret rotation — each is tried in order.
     legacySecret: process.env.AUTH0_SESSION_SECRET,
@@ -573,7 +572,6 @@ app.use(createAuth0({
 
 | Option | Default | Notes |
 |--------|---------|-------|
-| `enabled` | `false` | Turn legacy session reading on. |
 | `legacySecret` | falls back to `sessionSecret` | The `secret` used by express-openid-connect. Accepts an array for secret rotation (each tried in order). |
 | `legacyAudience` | `'default'` | Audience assigned to the token set migrated from the legacy session. To carry an existing access token over, this **must** equal the `audience` you request, since `getAccessToken()` looks tokens up by audience. |
 | `legacyScope` | `'openid profile email offline_access'` | Scope assigned to the migrated token set. |
