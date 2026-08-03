@@ -194,6 +194,9 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
     const data = await super.get(identifier, options);
     if (data && this.#isLegacyStorePayload(data)) {
       const stateData = this.#transformLegacyStorePayload(data);
+
+      // When there is legacy state data found, we write-on-first-read to
+      // convert the legacy session data, to the session data used by this SDK.
       if (stateData) {
         await this.set(identifier, stateData, false, options);
       }
