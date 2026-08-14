@@ -1,5 +1,17 @@
 # Change Log
 
+## [v1.0.0-beta.2](https://github.com/auth0/auth0-express/releases/tag/auth0-express-v1.0.0-beta.2) (2026-08-04)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.1...auth0-express-v1.0.0-beta.2)
+
+**Breaking Changes**
+- chore: drop CJS build output, publish ESM-only [\#38](https://github.com/auth0/auth0-express/pull/38) ([frederikprijck](https://github.com/frederikprijck))
+
+**Added**
+- feat(auth0-express): support session secret rotation [\#36](https://github.com/auth0/auth0-express/pull/36) ([frederikprijck](https://github.com/frederikprijck))
+
+**Security**
+- fix(auth0-express): harden createRouteUrl against path injection attacks [\#23](https://github.com/auth0/auth0-express/pull/23) ([cschetan77](https://github.com/cschetan77))
+
 ## [v1.0.0-beta.1](https://github.com/auth0/auth0-express/releases/tag/auth0-express-v1.0.0-beta.1) (2026-06-19)
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.0...auth0-express-v1.0.0-beta.1)
 

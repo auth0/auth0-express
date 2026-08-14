@@ -1,5 +1,5 @@
 {
-    "name": "example-express-web-call-api",
+    "name": "example-express-stateful-sessions",
     "version": "1.0.0",
     "description": "",
     "type": "module",
@@ -10,6 +10,7 @@
         "test:ci": "vitest run"
     },
     "devDependencies": {
+        "@auth0/auth0-server-js": "^1.6.1",
         "@types/ejs": "^3.1.5",
         "@types/express": "^5.0.6",
         "@types/express-ejs-layouts": "^2.5.4",

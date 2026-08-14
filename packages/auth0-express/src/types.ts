@@ -86,8 +86,18 @@ export interface Auth0Options {
   /** Enable Pushed Authorization Requests (PAR) for enhanced security */
   pushedAuthorizationRequests?: boolean;
 
-  /** Secret for encrypting session cookies (minimum 32 characters recommended) */
-  sessionSecret: string;
+  /**
+   * Secret for encrypting session cookies (minimum 32 characters recommended).
+   *
+   * Provide an array to support secret rotation: the first secret is used to encrypt new
+   * cookies, while all secrets are tried, in order, when decrypting. This lets you roll the
+   * secret without logging existing users out — deploy `[newSecret, oldSecret]`, then drop
+   * the old secret once every session has been re-encrypted under the new one.
+   *
+   * Via environment variables, a comma-separated `AUTH0_SESSION_SECRET` (or `SECRET`) is
+   * parsed into an array in the same order.
+   */
+  sessionSecret: string | string[];
   /** Custom session store implementation (defaults to cookie-based sessions) */
   sessionStore?: SessionStore<StoreOptions>;
   /** Advanced session configuration (cookie settings, timeouts, etc.) */

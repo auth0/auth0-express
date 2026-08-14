@@ -30,10 +30,25 @@ describe('createRouteUrl', () => {
 
   test('throws when path has multiple leading slashes', () => {
     expect(() => createRouteUrl('///evil.com/auth/callback', BASE)).toThrow(
-      "Invalid route configuration: '///evil.com/auth/callback' contains multiple leading slashes"
+      "Invalid route configuration: '///evil.com/auth/callback' contains multiple leading slashes or backslashes"
     );
     expect(() => createRouteUrl('///custom-auth/callback', BASE)).toThrow(
-      "Invalid route configuration: '///custom-auth/callback' contains multiple leading slashes"
+      "Invalid route configuration: '///custom-auth/callback' contains multiple leading slashes or backslashes"
+    );
+  });
+
+  test('throws when path has multiple leading backslashes', () => {
+    expect(() => createRouteUrl('\\\\evil.com/path', BASE)).toThrow(
+      "Invalid route configuration: '\\\\evil.com/path' contains multiple leading slashes or backslashes"
+    );
+  });
+
+  test('throws when path has mixed leading slash and backslash', () => {
+    expect(() => createRouteUrl('/\\evil.com/path', BASE)).toThrow(
+      "Invalid route configuration: '/\\evil.com/path' contains multiple leading slashes or backslashes"
+    );
+    expect(() => createRouteUrl('\\/evil.com/path', BASE)).toThrow(
+      "Invalid route configuration: '\\/evil.com/path' contains multiple leading slashes or backslashes"
     );
   });
 
@@ -45,17 +60,79 @@ describe('createRouteUrl', () => {
     expect(createRouteUrl('auth/callback', BASE).href).toBe('https://myapp.com/auth/callback');
   });
 
-  test('throws when path is an absolute URL with a scheme', () => {
-    expect(() => createRouteUrl('https://evil.com/auth/callback', BASE)).toThrow();
+  test('single leading backslash is stripped and resolves as a same-origin relative path', () => {
+    // A single \ is stripped to a plain relative path — not a protocol-relative bypass.
+    // The WHATWG URL parser also normalises \ to / within the path.
+    expect(createRouteUrl('\\auth\\callback', BASE).href).toBe('https://myapp.com/auth/callback');
+  });
+
+  test('allows paths with a colon in non-first segment', () => {
+    expect(createRouteUrl('/a/b:c', BASE).href).toBe('https://myapp.com/a/b:c');
+  });
+
+  test('allows paths whose first segment starts with a digit followed by a colon', () => {
+    // "2024-report:summary" starts with a digit — not a valid URI scheme per RFC 3986.
+    expect(createRouteUrl('/2024-report:summary', BASE).href).toBe('https://myapp.com/2024-report:summary');
+  });
+
+  test('allows bare first-segment colon paths without a leading slash', () => {
+    // "report:summary" looks scheme-like but has no authority (no ://).
+    // It must resolve as a same-origin relative path, not be misclassified as a scheme.
+    expect(createRouteUrl('report:summary', BASE).href).toBe('https://myapp.com/report:summary');
+    expect(createRouteUrl('news:today', BASE).href).toBe('https://myapp.com/news:today');
+  });
+
+  test('accepts an absolute same-origin URL (e.g. from a reverse proxy)', () => {
+    expect(createRouteUrl('https://myapp.com/auth/callback?code=abc', BASE).href).toBe(
+      'https://myapp.com/auth/callback?code=abc'
+    );
+  });
+
+  test('accepts an absolute same-origin URL with subpath base', () => {
+    expect(createRouteUrl('https://myapp.com/subapp/auth/callback?code=abc', BASE_WITH_SUBPATH).href).toBe(
+      'https://myapp.com/subapp/auth/callback?code=abc'
+    );
+  });
+
+  test('throws when absolute URL has a different origin', () => {
+    expect(() => createRouteUrl('https://evil.com/auth/callback', BASE)).toThrow(
+      'URL is not allowed: origin does not match base URL'
+    );
   });
 
   test('throws when path uses http scheme to override the base URL origin', () => {
-    expect(() => createRouteUrl('http://evil.com/auth/callback', BASE)).toThrow();
+    expect(() => createRouteUrl('http://evil.com/auth/callback', BASE)).toThrow(
+      'URL is not allowed: origin does not match base URL'
+    );
+  });
+
+  test('throws when path uses javascript scheme', () => {
+    expect(() => createRouteUrl('javascript:alert(1)', BASE)).toThrow(
+      "URL is not allowed: 'javascript:alert(1)' uses an unsafe scheme"
+    );
+  });
+
+  test('throws when path uses data scheme', () => {
+    expect(() => createRouteUrl('data:text/html,<h1>x</h1>', BASE)).toThrow(
+      "URL is not allowed: 'data:text/html,<h1>x</h1>' uses an unsafe scheme"
+    );
+  });
+
+  test('throws when path uses vbscript scheme', () => {
+    expect(() => createRouteUrl('vbscript:msgbox(1)', BASE)).toThrow(
+      "URL is not allowed: 'vbscript:msgbox(1)' uses an unsafe scheme"
+    );
+  });
+
+  test('throws when path uses file:// scheme (has authority)', () => {
+    expect(() => createRouteUrl('file:///etc/passwd', BASE)).toThrow(
+      'URL is not allowed: origin does not match base URL'
+    );
   });
 
   test('throws for protocol-relative-looking paths with multiple leading slashes', () => {
     expect(() => createRouteUrl('////evil.com/path', BASE)).toThrow(
-      "Invalid route configuration: '////evil.com/path' contains multiple leading slashes"
+      "Invalid route configuration: '////evil.com/path' contains multiple leading slashes or backslashes"
     );
   });
 });
@@ -68,7 +145,6 @@ describe('toSafeRedirect', () => {
   });
 
   test('returns undefined for triple-slash path', () => {
-    // ///evil.com → throws due to multiple leading slashes → caught → returns undefined
     expect(toSafeRedirect('///evil.com/path', BASE)).toBeUndefined();
   });
 
@@ -88,6 +164,36 @@ describe('toSafeRedirect', () => {
 
   test('returns undefined for a URL with a different port (different origin)', () => {
     expect(toSafeRedirect('http://localhost:4000/path', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined for backslash-based protocol-relative bypass attempts', () => {
+    expect(toSafeRedirect('\\\\evil.com', BASE)).toBeUndefined();
+    expect(toSafeRedirect('/\\evil.com', BASE)).toBeUndefined();
+    expect(toSafeRedirect('\\/evil.com', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined when safeBaseUrl is not a valid URL', () => {
+    expect(toSafeRedirect('/dashboard', 'not-a-url')).toBeUndefined();
+  });
+
+  test('preserves subpath when resolving a relative path against a subpath base', () => {
+    expect(toSafeRedirect('/dashboard', 'http://localhost:3000/app')).toBe('http://localhost:3000/app/dashboard');
+  });
+
+  test('returns undefined for javascript: input (unsafe scheme)', () => {
+    expect(toSafeRedirect('javascript:alert(1)', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined for data: input (unsafe scheme)', () => {
+    expect(toSafeRedirect('data:text/html,x', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined for vbscript: input (unsafe scheme)', () => {
+    expect(toSafeRedirect('vbscript:msgbox(1)', BASE)).toBeUndefined();
+  });
+
+  test('returns undefined for file:// input (different origin)', () => {
+    expect(toSafeRedirect('file:///etc/passwd', BASE)).toBeUndefined();
   });
 });
 

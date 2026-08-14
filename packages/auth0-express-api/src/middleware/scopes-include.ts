@@ -4,8 +4,8 @@ import { sendBearerError } from './claim-auth.js';
 export interface ScopesIncludeOptions {
   /**
    * Match strategy:
-   * - 'any': Token must have at least one of the specified scopes (default)
-   * - 'all': Token must have all of the specified scopes
+   * - 'all': Token must have all of the specified scopes (default)
+   * - 'any': Token must have at least one of the specified scopes
    */
   match?: 'any' | 'all';
 }
@@ -16,20 +16,20 @@ export interface ScopesIncludeOptions {
  *
  * @param scopes - Space-separated string or array of scopes
  * @param options - Configuration options
- * @param options.match - Match strategy: 'any' (default) or 'all'
+ * @param options.match - Match strategy: 'all' (default) or 'any'
  * @returns Express middleware function
  *
  * @example
  * ```ts
- * // Allow access if token has ANY of the specified scopes (default)
- * router.get('/messages', requiresAuth(), scopesInclude('read:msg read:admin'), handler);
+ * // Require ALL of the specified scopes (default)
+ * router.get('/admin/edit', requiresAuth(), scopesInclude('read:admin write:admin'), handler);
  *
- * // Require ALL of the specified scopes
- * router.get('/admin/edit', requiresAuth(), scopesInclude('read:admin write:admin', { match: 'all' }), handler);
+ * // Allow access if token has ANY of the specified scopes
+ * router.get('/messages', requiresAuth(), scopesInclude('read:msg read:admin', { match: 'any' }), handler);
  * ```
  */
 export function scopesInclude(scopes: string | string[], options: ScopesIncludeOptions = {}) {
-  const { match = 'any' } = options;
+  const { match = 'all' } = options;
   let requiredScopes: string[];
 
   if (typeof scopes === 'string') {

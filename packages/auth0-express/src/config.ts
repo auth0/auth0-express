@@ -7,7 +7,14 @@ function stripProtocol(url: string | undefined): string | undefined {
   return url ? url.replace(/^https?:\/\//, '') : url;
 }
 
-function parseAppBaseUrlEnv(value: string | undefined): string | string[] | undefined {
+/**
+ * Parses a possibly comma-separated environment value into a single string or an array.
+ * A single value (or one with a trailing comma) collapses to a string; multiple values
+ * become an array preserving order. Empty/whitespace entries are dropped.
+ */
+function parseCommaSeparatedEnv(value: string): string | string[];
+function parseCommaSeparatedEnv(value: string | undefined): string | string[] | undefined;
+function parseCommaSeparatedEnv(value: string | undefined): string | string[] | undefined {
   if (!value) {
     return undefined;
   }
@@ -86,17 +93,21 @@ export function getConfig(config: Partial<Auth0Options> = {}): Auth0Options {
     domain: process.env.AUTH0_DOMAIN || stripProtocol(process.env.ISSUER_BASE_URL),
     clientId: process.env.AUTH0_CLIENT_ID || process.env.CLIENT_ID,
     clientSecret: process.env.AUTH0_CLIENT_SECRET || process.env.CLIENT_SECRET,
-    appBaseUrl: parseAppBaseUrlEnv(process.env.APP_BASE_URL || process.env.BASE_URL),
-    sessionSecret: process.env.AUTH0_SESSION_SECRET || process.env.SECRET,
+    appBaseUrl: parseCommaSeparatedEnv(process.env.APP_BASE_URL || process.env.BASE_URL),
+    sessionSecret: parseCommaSeparatedEnv(process.env.AUTH0_SESSION_SECRET || process.env.SECRET),
     audience: process.env.AUTH0_AUDIENCE,
     ...config,
   } as Auth0Options;
 
-  // A comma-separated allow-list is normalized into an array whether it comes
-  // from the environment or is passed explicitly as `appBaseUrl`, so both
-  // sources behave identically.
+  // A comma-separated value is normalized into an array whether it comes from
+  // the environment or is passed explicitly as `appBaseUrl`/`sessionSecret`,
+  // so both sources behave identically.
   if (typeof mergedConfig.appBaseUrl === 'string') {
-    mergedConfig.appBaseUrl = parseAppBaseUrlEnv(mergedConfig.appBaseUrl);
+    mergedConfig.appBaseUrl = parseCommaSeparatedEnv(mergedConfig.appBaseUrl);
+  }
+
+  if (typeof mergedConfig.sessionSecret === 'string') {
+    mergedConfig.sessionSecret = parseCommaSeparatedEnv(mergedConfig.sessionSecret);
   }
 
   if (!mergedConfig.domain) {
@@ -109,7 +120,10 @@ export function getConfig(config: Partial<Auth0Options> = {}): Auth0Options {
 
   validateAppBaseUrl(mergedConfig.appBaseUrl);
 
-  if (!mergedConfig.sessionSecret) {
+  if (
+    !mergedConfig.sessionSecret ||
+    (Array.isArray(mergedConfig.sessionSecret) && mergedConfig.sessionSecret.length === 0)
+  ) {
     throw new MissingRequiredArgumentError('sessionSecret');
   }
 

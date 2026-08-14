@@ -8,16 +8,16 @@ import type { Express } from 'express';
 // importing the app, which reads process.env at import time to build its
 // host -> domain map and to call createAuth0().
 const DEFAULT_DOMAIN = 'default.auth0.local';
-const TENANT_1_DOMAIN = 'tenant-1.auth0.local';
-const TENANT_2_DOMAIN = 'tenant-2.auth0.local';
+const CUSTOM_DOMAIN_1 = 'brand-a.auth0.local';
+const CUSTOM_DOMAIN_2 = 'brand-b.auth0.local';
 
 process.env.AUTH0_DOMAIN = DEFAULT_DOMAIN;
-process.env.AUTH0_CUSTOM_DOMAIN_1 = TENANT_1_DOMAIN;
-process.env.AUTH0_CUSTOM_DOMAIN_2 = TENANT_2_DOMAIN;
+process.env.AUTH0_CUSTOM_DOMAIN_1 = CUSTOM_DOMAIN_1;
+process.env.AUTH0_CUSTOM_DOMAIN_2 = CUSTOM_DOMAIN_2;
 process.env.AUTH0_CLIENT_ID = '<client_id>';
 process.env.AUTH0_CLIENT_SECRET = '<client_secret>';
 process.env.AUTH0_SESSION_SECRET = '<a-session-secret-of-at-least-32-chars>';
-process.env.APP_BASE_URL = 'http://tenant-1.localhost:3000,http://tenant-2.localhost:3000';
+process.env.APP_BASE_URL = 'http://brand-a.localhost:3000,http://brand-b.localhost:3000';
 
 // A minimal OIDC discovery document. /auth/login only needs the
 // authorization_endpoint to build the 302, so that is all we mock.
@@ -29,7 +29,7 @@ const discoveryDocument = (domain: string) => ({
 });
 
 const server = setupServer(
-  ...[DEFAULT_DOMAIN, TENANT_1_DOMAIN, TENANT_2_DOMAIN].map((domain) =>
+  ...[DEFAULT_DOMAIN, CUSTOM_DOMAIN_1, CUSTOM_DOMAIN_2].map((domain) =>
     http.get(`https://${domain}/.well-known/openid-configuration`, () =>
       HttpResponse.json(discoveryDocument(domain))
     )
@@ -49,27 +49,27 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe('example-express-mcd: per-host domain resolution', () => {
-  test('login from tenant-1 host authorizes against the first custom domain', async () => {
-    const res = await request(app).get('/auth/login').set('Host', 'tenant-1.localhost:3000');
+  test('login from brand-a host authorizes against the first custom domain', async () => {
+    const res = await request(app).get('/auth/login').set('Host', 'brand-a.localhost:3000');
     const location = new URL(res.headers['location']?.toString() ?? '');
 
     expect(res.status).toBe(302);
-    expect(location.host).toBe(TENANT_1_DOMAIN);
+    expect(location.host).toBe(CUSTOM_DOMAIN_1);
     expect(location.pathname).toBe('/authorize');
     expect(new URL(location.searchParams.get('redirect_uri') ?? '').origin).toBe(
-      'http://tenant-1.localhost:3000'
+      'http://brand-a.localhost:3000'
     );
   });
 
-  test('login from tenant-2 host authorizes against the second custom domain', async () => {
-    const res = await request(app).get('/auth/login').set('Host', 'tenant-2.localhost:3000');
+  test('login from brand-b host authorizes against the second custom domain', async () => {
+    const res = await request(app).get('/auth/login').set('Host', 'brand-b.localhost:3000');
     const location = new URL(res.headers['location']?.toString() ?? '');
 
     expect(res.status).toBe(302);
-    expect(location.host).toBe(TENANT_2_DOMAIN);
+    expect(location.host).toBe(CUSTOM_DOMAIN_2);
     expect(location.pathname).toBe('/authorize');
     expect(new URL(location.searchParams.get('redirect_uri') ?? '').origin).toBe(
-      'http://tenant-2.localhost:3000'
+      'http://brand-b.localhost:3000'
     );
   });
 });

@@ -245,6 +245,85 @@ describe('getConfig', () => {
     expect(config.appBaseUrl).toBeUndefined();
   });
 
+  describe('sessionSecret rotation', () => {
+    test('accepts an explicit array of secrets (first is primary)', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+
+      const config = getConfig({ sessionSecret: ['new-secret', 'old-secret'] });
+
+      expect(config.sessionSecret).toEqual(['new-secret', 'old-secret']);
+    });
+
+    test('parses a comma-separated sessionSecret passed explicitly into an array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+
+      const config = getConfig({ sessionSecret: 'new-secret, old-secret' });
+
+      expect(config.sessionSecret).toEqual(['new-secret', 'old-secret']);
+    });
+
+    test('parses a comma-separated AUTH0_SESSION_SECRET into an array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+      process.env.AUTH0_SESSION_SECRET = 'new-secret, old-secret';
+
+      const config = getConfig();
+
+      expect(config.sessionSecret).toEqual(['new-secret', 'old-secret']);
+    });
+
+    test('parses a comma-separated SECRET (legacy env) into an array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+      delete process.env.AUTH0_SESSION_SECRET;
+      process.env.SECRET = 'new-secret,old-secret';
+
+      const config = getConfig();
+
+      expect(config.sessionSecret).toEqual(['new-secret', 'old-secret']);
+    });
+
+    test('keeps a single AUTH0_SESSION_SECRET as a string', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+      process.env.AUTH0_SESSION_SECRET = 'single-secret';
+
+      const config = getConfig();
+
+      expect(config.sessionSecret).toBe('single-secret');
+    });
+
+    test('collapses a trailing-comma AUTH0_SESSION_SECRET to a string, not a single-element array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+      process.env.AUTH0_SESSION_SECRET = 'single-secret,';
+
+      const config = getConfig();
+
+      expect(config.sessionSecret).toBe('single-secret');
+    });
+
+    test('throws when sessionSecret is an empty array', () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+      delete process.env.AUTH0_SESSION_SECRET;
+      delete process.env.SECRET;
+
+      expect(() => getConfig({ sessionSecret: [] })).toThrow(
+        `The argument 'sessionSecret' is required but was not provided.`
+      );
+    });
+  });
+
   describe('appBaseUrl parsing and validation', () => {
     test('parses comma-separated APP_BASE_URL into an array', () => {
       process.env.AUTH0_DOMAIN = 'auth0.com';
