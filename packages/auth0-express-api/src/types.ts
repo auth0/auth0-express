@@ -1,3 +1,5 @@
+import type { ActClaim } from '@auth0/auth0-api-js';
+
 export interface RequiresAuthOptions {
   scopes?: string | string[];
 }
@@ -7,6 +9,12 @@ export interface Token {
   aud: string | string[];
   iss: string;
   scope?: string;
+  /**
+   * The RFC 8693 actor claim, present when this token was obtained through a
+   * token exchange. Pass the token to `getCurrentActor()` or
+   * `getDelegationChain()` to read the delegation chain.
+   */
+  act?: ActClaim;
 
   [claim: string]: unknown;
 }
