@@ -32,17 +32,20 @@ export interface Auth0ApiOptions {
   audience?: string;
   /**
    * The optional client ID of the application.
-   * Required when using the `getAccessTokenForConnection` method.
+   * Required when calling Auth0 as a client through `req.auth0.client`, for
+   * example `getTokenOnBehalfOf()`.
    */
   clientId?: string;
   /**
    * The optional client secret of the application.
-   * At least one of `clientSecret` or `clientAssertionSigningKey` is required when using the `getAccessTokenForConnection` method.
+   * At least one of `clientSecret` or `clientAssertionSigningKey` is required
+   * when calling Auth0 as a client through `req.auth0.client`.
    */
   clientSecret?: string;
   /**
    * The optional client assertion signing key to use.
-   * At least one of `clientSecret` or `clientAssertionSigningKey` is required when using the `getAccessTokenForConnection` method.
+   * At least one of `clientSecret` or `clientAssertionSigningKey` is required
+   * when calling Auth0 as a client through `req.auth0.client`.
    */
   clientAssertionSigningKey?: string | CryptoKey;
   /**

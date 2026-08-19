@@ -47,8 +47,17 @@ export function requiresAuth(options: RequiresAuthOptions = {}) {
         return sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes');
       }
 
-      req.auth0 = req.auth0 || {};
       req.auth0.user = token;
+      // Only ever set together with `user`, so the raw token on the request is
+      // guaranteed to be one this API has already verified. Non-enumerable so
+      // that logging or serialising `req.auth0` cannot leak a live credential
+      // past the redaction rules apps have for the `Authorization` header.
+      Object.defineProperty(req.auth0, 'token', {
+        value: accessToken,
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
       next();
     } catch (error) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any

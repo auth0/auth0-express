@@ -9,12 +9,9 @@ describe('public exports', () => {
   // silent break for consumers.
   it('should export exactly the documented value surface', () => {
     expect(Object.keys(sdk).sort()).toEqual([
-      'ApiClient',
       'AuthError',
-      'InvalidConfigurationError',
       'InvalidRequestError',
       'MissingClientAuthError',
-      'MissingRequiredArgumentError',
       'TokenExchangeError',
       'VerifyAccessTokenError',
       'claimCheck',
@@ -26,6 +23,14 @@ describe('public exports', () => {
       'requiresAuth',
       'scopesInclude',
     ]);
+  });
+
+  it('should not export the ApiClient class, only its type', () => {
+    // `createAuth0Api()` is the only way to get a client, so an app cannot build
+    // a second one with different credentials and skip this package's config and
+    // environment variable handling. The type is still exported for annotations,
+    // which leaves nothing behind at runtime.
+    expect('ApiClient' in sdk).toBe(false);
   });
 
   it('should not export the pre-verification token extractor', () => {
@@ -43,6 +48,21 @@ describe('public exports', () => {
       'GrantType',
       'InvalidDpopProofError',
       'MissingTransactionError',
+    ]) {
+      expect(name in sdk).toBe(false);
+    }
+  });
+
+  it('should not export surfaces for features that are not implemented yet', () => {
+    // Token Vault and Custom Token Exchange land in their own changes. Publishing
+    // their option and result types now would commit us to shapes those changes
+    // have not settled on. `MissingRequiredArgumentError` is unreachable, because
+    // `getConfig()` rejects a missing domain or audience before api-js sees it.
+    for (const name of [
+      'getAccessTokenForConnection',
+      'getTokenByExchangeProfile',
+      'TokenForConnectionError',
+      'MissingRequiredArgumentError',
     ]) {
       expect(name in sdk).toBe(false);
     }
