@@ -4,7 +4,7 @@ import { http, HttpResponse } from 'msw';
 import { generateToken, jwks } from './test-utils/tokens.js';
 import express from 'express';
 import request from 'supertest';
-import { createAuth0Api, requiresAuth } from './index.js';
+import { createAuth0Api, MissingClientAuthError, requiresAuth } from './index.js';
 
 const domain = 'auth0.local';
 let mockOpenIdConfiguration = {
@@ -744,11 +744,53 @@ test('should throw when getting a connection token without client credentials co
   const res = await request(app).get('/test').set('authorization', `Bearer ${accessToken}`);
 
   expect(res.status).toBe(200);
-  // Token Vault reports missing credentials as its own error, not as the
-  // `missing_client_auth_error` the other two exchanges use.
+  // With nothing configured, Token Vault reports its own error rather than the
+  // `missing_client_auth_error` the other two exchanges use. A `clientId` with no
+  // secret is a different code again, which the next test pins.
   expect(error).toHaveProperty('code', 'token_for_connection_error');
   expect(res.body.message).toContain('Client credentials are required');
   // Raised locally, so there is nothing from the tenant to attach.
+  expect(error?.cause).toBeUndefined();
+});
+
+test('should throw missing client auth for a connection token with a client id but no secret', async () => {
+  const app = express();
+  app.use(express.json());
+
+  // A half-configured client gets past the credential check inside api-js, so
+  // this is the one failure here that is not a `token_for_connection_error`. A
+  // consumer narrowing only on that code misses it.
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+  });
+
+  const accessToken = await generateToken(domain, 'user_123', '<audience>');
+
+  let error: (Error & { code?: string; cause?: unknown }) | undefined;
+
+  router.get('/test', requiresAuth(), async (req, res) => {
+    try {
+      await req.auth0.client.getAccessTokenForConnection({
+        connection: 'google-oauth2',
+        accessToken: req.auth0.token!,
+      });
+      res.json({ message: 'OK' });
+    } catch (e) {
+      error = e as typeof error;
+      res.json({ message: (e as Error).message });
+    }
+  });
+
+  app.use(router);
+
+  const res = await request(app).get('/test').set('authorization', `Bearer ${accessToken}`);
+
+  expect(res.status).toBe(200);
+  expect(error).toBeInstanceOf(MissingClientAuthError);
+  expect(error).toHaveProperty('code', 'missing_client_auth_error');
+  expect(res.body.message).toContain('client secret or client assertion signing key must be provided');
   expect(error?.cause).toBeUndefined();
 });
 

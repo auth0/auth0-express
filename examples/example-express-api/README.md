@@ -48,7 +48,9 @@ This endpoint asks Token Vault for an access token issued by a third party the u
 AUTH0_CONNECTION=google-oauth2
 ```
 
-The connection must be set up in Token Vault with the upstream scopes you need, and the calling user must have linked it. A call can answer `502` for a perfectly good setup simply because this user never connected that provider. See [Calling a third party API with Token Vault](../../packages/auth0-express-api/EXAMPLES.md#calling-a-third-party-api-with-token-vault).
+The tenant needs the **Token Vault** grant type enabled on the same Custom API client. That is a different toggle from the **On-Behalf-Of Token Exchange** one above, so doing the setup for `/api/on-behalf-of` does not cover this endpoint. The connection must also be set up in Token Vault with the upstream scopes you need, and the calling user must have linked it.
+
+Leave `AUTH0_CONNECTION` unset and the endpoint answers `501`. Set `AUTH0_CLIENT_ID` without `AUTH0_CLIENT_SECRET` and it answers `500`, since the client cannot authenticate. A call can answer `502` for a perfectly good setup simply because this user never connected that provider. See [Calling a third party API with Token Vault](../../packages/auth0-express-api/EXAMPLES.md#calling-a-third-party-api-with-token-vault).
 
 With the configuration in place, the example can be started by running:
 

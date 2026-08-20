@@ -50,8 +50,12 @@ describe('public exports', () => {
   it('should not export the error Token Vault throws', () => {
     // `getAccessTokenForConnection()` throws `TokenForConnectionError`, but
     // api-js does not export it, so it cannot be re-exported here. Consumers
-    // check `error.code === 'token_for_connection_error'` instead. If api-js
-    // starts exporting it, add it above and update EXAMPLES.md.
+    // check `error.code === 'token_for_connection_error'` instead.
+    //
+    // auth-js has deprecated this class as of v1.2.0 and plans to remove it in
+    // v2.0 in favour of `TokenExchangeError`, which is already exported above.
+    // So the likely change is that this test stays green and the code consumers
+    // compare becomes `token_exchange_error`. Update EXAMPLES.md when it does.
     expect('TokenForConnectionError' in sdk).toBe(false);
   });
 });

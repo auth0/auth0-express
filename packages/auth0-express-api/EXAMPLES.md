@@ -458,24 +458,27 @@ The provider's refresh token stays in Auth0. Your API only ever sees a short-liv
 
 #### Prerequisites for Token Vault
 
-- Configure `clientId` together with either `clientSecret` or `clientAssertionSigningKey`, and register your API as a **Custom API client**, exactly as for On-Behalf-Of above.
+- Configure `clientId` together with either `clientSecret` or `clientAssertionSigningKey`.
+- Register your API as a **Custom API client**, the same registration as for On-Behalf-Of above.
+- Turn on the **Token Vault** grant type for that client. This is a different toggle from the **On-Behalf-Of Token Exchange** one, so having done the On-Behalf-Of setup does not cover you here.
 - Set up the connection in Token Vault, including the upstream scopes your API needs from the provider.
-- The user must have connected that provider and consented to those scopes. Token Vault can only mint a token for a connection the user actually linked, so a first call can fail for a perfectly valid setup simply because this user has not linked it yet.
+- The user must have linked that provider through **Connected Accounts** and consented to those scopes. Token Vault can only mint a token for a connection the user actually linked, so a first call can fail for a perfectly valid setup simply because this user has not linked it yet.
 
-See [Token Vault](https://auth0.com/docs/secure/tokens/token-vault) for the dashboard steps.
+See [Access token exchange with Token Vault](https://auth0.com/docs/secure/tokens/token-vault/access-token-exchange-with-token-vault) for the whole flow, and [Configure Token Vault](https://auth0.com/docs/secure/tokens/token-vault/configure-token-vault#configure-access-token-exchange) for the dashboard steps.
 
 ```ts
 import { requiresAuth } from '@auth0/auth0-express-api';
 
 app.get('/calendar', requiresAuth(), async (req, res) => {
-  const { accessToken } = await req.auth0.client.getAccessTokenForConnection({
+  // `accessToken` names both credentials here: the one going in is your Auth0
+  // token, the one coming back is Google's. Renaming the result keeps them apart.
+  const { accessToken: googleAccessToken } = await req.auth0.client.getAccessTokenForConnection({
     connection: 'google-oauth2',
     accessToken: req.auth0.token!,
   });
 
-  // This token is Google's, not Auth0's. It goes to Google.
   const events = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
-    headers: { authorization: `Bearer ${accessToken}` },
+    headers: { authorization: `Bearer ${googleAccessToken}` },
   });
 
   res.json(await events.json());
@@ -486,17 +489,28 @@ Note the shape difference from `getTokenOnBehalfOf()`. Here the subject token go
 
 The result carries `accessToken`, `scope` and `expiresAt` from the provider, plus the `connection` and `loginHint` you passed in, echoed back so a caller can tell which identity the token belongs to.
 
+> [!CAUTION]
+> The token you get back is a live third party credential, and a more powerful one than your own. It carries provider scopes such as read access to the user's calendar or mailbox, and nothing your app does to redact its own `Authorization` header covers it. Use it for server to provider calls only. Never return it to the browser, and keep it out of logs and error reports, the same as [`req.auth0.token`](#calling-another-api-on-behalf-of-the-user).
+
 > [!NOTE]
 > `AccessTokenForConnectionOptions` has no `audience`, unlike On-Behalf-Of. The token belongs to the provider, so an Auth0 API identifier would mean nothing to it. What you scope instead is the `connection`, plus `loginHint` when a user has more than one identity on the same connection.
 
 > [!NOTE]
-> The scopes and lifetime you get back are the provider's, not your tenant's, and `expiresAt` often sits well under an hour. Cache on `expiresAt` rather than assuming a duration, and key the cache on the user **and** the connection.
+> The scopes and lifetime you get back are the provider's, not your tenant's, so do not assume the hour an Auth0 token usually gets. Cache on `expiresAt` rather than on a duration you picked, and key the cache on the user **and** the connection.
+
+> [!WARNING]
+> Pass a `loginHint` your API resolved itself, never one the caller sent. It selects which of the user's identities to mint a token for, so treating it as caller input means letting the request steer that choice. The same rule as the subject token, for the same reason.
 
 #### Handling a failed connection exchange
 
-Every failure here arrives as `TokenForConnectionError`, and there is no `instanceof` check available for it. `@auth0/auth0-api-js` names the class in its documentation but does not export it, so this SDK has nothing to re-export. Narrow on `error.code` instead:
+Two errors can come out of this call, and only one of them can be caught by class:
+
+- `MissingClientAuthError`, when you set `clientId` without a `clientSecret` or `clientAssertionSigningKey`. Re-exported by this SDK, so `instanceof` works.
+- `TokenForConnectionError`, for everything else. `@auth0/auth0-api-js` names this class in its documentation but does not export it, so this SDK has nothing to re-export and you narrow on `error.code` instead.
 
 ```ts
+import { requiresAuth, MissingClientAuthError } from '@auth0/auth0-express-api';
+
 // `TokenForConnectionError` is not exported, so narrow by shape.
 type ConnectionExchangeError = {
   code: string;
@@ -514,28 +528,41 @@ function isConnectionExchangeError(error: unknown): error is ConnectionExchangeE
 
 app.get('/calendar', requiresAuth(), async (req, res) => {
   try {
-    const { accessToken } = await req.auth0.client.getAccessTokenForConnection({
+    const { accessToken: googleAccessToken } = await req.auth0.client.getAccessTokenForConnection({
       connection: 'google-oauth2',
       accessToken: req.auth0.token!,
     });
-    res.json(await fetchEvents(accessToken));
+    res.json(await fetchEvents(googleAccessToken));
   } catch (error) {
+    // Your own misconfiguration, reached before any request to Auth0, so not a
+    // `502`. Check this first: it does not carry the code the guard below looks for.
+    if (error instanceof MissingClientAuthError) {
+      console.error(error.code, error.message);
+      res.status(500).json({ error: 'not_configured' });
+      return;
+    }
+
     if (isConnectionExchangeError(error)) {
       // `cause` present means the tenant refused. Absent means we never got there.
       console.error(error.code, error.cause?.error_description ?? error.message);
     }
+
     res.status(502).json({ error: 'calendar_unavailable' });
   }
 });
 ```
 
 > [!IMPORTANT]
-> One code covers everything, including a missing client credential, which On-Behalf-Of reports as `missing_client_auth_error`. So `error.cause` is what tells the cases apart, not the code.
+> A half-configured client is the one case that does **not** report `token_for_connection_error`, so a guard written only on that code will miss it and fall through to whatever your generic branch does. Setting `clientId` and forgetting the secret is the easiest mistake to make here, which is why the class check comes first above.
 
-| Condition | `error.cause` |
-| --- | --- |
-| No client credentials configured, or a `clientId` with no secret or assertion key | absent, raised locally before any request to Auth0 |
-| No subject token passed, for example calling this outside `requiresAuth()` | absent, raised locally |
-| Connection not in Token Vault, user never linked it, or the scopes were not granted | present, carries the tenant's `error` and `error_description` |
+| Condition | `error.code` | `error.cause` |
+| --- | --- | --- |
+| No client credentials configured at all | `token_for_connection_error` | absent, raised locally before any request to Auth0 |
+| A `clientId` with no secret or assertion key | `missing_client_auth_error` | absent, raised locally |
+| No subject token passed, for example calling this outside `requiresAuth()` | `token_for_connection_error` | absent, raised locally |
+| Connection not in Token Vault, user never linked it, or the scopes were not granted | `token_for_connection_error` | present, carries the tenant's `error` and `error_description` |
 
-Not being able to catch this by class is an upstream gap. `@auth0/auth0-auth-js` does export the class, and `@auth0/auth0-api-js` re-exports two of its siblings, `MissingClientAuthError` and `TokenExchangeError`, but not this one. Once it does, this SDK will re-export it too and the guard above becomes unnecessary.
+Not being able to catch `TokenForConnectionError` by class is an upstream gap. `@auth0/auth0-auth-js` does export the class, and `@auth0/auth0-api-js` re-exports two of its siblings, `MissingClientAuthError` and `TokenExchangeError`, but not this one.
+
+> [!NOTE]
+> `@auth0/auth0-auth-js` has deprecated `TokenForConnectionError` as of its v1.2.0 and plans to remove it in v2.0, in favour of `TokenExchangeError`. So the likely resolution is not that this class becomes exported, but that the error changes: the code becomes `token_exchange_error` and `error instanceof TokenExchangeError` starts working, since that class is already re-exported here. Keep the `code` comparison in one helper of your own rather than inline at each call site, so widening it later is a one-line change. This section will be updated when that lands.

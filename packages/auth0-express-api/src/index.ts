@@ -24,7 +24,8 @@ export { getCurrentActor, getDelegationChain } from '@auth0/auth0-api-js';
 //
 // `getAccessTokenForConnection()` throws `TokenForConnectionError`, which api-js
 // does not export, so it is absent here and `error.code` is the only check for
-// it. EXAMPLES.md documents that.
+// it. A half-configured client is the exception: that throws
+// `MissingClientAuthError`, which is below. EXAMPLES.md documents both.
 export {
   AuthError,
   InvalidRequestError,

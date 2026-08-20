@@ -82,8 +82,8 @@ const connection = process.env.AUTH0_CONNECTION;
 
 // `getAccessTokenForConnection()` throws `TokenForConnectionError`, which
 // @auth0/auth0-api-js does not export, so there is no class to catch. Narrow on
-// the code instead. Every failure uses it, including a missing client
-// credential, so `cause` is what separates a local failure from a tenant one.
+// the code instead, and note that a half-configured client does not use it: that
+// one throws `MissingClientAuthError`, which the route below checks for first.
 type ConnectionExchangeError = {
   code: string;
   message: string;
@@ -116,6 +116,14 @@ app.get('/api/connection-token', requiresAuth(), async (req: Request, res: Respo
       scope: tokenSet.scope,
     });
   } catch (error) {
+    // AUTH0_CLIENT_ID set and AUTH0_CLIENT_SECRET not. Same as the route above,
+    // and the only failure here that is not a `token_for_connection_error`.
+    if (error instanceof MissingClientAuthError) {
+      console.error(error.code, error.message);
+      res.status(500).json({ error: 'client_not_configured' });
+      return;
+    }
+
     if (!isConnectionExchangeError(error)) {
       console.error(error);
       res.status(502).json({ error: 'connection_exchange_failed' });
@@ -125,7 +133,7 @@ app.get('/api/connection-token', requiresAuth(), async (req: Request, res: Respo
     console.error(error.code, error.cause?.error_description ?? error.message);
 
     // No `cause` means the SDK never reached the tenant. `requiresAuth()`
-    // guarantees a subject token here, so it is the client credentials.
+    // guarantees a subject token here, so no credentials at all were configured.
     if (!error.cause) {
       res.status(500).json({ error: 'client_not_configured' });
       return;
