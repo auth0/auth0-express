@@ -47,8 +47,14 @@ export function requiresAuth(options: RequiresAuthOptions = {}) {
         return sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes');
       }
 
-      req.auth0 = req.auth0 || {};
       req.auth0.user = token;
+      // Non-enumerable, so logging or serialising `req.auth0` cannot leak it.
+      Object.defineProperty(req.auth0, 'token', {
+        value: accessToken,
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
       next();
     } catch (error) {
       // eslint-disable-next-line @typescript-eslint/no-explicit-any
