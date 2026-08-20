@@ -9,6 +9,9 @@ export { scopesInclude } from './middleware/scopes-include.js';
 export type { ScopesIncludeOptions } from './middleware/scopes-include.js';
 export type { ClaimAuthOptions, ClaimCheckFunction, JSONPrimitive } from './middleware/claim-auth.js';
 
+export { isConnectionExchangeError } from './errors.js';
+export type { ConnectionExchangeError } from './errors.js';
+
 // Re-exports from `@auth0/auth0-api-js`, limited to what this package's own
 // surface exposes. `exports.spec.ts` pins the list.
 
@@ -23,8 +26,8 @@ export { getCurrentActor, getDelegationChain } from '@auth0/auth0-api-js';
 // extend `AuthError`. `error.code` is the sturdier check either way.
 //
 // `getAccessTokenForConnection()` throws `TokenForConnectionError`, which api-js
-// does not export, so it is absent here and `error.code` is the only check for
-// it. A half-configured client is the exception: that throws
+// does not export, so it is absent here. `isConnectionExchangeError()` above
+// stands in for it. A half-configured client is the exception: that throws
 // `MissingClientAuthError`, which is below. EXAMPLES.md documents both.
 export {
   AuthError,
@@ -41,6 +44,8 @@ export type { ActClaim } from '@auth0/auth0-api-js';
 export type {
   AccessTokenForConnectionOptions,
   ConnectionTokenSet,
+  ExchangeProfileOptions,
   OnBehalfOfTokenOptions,
   OnBehalfOfTokenResult,
+  TokenExchangeProfileResult,
 } from '@auth0/auth0-api-js';
