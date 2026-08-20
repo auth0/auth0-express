@@ -1,5 +1,5 @@
 import express, { Request, Response } from 'express';
-import { createAuth0Api, requiresAuth, TokenExchangeError } from '@auth0/auth0-express-api';
+import { createAuth0Api, MissingClientAuthError, requiresAuth, TokenExchangeError } from '@auth0/auth0-express-api';
 import 'dotenv/config';
 
 const app = express();
@@ -56,6 +56,15 @@ app.get('/api/on-behalf-of', requiresAuth(), async (req: Request, res: Response)
       scope: tokenSet.scope,
     });
   } catch (error) {
+    // A client that cannot authenticate is this server's own misconfiguration,
+    // reached before any request to the tenant, so it is not a `502`. Most often
+    // AUTH0_CLIENT_ID is set and AUTH0_CLIENT_SECRET is not.
+    if (error instanceof MissingClientAuthError) {
+      console.error(error.code, error.message);
+      res.status(500).json({ error: 'client_not_configured' });
+      return;
+    }
+
     // Usually a missing grant or a client that is not allowed to exchange. The
     // tenant's wording belongs in your logs, not in the response.
     if (error instanceof TokenExchangeError) {

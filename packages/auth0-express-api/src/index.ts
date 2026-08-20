@@ -29,4 +29,4 @@ export {
   VerifyAccessTokenError,
 } from '@auth0/auth0-api-js';
 
-export type { ActClaim, AuthErrorCause, OnBehalfOfTokenOptions, OnBehalfOfTokenResult } from '@auth0/auth0-api-js';
+export type { ActClaim, OnBehalfOfTokenOptions, OnBehalfOfTokenResult } from '@auth0/auth0-api-js';

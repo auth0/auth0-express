@@ -27,7 +27,7 @@ AUTH0_CLIENT_SECRET=YOUR_AUTH0_CLIENT_SECRET
 AUTH0_DOWNSTREAM_AUDIENCE=THE_AUDIENCE_OF_THE_API_YOU_WANT_TO_CALL
 ```
 
-Leave these unset and every other endpoint still works. `/api/on-behalf-of` answers `501` when `AUTH0_DOWNSTREAM_AUDIENCE` is missing, rather than calling the tenant with nothing to exchange for.
+Leave these unset and every other endpoint still works. `/api/on-behalf-of` is behind `requiresAuth()`, so a call without a token answers `401`. An authenticated call answers `501` when `AUTH0_DOWNSTREAM_AUDIENCE` is missing, rather than calling the tenant with nothing to exchange for, and `500` when `AUTH0_CLIENT_ID` is set without a secret, since the client cannot authenticate to the token endpoint.
 
 ### Tenant setup for `/api/on-behalf-of`
 

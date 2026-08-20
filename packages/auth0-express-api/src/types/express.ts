@@ -32,6 +32,11 @@ declare global {
          * Auth0 as a client, for example to exchange the caller's token for one
          * targeting a downstream API.
          *
+         * Declared as required, since every request the router handles has it.
+         * That holds only once the router has run: on a request that never
+         * passed through `createAuth0Api()`, because it was never mounted, this
+         * is `undefined` despite the type, and `requiresAuth()` throws to say so.
+         *
          * @example
          * ```ts
          * router.get('/orders', requiresAuth(), async (req, res) => {
