@@ -41,21 +41,22 @@ describe('public exports', () => {
       'GrantType',
       'InvalidDpopProofError',
       'MissingTransactionError',
+      'MissingRequiredArgumentError',
     ]) {
       expect(name in sdk).toBe(false);
     }
   });
 
-  it('should not export surfaces for features that are not implemented yet', () => {
-    // Token Vault and Custom Token Exchange land in their own changes.
-    for (const name of [
-      'getAccessTokenForConnection',
-      'getTokenByExchangeProfile',
-      'TokenForConnectionError',
-      'MissingRequiredArgumentError',
-    ]) {
-      expect(name in sdk).toBe(false);
-    }
+  it('should not export the error Token Vault throws', () => {
+    // `getAccessTokenForConnection()` throws `TokenForConnectionError`, but
+    // api-js does not export it, so it cannot be re-exported here. Consumers
+    // check `error.code === 'token_for_connection_error'` instead.
+    //
+    // auth-js has deprecated this class as of v1.2.0 and plans to remove it in
+    // v2.0 in favour of `TokenExchangeError`, which is already exported above.
+    // So the likely change is that this test stays green and the code consumers
+    // compare becomes `token_exchange_error`. Update EXAMPLES.md when it does.
+    expect('TokenForConnectionError' in sdk).toBe(false);
   });
 });
 

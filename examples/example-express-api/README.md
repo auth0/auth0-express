@@ -40,6 +40,18 @@ On-Behalf-Of exchange also needs the tenant configured for it. The credentials a
 
 See [Calling another API on behalf of the user](../../packages/auth0-express-api/EXAMPLES.md#calling-another-api-on-behalf-of-the-user) for the full list and the dashboard steps.
 
+### Configuration for `/api/connection-token`
+
+This endpoint asks Token Vault for an access token issued by a third party the user has connected, so it needs the client credentials above plus the connection to ask for:
+
+```env
+AUTH0_CONNECTION=google-oauth2
+```
+
+The tenant needs the **Token Vault** grant type enabled on the same Custom API client. That is a different toggle from the **On-Behalf-Of Token Exchange** one above, so doing the setup for `/api/on-behalf-of` does not cover this endpoint. The connection must also be set up in Token Vault with the upstream scopes you need, and the calling user must have linked it.
+
+Leave `AUTH0_CONNECTION` unset and the endpoint answers `501`. Set `AUTH0_CLIENT_ID` without `AUTH0_CLIENT_SECRET` and it answers `500`, since the client cannot authenticate. A call can answer `502` for a perfectly good setup simply because this user never connected that provider. See [Calling a third party API with Token Vault](../../packages/auth0-express-api/EXAMPLES.md#calling-a-third-party-api-with-token-vault).
+
 With the configuration in place, the example can be started by running:
 
 ```bash
@@ -54,5 +66,6 @@ The example API has the following endpoints:
 - `GET /api/private`: A private endpoint that can only be accessed by authenticated users.
 - `GET /api/private-scope`: A private endpoint that can only be accessed by authenticated users with the `read:private` scope.
 - `GET /api/on-behalf-of`: A private endpoint that exchanges the caller's access token for one issued to `AUTH0_DOWNSTREAM_AUDIENCE`, still representing the same user.
+- `GET /api/connection-token`: A private endpoint that exchanges the caller's access token for one issued by `AUTH0_CONNECTION`, so this API can call that provider as the user.
 
-In order to call the `/api/private`, `/api/private-scope` and `/api/on-behalf-of` endpoints, you need to include an `Authorization` header with a valid access token.
+In order to call the `/api/private`, `/api/private-scope`, `/api/on-behalf-of` and `/api/connection-token` endpoints, you need to include an `Authorization` header with a valid access token.
