@@ -1113,3 +1113,182 @@ test('should reject a blank subject token before calling the tenant', async () =
   // Same code as a tenant rejection, so absent `cause` is what marks it local.
   expect(error?.cause).toBeUndefined();
 });
+
+test('should reject a blank organization before calling the tenant', async () => {
+  // Token endpoint left unstubbed again, to prove this never goes out.
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+  });
+
+  let error: (Error & { code?: string }) | undefined;
+
+  router.post('/test', async (req, res) => {
+    try {
+      await req.auth0.client.getTokenByExchangeProfile('<legacy-token>', {
+        subjectTokenType: 'urn:acme:legacy-token',
+        audience: 'https://api.example.com',
+        organization: '   ',
+      });
+      res.json({ message: 'OK' });
+    } catch (e) {
+      error = e as typeof error;
+      res.json({ message: (e as Error).message });
+    }
+  });
+
+  app.use(router);
+
+  const res = await request(app).post('/test');
+
+  expect(res.status).toBe(200);
+  expect(res.body.message).toContain('must not be blank');
+  expect(error).toHaveProperty('code', 'organization_validation_error');
+});
+
+test('should throw when the profile exchange returns an id token for another organization', async () => {
+  server.use(
+    http.post(mockOpenIdConfiguration.token_endpoint, async () => {
+      return HttpResponse.json({
+        access_token: '<auth0-token>',
+        // Signed for this client, so it validates, but it names a different
+        // organization than the one asked for below.
+        id_token: await generateToken(domain, 'user_123', '<client_id>', undefined, undefined, undefined, {
+          org_id: 'org_somewhere_else',
+        }),
+        expires_in: 3600,
+        token_type: 'Bearer',
+      });
+    })
+  );
+
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+  });
+
+  let error: (Error & { code?: string }) | undefined;
+
+  router.post('/test', async (req, res) => {
+    try {
+      await req.auth0.client.getTokenByExchangeProfile('<legacy-token>', {
+        subjectTokenType: 'urn:acme:legacy-token',
+        audience: 'https://api.example.com',
+        organization: 'org_abc123',
+        scope: 'openid',
+      });
+      res.json({ message: 'OK' });
+    } catch (e) {
+      error = e as typeof error;
+      res.json({ message: (e as Error).message });
+    }
+  });
+
+  app.use(router);
+
+  const res = await request(app).post('/test');
+
+  expect(res.status).toBe(200);
+  expect(error).toHaveProperty('code', 'organization_validation_error');
+  expect(res.body.message).toContain('org_abc123');
+  expect(res.body.message).toContain('org_somewhere_else');
+});
+
+test('should skip the organization check when the exchange returns no id token', async () => {
+  // The documented trap, pinned. `auth0-auth-js` derives the claims it compares
+  // from the ID token, so with none in the response there is nothing to compare
+  // and the mismatch above goes unnoticed. If this test starts failing, the
+  // upstream behaviour changed and the [!WARNING] in EXAMPLES.md is stale.
+  server.use(
+    http.post(mockOpenIdConfiguration.token_endpoint, async () => {
+      return HttpResponse.json({
+        access_token: '<auth0-token>',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      });
+    })
+  );
+
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+  });
+
+  let error: Error | undefined;
+
+  router.post('/test', async (req, res) => {
+    try {
+      const result = await req.auth0.client.getTokenByExchangeProfile('<legacy-token>', {
+        subjectTokenType: 'urn:acme:legacy-token',
+        audience: 'https://api.example.com',
+        organization: 'org_abc123',
+      });
+      res.json(result);
+    } catch (e) {
+      error = e as Error;
+      res.json({ message: (e as Error).message });
+    }
+  });
+
+  app.use(router);
+
+  const res = await request(app).post('/test');
+
+  expect(res.status).toBe(200);
+  expect(error).toBeUndefined();
+  expect(res.body.accessToken).toBe('<auth0-token>');
+  // No `idToken` came back, which is exactly why nothing was verified.
+  expect(res.body.idToken).toBeUndefined();
+});
+
+test('should throw missing client auth for a profile exchange with a client id but no secret', async () => {
+  // Mirrors the Token Vault test above. The table in EXAMPLES.md claims this
+  // code for both credential shapes, so both should have a test.
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+  });
+
+  let error: Error | undefined;
+
+  router.post('/test', async (req, res) => {
+    try {
+      await req.auth0.client.getTokenByExchangeProfile('<legacy-token>', {
+        subjectTokenType: 'urn:acme:legacy-token',
+        audience: 'https://api.example.com',
+      });
+      res.json({ message: 'OK' });
+    } catch (e) {
+      error = e as Error;
+      res.json({ message: (e as Error).message });
+    }
+  });
+
+  app.use(router);
+
+  const res = await request(app).post('/test');
+
+  expect(res.status).toBe(200);
+  expect(error).toBeInstanceOf(MissingClientAuthError);
+  expect(error).toHaveProperty('code', 'missing_client_auth_error');
+  expect(res.body.message).toContain('client secret or client assertion signing key must be provided');
+});

@@ -561,8 +561,27 @@ The two sections above start from a token Auth0 issued. This one starts from a t
 #### Prerequisites for Custom Token Exchange
 
 - Configure `clientId` together with either `clientSecret` or `clientAssertionSigningKey`. Custom Token Exchange in Early Access does allow public clients, but this SDK path requires client authentication.
-- Create a Token Exchange Profile in your tenant with a `subject_token_type` that matches what you pass, plus the action that validates the incoming token and resolves the user.
+- Turn Custom Token Exchange on for that client. **It is off by default**, and there is no Dashboard toggle: set `token_exchange.allow_any_profile_of_type` through the Management API, on [Create a Client](https://auth0.com/docs/api/management/v2/clients/post-clients) or [Update a Client](https://auth0.com/docs/api/management/v2/clients/patch-clients-by-id).
+
+  ```json
+  {
+    "token_exchange": {
+      "allow_any_profile_of_type": ["custom_authentication"]
+    }
+  }
+  ```
+
+- Mark that application **first party** and **OIDC Conformant**, under **Applications > Advanced Settings > OAuth**. Both are required.
+- Enable the connection you want to use with Custom Token Exchange for that application.
+- Create a Token Exchange Profile in your tenant with a `subject_token_type` that matches what you pass, a `type` of `custom_authentication`, plus the action that validates the incoming token and resolves the user.
 - Own the namespace you use for `subjectTokenType`, such as `urn:acme:legacy-token` or `http://acme.com/mcp-token`.
+- Enable **Allow Skipping User Consent** on the API named by `audience`. Consent cannot be collected in a non-interactive flow.
+
+> [!NOTE]
+> Custom Token Exchange is in Early Access, on the B2C Professional, B2B Professional and Enterprise plans. Ask Auth0 support to enable it for your tenant.
+
+> [!IMPORTANT]
+> Miss the `allow_any_profile_of_type` step and the call fails as `token_exchange_error`, the same code you get for a profile that does not match. Rule that step out before going to look for a bug in your profile or action.
 
 ```ts
 app.post('/session/upgrade', async (req, res) => {
@@ -581,12 +600,15 @@ There is no `requiresAuth()` on that route, and that is deliberate. There is no 
 > [!IMPORTANT]
 > This is the one exchange where reading the subject token from the request is correct. The [warning above](#exchanging-a-different-token) about never taking a subject token from the request body applies to On-Behalf-Of, where the subject must be a token your API verified. Here the Token Exchange Profile is what validates the token, server side at Auth0, and a token it does not recognise is rejected. What you are responsible for is everything around it: this route mints Auth0 tokens for whoever can present a valid legacy credential, so rate limit it, log it, and keep the profile's validation strict.
 
-Alongside `accessToken` and `expiresAt`, the result carries `scope`, `tokenType` and `issuedTokenType` when the tenant returns them.
+Alongside `accessToken` and `expiresAt`, the result carries `scope`, `tokenType` and `issuedTokenType` when the tenant returns them. `TokenExchangeProfileResult` also declares `idToken` and `refreshToken`, which Custom Token Exchange can issue depending on your profile, your action and the scopes you ask for. This is the only one of the three methods whose result can hold either: On-Behalf-Of and Token Vault return access token fields only.
+
+> [!CAUTION]
+> Return named fields rather than the result object. `res.json(result)` on this route would forward whatever came back to a caller your API never authenticated, and that can include a refresh token, which is long lived and mints new access tokens on demand. The example above picks the two fields it means, which is the habit to copy.
 
 Pass `requestedTokenType` to ask for something other than an access token, and `organization` to exchange inside an organization context. `organization` takes either an ID (`org_abc123`) or a name (`acme`), and a blank string is rejected before the call.
 
 > [!WARNING]
-> The `organization` check only runs when the exchange returns an ID token. `@auth0/auth0-auth-js` reads `org_id` or `org_name` from that ID token and throws on a mismatch, but skips the check entirely when there is no ID token to read. Do not treat a call that did not throw as proof you got a token for the organization you asked for.
+> The `organization` check only runs when the exchange returns an ID token. `@auth0/auth0-auth-js` reads `org_id` or `org_name` from that ID token and throws on a mismatch, but skips the check entirely when there is no ID token to read. The example above asks for `scope: 'read:data'`, so nothing would be checked. Add `openid` to the scope if you want the check enforced, or verify the `org_id` claim on the returned access token yourself. Either way, do not read a call that did not throw as proof the organization was applied.
 
 > [!NOTE]
 > Some namespaces are reserved and the tenant rejects them: `http://auth0.com`, `https://auth0.com`, `http://okta.com`, `https://okta.com`, `urn:ietf`, `urn:auth0` and `urn:okta`. Nothing in the SDK checks this locally, so a reserved prefix looks fine until the call fails.
@@ -598,9 +620,11 @@ Same shape as [Handling a failed exchange](#handling-a-failed-exchange), and eas
 | `error.code` | What happened |
 | --- | --- |
 | `missing_client_auth_error` | No client credentials, or a `clientId` without a secret or assertion key. A configuration bug. |
-| `token_exchange_error` | No profile matches `subjectTokenType`, the profile's action rejected the token, or the subject token was missing, blank or untrimmed. |
-| `organization_validation_error` | A blank `organization`, or an ID token naming a different one. Not exported, so check the code. |
+| `token_exchange_error` | Custom Token Exchange is not enabled on the client, no profile matches `subjectTokenType`, the profile's action rejected the token, or the subject token was missing, blank or untrimmed. |
+| `organization_validation_error` | A blank `organization`, or an ID token naming a different one. See the note below. |
 
 `error.cause` separates a local failure from a tenant one, as it does for Token Vault. A bad subject token is caught before the request goes out, so it has no `cause`. A profile that does not match, or an action that rejected the token, comes back with one.
+
+`OrganizationValidationError` is the one class here you cannot catch by type. `@auth0/auth0-auth-js` exports it, but `@auth0/auth0-api-js` does not pass it through, so it does not reach this package either. That is an upstream gap being tracked, not a decision, which is why this package ships no guard for it: check `error.code === 'organization_validation_error'` for now and switch to `instanceof` once the re-export lands. Contrast `isConnectionExchangeError()`, which exists because the class it narrows to is being renamed upstream, so no amount of waiting produces a stable one to catch.
 
 Read `error.cause?.error_description` into your logs and keep it out of the response. It describes your tenant setup, and this route is reachable by whoever holds the external token.

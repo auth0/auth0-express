@@ -34,8 +34,9 @@ app.get('/api/private-scope', requiresAuth({ scopes: ['read:private'] }), async 
   res.send(`Hello, ${req.auth0.user!.sub}`);
 });
 
-// Only this route needs a downstream API to call. Read once so the route can
-// say what is missing instead of sending an undefined audience to the tenant.
+// The audience the exchange routes ask for. Both /api/on-behalf-of and
+// /api/token-exchange read it. Read once so those routes can say what is
+// missing instead of sending an undefined audience to the tenant.
 const downstreamAudience = process.env.AUTH0_DOWNSTREAM_AUDIENCE;
 
 // Protected route that exchanges the caller's token for one issued to a
@@ -148,6 +149,11 @@ const subjectTokenType = process.env.AUTH0_SUBJECT_TOKEN_TYPE;
 // no `requiresAuth()` here on purpose: the caller has no Auth0 token yet, which
 // is the whole point. The Token Exchange Profile validates the incoming token
 // at the tenant, so a token it does not recognise is rejected there.
+//
+// This is the only route in the example that mints tokens for an
+// unauthenticated caller. Rate limiting is left out to keep the example free of
+// dependencies, and it is not optional in production. Put a limiter in front of
+// this route and log every call.
 app.post('/api/token-exchange', async (req: Request, res: Response) => {
   if (!subjectTokenType || !downstreamAudience) {
     res.status(501).json({ error: 'AUTH0_SUBJECT_TOKEN_TYPE or AUTH0_DOWNSTREAM_AUDIENCE is not set' });
