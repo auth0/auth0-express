@@ -21,6 +21,10 @@ export { getCurrentActor, getDelegationChain } from '@auth0/auth0-api-js';
 // The errors reachable through this package's surface, as values so `instanceof`
 // works. Two hierarchies: only `InvalidRequestError` and `VerifyAccessTokenError`
 // extend `AuthError`. `error.code` is the sturdier check either way.
+//
+// `getAccessTokenForConnection()` throws `TokenForConnectionError`, which api-js
+// does not export, so it is absent here and `error.code` is the only check for
+// it. EXAMPLES.md documents that.
 export {
   AuthError,
   InvalidRequestError,
@@ -29,4 +33,13 @@ export {
   VerifyAccessTokenError,
 } from '@auth0/auth0-api-js';
 
-export type { ActClaim, OnBehalfOfTokenOptions, OnBehalfOfTokenResult } from '@auth0/auth0-api-js';
+export type { ActClaim } from '@auth0/auth0-api-js';
+
+// Options and results for the `ApiClient` exchange methods, so a consumer can
+// annotate a function that wraps one.
+export type {
+  AccessTokenForConnectionOptions,
+  ConnectionTokenSet,
+  OnBehalfOfTokenOptions,
+  OnBehalfOfTokenResult,
+} from '@auth0/auth0-api-js';

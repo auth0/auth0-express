@@ -20,6 +20,9 @@
     - [Handling a failed exchange](#handling-a-failed-exchange)
     - [Exchanging a different token](#exchanging-a-different-token)
     - [Reading the delegation chain](#reading-the-delegation-chain)
+  - [Calling a third party API with Token Vault](#calling-a-third-party-api-with-token-vault)
+    - [Prerequisites for Token Vault](#prerequisites-for-token-vault)
+    - [Handling a failed connection exchange](#handling-a-failed-connection-exchange)
 
 ## Configuration
 
@@ -446,3 +449,93 @@ app.get('/whoami', requiresAuth(), async (req, res) => {
 > Only the **current actor** belongs in an authorization decision. That is the outermost `act.sub`, the service that called you, which is what `getCurrentActor()` returns. Everything further down the chain is a **prior** actor: useful for logging, audit and attribution, but not something to gate access on. Those services did not call you, and you cannot tell from the claim what they were allowed to do.
 
 Auth0 limits a delegation chain to **five actors**. Your exchange adds one, so the subject token you pass in can already carry at most **four**. Go past that and the tenant rejects the exchange with a `token_exchange_error` reporting the `act` claim depth limit. A long chain of services each calling the next on behalf of the user is not something to design around.
+
+### Calling a third party API with Token Vault
+
+The section above is Auth0 to Auth0. This one is Auth0 to a third party. When a user has connected an external provider such as Google or Slack, Auth0 can hold that provider's refresh token in [Token Vault](https://auth0.com/docs/secure/tokens/token-vault) and mint provider access tokens on demand. Your API exchanges the caller's verified token for one issued by the provider, then calls the provider's API as that user.
+
+The provider's refresh token stays in Auth0. Your API only ever sees a short-lived access token.
+
+#### Prerequisites for Token Vault
+
+- Configure `clientId` together with either `clientSecret` or `clientAssertionSigningKey`, and register your API as a **Custom API client**, exactly as for On-Behalf-Of above.
+- Set up the connection in Token Vault, including the upstream scopes your API needs from the provider.
+- The user must have connected that provider and consented to those scopes. Token Vault can only mint a token for a connection the user actually linked, so a first call can fail for a perfectly valid setup simply because this user has not linked it yet.
+
+See [Token Vault](https://auth0.com/docs/secure/tokens/token-vault) for the dashboard steps.
+
+```ts
+import { requiresAuth } from '@auth0/auth0-express-api';
+
+app.get('/calendar', requiresAuth(), async (req, res) => {
+  const { accessToken } = await req.auth0.client.getAccessTokenForConnection({
+    connection: 'google-oauth2',
+    accessToken: req.auth0.token!,
+  });
+
+  // This token is Google's, not Auth0's. It goes to Google.
+  const events = await fetch('https://www.googleapis.com/calendar/v3/calendars/primary/events', {
+    headers: { authorization: `Bearer ${accessToken}` },
+  });
+
+  res.json(await events.json());
+});
+```
+
+Note the shape difference from `getTokenOnBehalfOf()`. Here the subject token goes **inside the options**, as `accessToken`, rather than as the first argument. That is how `@auth0/auth0-api-js` declares the two methods, and this SDK passes them through as they are rather than inventing a third signature.
+
+The result carries `accessToken`, `scope` and `expiresAt` from the provider, plus the `connection` and `loginHint` you passed in, echoed back so a caller can tell which identity the token belongs to.
+
+> [!NOTE]
+> `AccessTokenForConnectionOptions` has no `audience`, unlike On-Behalf-Of. The token belongs to the provider, so an Auth0 API identifier would mean nothing to it. What you scope instead is the `connection`, plus `loginHint` when a user has more than one identity on the same connection.
+
+> [!NOTE]
+> The scopes and lifetime you get back are the provider's, not your tenant's, and `expiresAt` often sits well under an hour. Cache on `expiresAt` rather than assuming a duration, and key the cache on the user **and** the connection.
+
+#### Handling a failed connection exchange
+
+Every failure here arrives as `TokenForConnectionError`, and there is no `instanceof` check available for it. `@auth0/auth0-api-js` names the class in its documentation but does not export it, so this SDK has nothing to re-export. Narrow on `error.code` instead:
+
+```ts
+// `TokenForConnectionError` is not exported, so narrow by shape.
+type ConnectionExchangeError = {
+  code: string;
+  message: string;
+  cause?: { error?: string; error_description?: string };
+};
+
+function isConnectionExchangeError(error: unknown): error is ConnectionExchangeError {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    (error as ConnectionExchangeError).code === 'token_for_connection_error'
+  );
+}
+
+app.get('/calendar', requiresAuth(), async (req, res) => {
+  try {
+    const { accessToken } = await req.auth0.client.getAccessTokenForConnection({
+      connection: 'google-oauth2',
+      accessToken: req.auth0.token!,
+    });
+    res.json(await fetchEvents(accessToken));
+  } catch (error) {
+    if (isConnectionExchangeError(error)) {
+      // `cause` present means the tenant refused. Absent means we never got there.
+      console.error(error.code, error.cause?.error_description ?? error.message);
+    }
+    res.status(502).json({ error: 'calendar_unavailable' });
+  }
+});
+```
+
+> [!IMPORTANT]
+> One code covers everything, including a missing client credential, which On-Behalf-Of reports as `missing_client_auth_error`. So `error.cause` is what tells the cases apart, not the code.
+
+| Condition | `error.cause` |
+| --- | --- |
+| No client credentials configured, or a `clientId` with no secret or assertion key | absent, raised locally before any request to Auth0 |
+| No subject token passed, for example calling this outside `requiresAuth()` | absent, raised locally |
+| Connection not in Token Vault, user never linked it, or the scopes were not granted | present, carries the tenant's `error` and `error_description` |
+
+Not being able to catch this by class is an upstream gap. `@auth0/auth0-auth-js` does export the class, and `@auth0/auth0-api-js` re-exports two of its siblings, `MissingClientAuthError` and `TokenExchangeError`, but not this one. Once it does, this SDK will re-export it too and the guard above becomes unnecessary.

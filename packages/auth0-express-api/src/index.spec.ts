@@ -607,3 +607,234 @@ test('should surface what the tenant said when the exchange is rejected', async 
   expect(error?.cause?.error).toBe('access_denied');
   expect(error?.cause?.error_description).toBe('Client is not authorized to access https://orders.example.com.');
 });
+
+test('should exchange the verified token for a connection access token', async () => {
+  let body: URLSearchParams | undefined;
+
+  server.use(
+    http.post(mockOpenIdConfiguration.token_endpoint, async ({ request: req }) => {
+      body = new URLSearchParams(await req.text());
+      return HttpResponse.json({
+        access_token: '<google-token>',
+        issued_token_type: 'http://auth0.com/oauth/token-type/federated-connection-access-token',
+        expires_in: 3600,
+        scope: 'https://www.googleapis.com/auth/calendar.readonly',
+        token_type: 'Bearer',
+      });
+    })
+  );
+
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+  });
+
+  const accessToken = await generateToken(domain, 'user_123', '<audience>');
+
+  router.get('/test', requiresAuth(), async (req, res) => {
+    const tokenSet = await req.auth0.client.getAccessTokenForConnection({
+      connection: 'google-oauth2',
+      accessToken: req.auth0.token!,
+    });
+    res.json(tokenSet);
+  });
+
+  app.use(router);
+
+  const res = await request(app).get('/test').set('authorization', `Bearer ${accessToken}`);
+
+  expect(res.status).toBe(200);
+  expect(res.body.accessToken).toBe('<google-token>');
+  expect(res.body.scope).toBe('https://www.googleapis.com/auth/calendar.readonly');
+  // Echoed back from the options, not from the tenant's response.
+  expect(res.body.connection).toBe('google-oauth2');
+  expect(typeof res.body.expiresAt).toBe('number');
+
+  // Token Vault has its own grant type, and no `audience`, which the tenant
+  // rejects for this grant.
+  expect(Object.fromEntries(body!.entries())).toEqual({
+    grant_type: 'urn:auth0:params:oauth:grant-type:token-exchange:federated-connection-access-token',
+    connection: 'google-oauth2',
+    subject_token: accessToken,
+    subject_token_type: 'urn:ietf:params:oauth:token-type:access_token',
+    requested_token_type: 'http://auth0.com/oauth/token-type/federated-connection-access-token',
+    client_id: '<client_id>',
+    client_secret: '<client_secret>',
+  });
+});
+
+test('should pass the login hint through to the connection exchange', async () => {
+  let body: URLSearchParams | undefined;
+
+  server.use(
+    http.post(mockOpenIdConfiguration.token_endpoint, async ({ request: req }) => {
+      body = new URLSearchParams(await req.text());
+      return HttpResponse.json({
+        access_token: '<google-token>',
+        expires_in: 3600,
+        token_type: 'Bearer',
+      });
+    })
+  );
+
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+  });
+
+  const accessToken = await generateToken(domain, 'user_123', '<audience>');
+
+  router.get('/test', requiresAuth(), async (req, res) => {
+    const tokenSet = await req.auth0.client.getAccessTokenForConnection({
+      connection: 'google-oauth2',
+      accessToken: req.auth0.token!,
+      loginHint: 'user@example.com',
+    });
+    res.json(tokenSet);
+  });
+
+  app.use(router);
+
+  const res = await request(app).get('/test').set('authorization', `Bearer ${accessToken}`);
+
+  expect(res.status).toBe(200);
+  expect(body!.get('login_hint')).toBe('user@example.com');
+  // Echoed back on the result so a caller can tell which identity was used.
+  expect(res.body.loginHint).toBe('user@example.com');
+});
+
+test('should throw when getting a connection token without client credentials configured', async () => {
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+  });
+
+  const accessToken = await generateToken(domain, 'user_123', '<audience>');
+
+  let error: (Error & { code?: string; cause?: unknown }) | undefined;
+
+  router.get('/test', requiresAuth(), async (req, res) => {
+    try {
+      await req.auth0.client.getAccessTokenForConnection({
+        connection: 'google-oauth2',
+        accessToken: req.auth0.token!,
+      });
+      res.json({ message: 'OK' });
+    } catch (e) {
+      error = e as typeof error;
+      res.json({ message: (e as Error).message });
+    }
+  });
+
+  app.use(router);
+
+  const res = await request(app).get('/test').set('authorization', `Bearer ${accessToken}`);
+
+  expect(res.status).toBe(200);
+  // Token Vault reports missing credentials as its own error, not as the
+  // `missing_client_auth_error` the other two exchanges use.
+  expect(error).toHaveProperty('code', 'token_for_connection_error');
+  expect(res.body.message).toContain('Client credentials are required');
+  // Raised locally, so there is nothing from the tenant to attach.
+  expect(error?.cause).toBeUndefined();
+});
+
+test('should throw when there is no subject token for the connection exchange', async () => {
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+  });
+
+  let error: Error | undefined;
+
+  // `requiresAuth()` never ran, so `req.auth0.token` is undefined.
+  router.get('/test', async (req, res) => {
+    try {
+      await req.auth0.client.getAccessTokenForConnection({
+        connection: 'google-oauth2',
+        accessToken: req.auth0.token!,
+      });
+    } catch (e) {
+      error = e as Error;
+    }
+    res.json({ message: error?.message });
+  });
+
+  app.use(router);
+
+  const res = await request(app).get('/test');
+
+  expect(res.status).toBe(200);
+  expect(res.body.message).toContain('access token must be specified');
+  expect(error).toHaveProperty('code', 'token_for_connection_error');
+});
+
+test('should surface what the tenant said when the connection exchange is rejected', async () => {
+  server.use(
+    http.post(mockOpenIdConfiguration.token_endpoint, () =>
+      HttpResponse.json(
+        {
+          error: 'invalid_request',
+          error_description: 'The connection google-oauth2 is not enabled for Token Vault.',
+        },
+        { status: 400 }
+      )
+    )
+  );
+
+  const app = express();
+  app.use(express.json());
+
+  const router = createAuth0Api({
+    domain: domain,
+    audience: '<audience>',
+    clientId: '<client_id>',
+    clientSecret: '<client_secret>',
+  });
+
+  const accessToken = await generateToken(domain, 'user_123', '<audience>');
+
+  let error: (Error & { code?: string; cause?: { error?: string; error_description?: string } }) | undefined;
+
+  router.get('/test', requiresAuth(), async (req, res) => {
+    try {
+      await req.auth0.client.getAccessTokenForConnection({
+        connection: 'google-oauth2',
+        accessToken: req.auth0.token!,
+      });
+      res.json({ message: 'OK' });
+    } catch (e) {
+      error = e as typeof error;
+      res.json({ message: (e as Error).message });
+    }
+  });
+
+  app.use(router);
+
+  const res = await request(app).get('/test').set('authorization', `Bearer ${accessToken}`);
+
+  expect(res.status).toBe(200);
+  // A tenant rejection reuses the same code as the local failure above, so
+  // `cause` is the only thing that tells the two apart.
+  expect(error).toHaveProperty('code', 'token_for_connection_error');
+  expect(error?.cause?.error).toBe('invalid_request');
+  expect(error?.cause?.error_description).toBe('The connection google-oauth2 is not enabled for Token Vault.');
+});
