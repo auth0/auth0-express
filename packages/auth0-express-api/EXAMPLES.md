@@ -300,7 +300,7 @@ The second parameter is an optional configuration object that can include a cust
 
 ## API as a client
 
-Everything above is about **token verification**: a token arrives at your API and the SDK checks it before your route runs. This section is the other direction, where your API acts as a **client** of Auth0 and asks it for a token, usually so it can call another API.
+Everything above is about **token verification**. A token arrives at your API and the SDK checks it before your route runs. This section is the other direction, where your API acts as a **client** of Auth0 and asks it for a token, usually so it can call another API.
 
 Both come out of the same router. `requiresAuth()` verifies the incoming token, and `req.auth0.client` is the client you call to get a new one. Acting as a client needs credentials, so configure `clientId` together with either `clientSecret` or `clientAssertionSigningKey`.
 
@@ -356,14 +356,14 @@ The first argument is the token to exchange, and passing it is your job. On a ro
 Alongside `accessToken`, the result carries `expiresAt` (seconds since the Unix epoch), and `scope`, `tokenType` and `issuedTokenType` when the tenant returns them.
 
 > [!NOTE]
-> `getTokenOnBehalfOf()` calls the token endpoint every time. Nothing is cached for you, so calling it on every request adds a round trip to Auth0 on every request and counts against your tenant's rate limits. Use `expiresAt` to cache the result, keyed on the user **and** the downstream audience and scope, and expire it a little before `expiresAt`. An exchanged token is a user credential, so whatever holds it has to be scoped per user and cleared when their session ends.
+> `getTokenOnBehalfOf()` calls the token endpoint every time. Nothing is cached for you, so calling it on every request adds a round trip to Auth0 and counts against your tenant's rate limits. Use `expiresAt` to cache the result, keyed on the user **and** the downstream audience and scope, and expire it a little before `expiresAt`. An exchanged token is a user credential, so whatever holds it has to be scoped per user and cleared when their session ends.
 
 > [!NOTE]
 > The downstream API sees a token whose `sub` is still the end user, with your API recorded as the actor in the `act` claim. Authorization decisions downstream continue to be about the user, not about your service.
 
 #### Handling a failed exchange
 
-The exchange runs in your route handler, so nothing in the SDK turns a failure into an HTTP response, and what happens if you leave it unhandled depends on your Express version. On **Express 5** the rejection is forwarded to your error handler, which returns a 500 by default. On **Express 4** it is not: the request hangs with no response and the rejection goes unhandled, which under Node's default settings takes the process down. Catch it either way and decide what the caller should see:
+The exchange runs in your route handler, so nothing in the SDK turns a failure into an HTTP response, and what happens if you leave it unhandled depends on your Express version. On **Express 5** the rejection is forwarded to your error handler, which returns a 500 by default. On **Express 4** it is not. The request hangs with no response and the rejection goes unhandled, which under Node's default settings takes the process down. Catch it either way and decide what the caller should see:
 
 ```ts
 import { requiresAuth, TokenExchangeError } from '@auth0/auth0-express-api';
@@ -442,4 +442,7 @@ app.get('/whoami', requiresAuth(), async (req, res) => {
 });
 ```
 
-Auth0 limits the delegation chain to **five nested levels**. Each exchange adds one, so a subject token that already carries four is rejected: you get a `token_exchange_error` whose `cause?.error_description` says the `act` claim depth exceeds the maximum allowed limit of 4. A long chain of services each calling the next on behalf of the user is not something to design around.
+> [!IMPORTANT]
+> Only the **current actor** belongs in an authorization decision. That is the outermost `act.sub`, the service that called you, which is what `getCurrentActor()` returns. Everything further down the chain is a **prior** actor: useful for logging, audit and attribution, but not something to gate access on. Those services did not call you, and you cannot tell from the claim what they were allowed to do.
+
+Auth0 limits a delegation chain to **five actors**. Your exchange adds one, so the subject token you pass in can already carry at most **four**. Go past that and the tenant rejects the exchange with a `token_exchange_error` reporting the `act` claim depth limit. A long chain of services each calling the next on behalf of the user is not something to design around.

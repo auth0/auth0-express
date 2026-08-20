@@ -20,12 +20,12 @@ app.use(auth0Router);
 
 // Protected route requiring authentication
 app.get('/api/private', requiresAuth(), async (req: Request, res: Response) => {
-  res.send(`Hello, ${req.auth0.user?.sub}`);
+  res.send(`Hello, ${req.auth0.user!.sub}`);
 });
 
 // Protected route requiring specific scope
 app.get('/api/private-scope', requiresAuth({ scopes: ['read:private'] }), async (req: Request, res: Response) => {
-  res.send(`Hello, ${req.auth0.user?.sub}`);
+  res.send(`Hello, ${req.auth0.user!.sub}`);
 });
 
 // Only this route needs a downstream API to call. Read once so the route can
@@ -50,7 +50,7 @@ app.get('/api/on-behalf-of', requiresAuth(), async (req: Request, res: Response)
     // In a real API you would now call the downstream service with this token:
     //   fetch(url, { headers: { authorization: `Bearer ${tokenSet.accessToken}` } })
     res.json({
-      sub: req.auth0.user?.sub,
+      sub: req.auth0.user!.sub,
       downstreamAudience,
       expiresAt: tokenSet.expiresAt,
       scope: tokenSet.scope,

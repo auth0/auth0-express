@@ -4,9 +4,7 @@ import { getCurrentActor, getDelegationChain, InvalidRequestError } from './inde
 import type { Token } from './index.js';
 
 describe('public exports', () => {
-  // Type-only exports disappear at runtime, so this covers values only. It is
-  // here to make a dropped or renamed export a failing test rather than a
-  // silent break for consumers.
+  // Values only, since type-only exports leave nothing at runtime.
   it('should export exactly the documented value surface', () => {
     expect(Object.keys(sdk).sort()).toEqual([
       'AuthError',
@@ -26,16 +24,11 @@ describe('public exports', () => {
   });
 
   it('should not export the ApiClient class, only its type', () => {
-    // `createAuth0Api()` is the only way to get a client, so an app cannot build
-    // a second one with different credentials and skip this package's config and
-    // environment variable handling. The type is still exported for annotations,
-    // which leaves nothing behind at runtime.
     expect('ApiClient' in sdk).toBe(false);
   });
 
   it('should not export the pre-verification token extractor', () => {
-    // `req.auth0.token` is the supported way to reach the raw token, and unlike
-    // `getToken()` it is only set on a request this API has already verified.
+    // Superseded by `req.auth0.token`, which is only set after verification.
     expect('getToken' in sdk).toBe(false);
   });
 
@@ -54,10 +47,7 @@ describe('public exports', () => {
   });
 
   it('should not export surfaces for features that are not implemented yet', () => {
-    // Token Vault and Custom Token Exchange land in their own changes. Publishing
-    // their option and result types now would commit us to shapes those changes
-    // have not settled on. `MissingRequiredArgumentError` is unreachable, because
-    // `getConfig()` rejects a missing domain or audience before api-js sees it.
+    // Token Vault and Custom Token Exchange land in their own changes.
     for (const name of [
       'getAccessTokenForConnection',
       'getTokenByExchangeProfile',

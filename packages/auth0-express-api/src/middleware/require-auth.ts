@@ -48,10 +48,7 @@ export function requiresAuth(options: RequiresAuthOptions = {}) {
       }
 
       req.auth0.user = token;
-      // Only ever set together with `user`, so the raw token on the request is
-      // guaranteed to be one this API has already verified. Non-enumerable so
-      // that logging or serialising `req.auth0` cannot leak a live credential
-      // past the redaction rules apps have for the `Authorization` header.
+      // Non-enumerable, so logging or serialising `req.auth0` cannot leak it.
       Object.defineProperty(req.auth0, 'token', {
         value: accessToken,
         enumerable: false,

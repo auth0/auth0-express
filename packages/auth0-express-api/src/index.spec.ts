@@ -400,7 +400,7 @@ test('should exchange the verified token on behalf of the user', async () => {
   expect(res.status).toBe(200);
   expect(res.body.accessToken).toBe('<downstream-token>');
   expect(res.body.scope).toBe('read:orders');
-  // Normalised to lowercase on the way through oauth4webapi.
+  // api-js returns this lowercased, whatever case the tenant sent.
   expect(res.body.tokenType).toBe('bearer');
   expect(typeof res.body.expiresAt).toBe('number');
 
