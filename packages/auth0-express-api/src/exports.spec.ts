@@ -41,21 +41,18 @@ describe('public exports', () => {
       'GrantType',
       'InvalidDpopProofError',
       'MissingTransactionError',
+      'MissingRequiredArgumentError',
     ]) {
       expect(name in sdk).toBe(false);
     }
   });
 
-  it('should not export surfaces for features that are not implemented yet', () => {
-    // Token Vault and Custom Token Exchange land in their own changes.
-    for (const name of [
-      'getAccessTokenForConnection',
-      'getTokenByExchangeProfile',
-      'TokenForConnectionError',
-      'MissingRequiredArgumentError',
-    ]) {
-      expect(name in sdk).toBe(false);
-    }
+  it('should not export the error Token Vault throws', () => {
+    // `getAccessTokenForConnection()` throws `TokenForConnectionError`, but
+    // api-js does not export it, so it cannot be re-exported here. Consumers
+    // check `error.code === 'token_for_connection_error'` instead. If api-js
+    // starts exporting it, add it above and update EXAMPLES.md.
+    expect('TokenForConnectionError' in sdk).toBe(false);
   });
 });
 

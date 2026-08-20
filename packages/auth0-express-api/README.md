@@ -26,6 +26,8 @@ Jump straight to the capability you need.
 | [Protect an API route (`requiresAuth`)](#protecting-api-routes) | Require a valid bearer access token |
 | [Read token claims (`req.auth0.user`)](#protecting-api-routes) | Access claims extracted from the verified token |
 | [Call another API on behalf of the user](./EXAMPLES.md#calling-another-api-on-behalf-of-the-user) | Exchange the caller's token for one issued to a downstream API |
+| [Call a third party API (Token Vault)](./EXAMPLES.md#calling-a-third-party-api-with-token-vault) | Get a Google or Slack access token for the caller from Token Vault |
+| [Exchange an external token (Custom Token Exchange)](./EXAMPLES.md#exchanging-an-external-token-for-an-auth0-token) | Turn a legacy or partner token into an Auth0 access token |
 | [Require specific scopes](./EXAMPLES.md#requiring-specific-scopes) | Gate routes with `scopesInclude` (match all or any) |
 | [Authorization with claims](#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Custom token / user type](#custom-types) | Type your custom claims via module augmentation |
