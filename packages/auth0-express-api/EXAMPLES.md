@@ -23,6 +23,9 @@
   - [Calling a third party API with Token Vault](#calling-a-third-party-api-with-token-vault)
     - [Prerequisites for Token Vault](#prerequisites-for-token-vault)
     - [Handling a failed connection exchange](#handling-a-failed-connection-exchange)
+  - [Exchanging an external token for an Auth0 token](#exchanging-an-external-token-for-an-auth0-token)
+    - [Prerequisites for Custom Token Exchange](#prerequisites-for-custom-token-exchange)
+    - [Handling a failed profile exchange](#handling-a-failed-profile-exchange)
 
 ## Configuration
 
@@ -493,7 +496,7 @@ The result carries `accessToken`, `scope` and `expiresAt` from the provider, plu
 > The token you get back is a live third party credential, and a more powerful one than your own. It carries provider scopes such as read access to the user's calendar or mailbox, and nothing your app does to redact its own `Authorization` header covers it. Use it for server to provider calls only. Never return it to the browser, and keep it out of logs and error reports, the same as [`req.auth0.token`](#calling-another-api-on-behalf-of-the-user).
 
 > [!NOTE]
-> `AccessTokenForConnectionOptions` has no `audience`, unlike On-Behalf-Of. The token belongs to the provider, so an Auth0 API identifier would mean nothing to it. What you scope instead is the `connection`, plus `loginHint` when a user has more than one identity on the same connection.
+> `AccessTokenForConnectionOptions` has no `audience`, unlike the other two exchanges. The token belongs to the provider, so an Auth0 API identifier would mean nothing to it. What you scope instead is the `connection`, plus `loginHint` when a user has more than one identity on the same connection.
 
 > [!NOTE]
 > The scopes and lifetime you get back are the provider's, not your tenant's, so do not assume the hour an Auth0 token usually gets. Cache on `expiresAt` rather than on a duration you picked, and key the cache on the user **and** the connection.
@@ -503,28 +506,13 @@ The result carries `accessToken`, `scope` and `expiresAt` from the provider, plu
 
 #### Handling a failed connection exchange
 
-Two errors can come out of this call, and only one of them can be caught by class:
+Two errors can come out of this call, and they need different answers:
 
 - `MissingClientAuthError`, when you set `clientId` without a `clientSecret` or `clientAssertionSigningKey`. Re-exported by this SDK, so `instanceof` works.
-- `TokenForConnectionError`, for everything else. `@auth0/auth0-api-js` names this class in its documentation but does not export it, so this SDK has nothing to re-export and you narrow on `error.code` instead.
+- `TokenForConnectionError`, for everything else. `@auth0/auth0-api-js` names this class in its documentation but does not export it, so there is no class to catch. Use `isConnectionExchangeError()` from this SDK, which checks the code for you.
 
 ```ts
-import { requiresAuth, MissingClientAuthError } from '@auth0/auth0-express-api';
-
-// `TokenForConnectionError` is not exported, so narrow by shape.
-type ConnectionExchangeError = {
-  code: string;
-  message: string;
-  cause?: { error?: string; error_description?: string };
-};
-
-function isConnectionExchangeError(error: unknown): error is ConnectionExchangeError {
-  return (
-    typeof error === 'object' &&
-    error !== null &&
-    (error as ConnectionExchangeError).code === 'token_for_connection_error'
-  );
-}
+import { requiresAuth, isConnectionExchangeError, MissingClientAuthError } from '@auth0/auth0-express-api';
 
 app.get('/calendar', requiresAuth(), async (req, res) => {
   try {
@@ -564,5 +552,81 @@ app.get('/calendar', requiresAuth(), async (req, res) => {
 
 Not being able to catch `TokenForConnectionError` by class is an upstream gap. `@auth0/auth0-auth-js` does export the class, and `@auth0/auth0-api-js` re-exports two of its siblings, `MissingClientAuthError` and `TokenExchangeError`, but not this one.
 
+`isConnectionExchangeError()` exists so that gap stays out of your code. It narrows to `ConnectionExchangeError`, which gives you `code`, `message` and the optional `cause`, and it owns the code string in one place. `@auth0/auth0-auth-js` has deprecated `TokenForConnectionError` as of its v1.2.0 and plans to remove it in v2.0 in favour of `TokenExchangeError`, so the code this call throws is expected to change to `token_exchange_error`. When it does, the guard widens here and your `catch` block keeps working. Comparing `error.code` inline instead would leave you to find every call site yourself.
+
+### Exchanging an external token for an Auth0 token
+
+The two sections above start from a token Auth0 issued. This one starts from a token it did not. A legacy session, a partner service, or an MCP server holds some other credential, and you want an Auth0 access token for the same user. You configure a **Token Exchange Profile** in Auth0 that says how to validate that token type and which user it maps to, then hand the token over. This is [Custom Token Exchange](https://auth0.com/docs/authenticate/custom-token-exchange), also built on RFC 8693.
+
+#### Prerequisites for Custom Token Exchange
+
+- Configure `clientId` together with either `clientSecret` or `clientAssertionSigningKey`. Custom Token Exchange in Early Access does allow public clients, but this SDK path requires client authentication.
+- Turn Custom Token Exchange on for that client. **It is off by default**, and there is no Dashboard toggle: set `token_exchange.allow_any_profile_of_type` through the Management API, on [Create a Client](https://auth0.com/docs/api/management/v2/clients/post-clients) or [Update a Client](https://auth0.com/docs/api/management/v2/clients/patch-clients-by-id).
+
+  ```json
+  {
+    "token_exchange": {
+      "allow_any_profile_of_type": ["custom_authentication"]
+    }
+  }
+  ```
+
+- Mark that application **first party** and **OIDC Conformant**, under **Applications > Advanced Settings > OAuth**. Both are required.
+- Enable the connection you want to use with Custom Token Exchange for that application.
+- Create a Token Exchange Profile in your tenant with a `subject_token_type` that matches what you pass, a `type` of `custom_authentication`, plus the action that validates the incoming token and resolves the user.
+- Own the namespace you use for `subjectTokenType`, such as `urn:acme:legacy-token` or `http://acme.com/mcp-token`.
+- Enable **Allow Skipping User Consent** on the API named by `audience`. Consent cannot be collected in a non-interactive flow.
+
 > [!NOTE]
-> `@auth0/auth0-auth-js` has deprecated `TokenForConnectionError` as of its v1.2.0 and plans to remove it in v2.0, in favour of `TokenExchangeError`. So the likely resolution is not that this class becomes exported, but that the error changes: the code becomes `token_exchange_error` and `error instanceof TokenExchangeError` starts working, since that class is already re-exported here. Keep the `code` comparison in one helper of your own rather than inline at each call site, so widening it later is a one-line change. This section will be updated when that lands.
+> Custom Token Exchange is in Early Access, on the B2C Professional, B2B Professional and Enterprise plans. Ask Auth0 support to enable it for your tenant.
+
+> [!IMPORTANT]
+> Miss the `allow_any_profile_of_type` step and the call fails as `token_exchange_error`, the same code you get for a profile that does not match. Rule that step out before going to look for a bug in your profile or action.
+
+```ts
+app.post('/session/upgrade', async (req, res) => {
+  const result = await req.auth0.client.getTokenByExchangeProfile(req.body.legacyToken, {
+    subjectTokenType: 'urn:acme:legacy-token',
+    audience: 'https://api.example.com',
+    scope: 'read:data',
+  });
+
+  res.json({ accessToken: result.accessToken, expiresAt: result.expiresAt });
+});
+```
+
+There is no `requiresAuth()` on that route, and that is deliberate. There is no Auth0 token yet, which is the entire reason for the call. The subject token is the first argument, matching `getTokenOnBehalfOf()`.
+
+> [!IMPORTANT]
+> This is the one exchange where reading the subject token from the request is correct. The [warning above](#exchanging-a-different-token) about never taking a subject token from the request body applies to On-Behalf-Of, where the subject must be a token your API verified. Here the Token Exchange Profile is what validates the token, server side at Auth0, and a token it does not recognise is rejected. What you are responsible for is everything around it: this route mints Auth0 tokens for whoever can present a valid legacy credential, so rate limit it, log it, and keep the profile's validation strict.
+
+Alongside `accessToken` and `expiresAt`, the result carries `scope`, `tokenType` and `issuedTokenType` when the tenant returns them. `TokenExchangeProfileResult` also declares `idToken` and `refreshToken`, which Custom Token Exchange can issue depending on your profile, your action and the scopes you ask for. This is the only one of the three methods whose result can hold either: On-Behalf-Of and Token Vault return access token fields only.
+
+> [!CAUTION]
+> Return named fields rather than the result object. `res.json(result)` on this route would forward whatever came back to a caller your API never authenticated, and that can include a refresh token, which is long lived and mints new access tokens on demand. The example above picks the two fields it means, which is the habit to copy.
+>
+> Do not add `offline_access` to the `scope` on a route like this one either. That is the switch that turns a refresh token from something the tenant might return into something you asked for, on behalf of a caller you have not authenticated.
+
+Pass `requestedTokenType` to ask for something other than an access token, and `organization` to exchange inside an organization context. `organization` takes either an ID (`org_abc123`) or a name (`acme`), and a blank string is rejected before the call.
+
+> [!WARNING]
+> The `organization` check only runs when the exchange returns an ID token. `@auth0/auth0-auth-js` reads `org_id` or `org_name` from that ID token and throws on a mismatch, but skips the check entirely when there is no ID token to read. The example above asks for `scope: 'read:data'`, so nothing would be checked. Add `openid` to the scope if you want the check enforced, or verify the `org_id` claim on the returned access token yourself. Either way, do not read a call that did not throw as proof the organization was applied.
+
+> [!NOTE]
+> Some namespaces are reserved and the tenant rejects them: `http://auth0.com`, `https://auth0.com`, `http://okta.com`, `https://okta.com`, `urn:ietf`, `urn:auth0` and `urn:okta`. Nothing in the SDK checks this locally, so a reserved prefix looks fine until the call fails.
+
+#### Handling a failed profile exchange
+
+Same shape as [Handling a failed exchange](#handling-a-failed-exchange), and easier than Token Vault. There is no unexported class in the way of the two ordinary failures: both `MissingClientAuthError` and `TokenExchangeError` are re-exported here, so `instanceof` works for each. Only the organization check has no class you can catch.
+
+| `error.code` | What happened |
+| --- | --- |
+| `missing_client_auth_error` | No client credentials, or a `clientId` without a secret or assertion key. A configuration bug. |
+| `token_exchange_error` | Custom Token Exchange is not enabled on the client, no profile matches `subjectTokenType`, the profile's action rejected the token, or the subject token was missing, blank or untrimmed. |
+| `organization_validation_error` | A blank `organization`, or an ID token naming a different one. See the note below. |
+
+`error.cause` separates a local failure from a tenant one, as it does for Token Vault. A bad subject token is caught before the request goes out, so it has no `cause`. A profile that does not match, or an action that rejected the token, comes back with one.
+
+`OrganizationValidationError` is the one class here you cannot catch by type. `@auth0/auth0-auth-js` exports it, but `@auth0/auth0-api-js` does not pass it through, so it does not reach this package either. That is an upstream gap being tracked, not a decision, which is why this package ships no guard for it: check `error.code === 'organization_validation_error'` for now and switch to `instanceof` once the re-export lands. Contrast `isConnectionExchangeError()`, which exists because the class it narrows to is being renamed upstream, so no amount of waiting produces a stable one to catch.
+
+Read `error.cause?.error_description` into your logs and keep it out of the response. It describes your tenant setup, and this route is reachable by whoever holds the external token.

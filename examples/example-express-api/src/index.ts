@@ -1,5 +1,11 @@
 import express, { Request, Response } from 'express';
-import { createAuth0Api, MissingClientAuthError, requiresAuth, TokenExchangeError } from '@auth0/auth0-express-api';
+import {
+  createAuth0Api,
+  isConnectionExchangeError,
+  MissingClientAuthError,
+  requiresAuth,
+  TokenExchangeError,
+} from '@auth0/auth0-express-api';
 import 'dotenv/config';
 
 const app = express();
@@ -7,8 +13,8 @@ const app = express();
 app.use(express.json());
 
 // Mount Auth0 API router.
-// The client credentials are only needed by the exchange routes below. Leave
-// them unset and the rest of the example still works.
+// The client credentials are only needed by the three exchange routes below.
+// Leave them unset and the rest of the example still works.
 const auth0Router = createAuth0Api({
   domain: process.env.AUTH0_DOMAIN as string,
   audience: process.env.AUTH0_AUDIENCE as string,
@@ -28,8 +34,9 @@ app.get('/api/private-scope', requiresAuth({ scopes: ['read:private'] }), async 
   res.send(`Hello, ${req.auth0.user!.sub}`);
 });
 
-// Only this route needs a downstream API to call. Read once so the route can
-// say what is missing instead of sending an undefined audience to the tenant.
+// The audience the exchange routes ask for. Both /api/on-behalf-of and
+// /api/token-exchange read it. Read once so those routes can say what is
+// missing instead of sending an undefined audience to the tenant.
 const downstreamAudience = process.env.AUTH0_DOWNSTREAM_AUDIENCE;
 
 // Protected route that exchanges the caller's token for one issued to a
@@ -80,19 +87,6 @@ app.get('/api/on-behalf-of', requiresAuth(), async (req: Request, res: Response)
 // The connection whose provider token this example asks Token Vault for.
 const connection = process.env.AUTH0_CONNECTION;
 
-// `getAccessTokenForConnection()` throws `TokenForConnectionError`, which
-// @auth0/auth0-api-js does not export, so there is no class to catch. Narrow on
-// the code instead, and note that a half-configured client does not use it: that
-// one throws `MissingClientAuthError`, which the route below checks for first.
-type ConnectionExchangeError = {
-  code: string;
-  message: string;
-  cause?: { error_description?: string };
-};
-
-const isConnectionExchangeError = (error: unknown): error is ConnectionExchangeError =>
-  typeof error === 'object' && error !== null && (error as ConnectionExchangeError).code === 'token_for_connection_error';
-
 // Protected route that exchanges the caller's token for an access token issued
 // by a third party the user has connected, such as Google.
 app.get('/api/connection-token', requiresAuth(), async (req: Request, res: Response) => {
@@ -124,6 +118,9 @@ app.get('/api/connection-token', requiresAuth(), async (req: Request, res: Respo
       return;
     }
 
+    // The exchange itself failed. The SDK ships this guard because the class it
+    // narrows to, `TokenForConnectionError`, is not exported by
+    // @auth0/auth0-api-js, so there is nothing to catch by class.
     if (!isConnectionExchangeError(error)) {
       console.error(error);
       res.status(502).json({ error: 'connection_exchange_failed' });
@@ -142,6 +139,72 @@ app.get('/api/connection-token', requiresAuth(), async (req: Request, res: Respo
     // The user has not linked this connection, the scopes were not granted, or
     // the connection is not set up in Token Vault.
     res.status(502).json({ error: 'connection_exchange_failed' });
+  }
+});
+
+// The token type this example's Token Exchange Profile is configured to accept.
+const subjectTokenType = process.env.AUTH0_SUBJECT_TOKEN_TYPE;
+
+// Public route that turns a token Auth0 did not issue into one it did. There is
+// no `requiresAuth()` here on purpose: the caller has no Auth0 token yet, which
+// is the whole point. The Token Exchange Profile validates the incoming token
+// at the tenant, so a token it does not recognise is rejected there.
+//
+// This is the only route in the example that mints tokens for an
+// unauthenticated caller. Rate limiting is left out to keep the example free of
+// dependencies, and it is not optional in production. Put a limiter in front of
+// this route and log every call.
+app.post('/api/token-exchange', async (req: Request, res: Response) => {
+  // TODO: add a rate limiter in front of this route, with express-rate-limit or
+  // whatever you already use, before shipping anything shaped like it.
+  if (!subjectTokenType || !downstreamAudience) {
+    res.status(501).json({ error: 'AUTH0_SUBJECT_TOKEN_TYPE or AUTH0_DOWNSTREAM_AUDIENCE is not set' });
+    return;
+  }
+
+  const externalToken = req.body?.token;
+
+  if (typeof externalToken !== 'string' || !externalToken) {
+    res.status(400).json({ error: 'token is required' });
+    return;
+  }
+
+  try {
+    const tokenSet = await req.auth0.client.getTokenByExchangeProfile(externalToken, {
+      subjectTokenType,
+      audience: downstreamAudience,
+    });
+
+    res.json({
+      accessToken: tokenSet.accessToken,
+      expiresAt: tokenSet.expiresAt,
+      scope: tokenSet.scope,
+    });
+  } catch (error) {
+    // Same two cases as /api/on-behalf-of, since this method reports a missing
+    // credential the ordinary way.
+    if (error instanceof MissingClientAuthError) {
+      console.error(error.code, error.message);
+      res.status(500).json({ error: 'client_not_configured' });
+      return;
+    }
+
+    // No profile matches the subject token type, or the profile's action
+    // rejected the token. Either way the wording stays in the logs: this route
+    // is reachable by whoever holds the external token. Bear in mind the wording
+    // is your action's, so an action that echoes back the token it could not
+    // verify writes that token to your logs.
+    if (error instanceof TokenExchangeError) {
+      console.error(error.code, error.cause?.error_description);
+    } else {
+      // This route passes no `organization`, so it cannot fail the organization
+      // check. Start passing one and the failure lands here, because
+      // @auth0/auth0-api-js does not export the class to catch. Match
+      // `error.code === 'organization_validation_error'` if you add it.
+      console.error(error);
+    }
+
+    res.status(502).json({ error: 'exchange_failed' });
   }
 });
 
