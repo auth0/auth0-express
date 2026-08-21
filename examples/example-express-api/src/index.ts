@@ -155,6 +155,8 @@ const subjectTokenType = process.env.AUTH0_SUBJECT_TOKEN_TYPE;
 // dependencies, and it is not optional in production. Put a limiter in front of
 // this route and log every call.
 app.post('/api/token-exchange', async (req: Request, res: Response) => {
+  // TODO: add a rate limiter in front of this route, with express-rate-limit or
+  // whatever you already use, before shipping anything shaped like it.
   if (!subjectTokenType || !downstreamAudience) {
     res.status(501).json({ error: 'AUTH0_SUBJECT_TOKEN_TYPE or AUTH0_DOWNSTREAM_AUDIENCE is not set' });
     return;
@@ -189,10 +191,16 @@ app.post('/api/token-exchange', async (req: Request, res: Response) => {
 
     // No profile matches the subject token type, or the profile's action
     // rejected the token. Either way the wording stays in the logs: this route
-    // is reachable by whoever holds the external token.
+    // is reachable by whoever holds the external token. Bear in mind the wording
+    // is your action's, so an action that echoes back the token it could not
+    // verify writes that token to your logs.
     if (error instanceof TokenExchangeError) {
       console.error(error.code, error.cause?.error_description);
     } else {
+      // This route passes no `organization`, so it cannot fail the organization
+      // check. Start passing one and the failure lands here, because
+      // @auth0/auth0-api-js does not export the class to catch. Match
+      // `error.code === 'organization_validation_error'` if you add it.
       console.error(error);
     }
 

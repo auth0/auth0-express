@@ -6,7 +6,12 @@
  * with {@link isConnectionExchangeError} instead of `instanceof`.
  */
 export type ConnectionExchangeError = Error & {
-  /** Stable identifier for the failure. Compare this, not the message. */
+  /**
+   * Stable identifier for the failure. Compare this, not the message. The set of
+   * codes this guard matches stays private so widening it is not a breaking
+   * change, but `code` itself is here, so read it when you need to know which
+   * one you got.
+   */
   code: string;
   /**
    * What the tenant said, when the tenant is what refused. Absent when the SDK

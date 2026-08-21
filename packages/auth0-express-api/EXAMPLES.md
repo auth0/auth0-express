@@ -604,6 +604,8 @@ Alongside `accessToken` and `expiresAt`, the result carries `scope`, `tokenType`
 
 > [!CAUTION]
 > Return named fields rather than the result object. `res.json(result)` on this route would forward whatever came back to a caller your API never authenticated, and that can include a refresh token, which is long lived and mints new access tokens on demand. The example above picks the two fields it means, which is the habit to copy.
+>
+> Do not add `offline_access` to the `scope` on a route like this one either. That is the switch that turns a refresh token from something the tenant might return into something you asked for, on behalf of a caller you have not authenticated.
 
 Pass `requestedTokenType` to ask for something other than an access token, and `organization` to exchange inside an organization context. `organization` takes either an ID (`org_abc123`) or a name (`acme`), and a blank string is rejected before the call.
 

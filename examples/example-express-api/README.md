@@ -62,6 +62,8 @@ AUTH0_SUBJECT_TOKEN_TYPE=urn:acme:legacy-token
 
 Create a Token Exchange Profile in your tenant with that same `subject_token_type` and an action that validates the incoming token and resolves the user. Custom Token Exchange is also off by default on the client, so it has to be turned on through the Management API. See [Exchanging an external token for an Auth0 token](../../packages/auth0-express-api/EXAMPLES.md#exchanging-an-external-token-for-an-auth0-token) for the full list.
 
+This endpoint reuses `AUTH0_DOWNSTREAM_AUDIENCE` so the example needs one less variable. The two endpoints do not have to ask for the same API, and in production they usually do not.
+
 This is the only endpoint here that issues tokens to a caller with no Auth0 token, so it is the one to be careful with. Rate limiting is left out to keep the example dependency free, and it is required in production. Add a limiter in front of the route and log every call.
 
 With the configuration in place, the example can be started by running:
