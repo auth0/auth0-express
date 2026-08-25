@@ -129,4 +129,18 @@ describe('backchannel logout handler', () => {
     // it correctly.
     expect([204, 400]).toContain(res.status);
   });
+
+  test('returns 400 (not 500) when no body parser is mounted', async () => {
+    const express = (await import('express')).default;
+    const { handleBackchannelLogout } = await import('./backchannel-logout-handler.js');
+    const app = express();
+    // No body parser mounted → req.body is undefined. The handler must still
+    // reach the missing-token 400 path instead of throwing a TypeError (500).
+    app.post('/auth/backchannel-logout', (req, res) => handleBackchannelLogout(req, res));
+
+    const res = await request(app).post('/auth/backchannel-logout');
+
+    expect(res.status).toBe(400);
+    expect(res.text).toBe('Missing `logout_token` in the request body.');
+  });
 });

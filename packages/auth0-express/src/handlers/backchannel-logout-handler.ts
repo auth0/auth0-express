@@ -1,7 +1,7 @@
 import { Request, Response } from 'express';
 
 export async function handleBackchannelLogout(req: Request, res: Response): Promise<void> {
-  const logoutToken = req.body.logout_token;
+  const logoutToken = req.body?.logout_token;
 
   if (!logoutToken) {
     res.status(400).send('Missing `logout_token` in the request body.');
