@@ -78,7 +78,7 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
     router.get(routes.login, (req, res, next) => handleLogin(req, res, options, next));
     router.get(routes.callback, (req, res, next) => handleCallback(req, res, options, next));
     router.get(routes.logout, (req, res, next) => handleLogout(req, res, options, next));
-    router.post(routes.backchannelLogout, (req, res) => handleBackchannelLogout(req, res));
+    router.post(routes.backchannelLogout, (req, res, next) => handleBackchannelLogout(req, res, next));
   }
 
   return router;
