@@ -15,13 +15,8 @@ export async function handleBackchannelLogout(req: Request, res: Response): Prom
 
   try {
     await req.auth0.client.handleBackchannelLogout(logoutToken);
-    // §2.8: success is HTTP 200 OK; an empty-body 204 is an accepted variant.
     res.status(204).send(null);
   } catch {
-    // §2.8: "If the logout request was invalid or the logout failed, the RP
-    // MUST respond with HTTP 400 Bad Request." We respond with a bare 400 and
-    // do not echo the internal error detail to the caller (SDK-4). A JSON
-    // `{ error, error_description }` body is only a MAY, so we omit it.
     res.status(400).send();
   }
 }
