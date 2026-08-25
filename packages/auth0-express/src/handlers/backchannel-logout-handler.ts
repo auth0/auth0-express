@@ -1,10 +1,5 @@
 import { Request, Response } from 'express';
 
-// The back-channel logout endpoint is called server-to-server by the OP, not by
-// a browser. The SDK owns the response here (rather than delegating to Express
-// error middleware via `next`) so the OP always receives a deterministic,
-// spec-shaped protocol response — independent of the app's `NODE_ENV` or the
-// global error handler it mounts for its browser-facing auth routes.
 export async function handleBackchannelLogout(req: Request, res: Response): Promise<void> {
   const logoutToken = req.body.logout_token;
 
