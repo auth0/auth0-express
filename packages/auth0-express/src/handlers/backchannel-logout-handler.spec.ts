@@ -1,4 +1,4 @@
-import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
+import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
 import request from 'supertest';
 import { generateToken } from '../test-utils/tokens.js';
 import {
@@ -60,35 +60,40 @@ describe('backchannel logout handler', () => {
     expect(res.text).not.toContain('invalid_token');
   });
 
-  test('forwards a GenericRequestError via next() with status 400 and the original error as cause', async () => {
+  test('owns the response on failure: bare 400 with no internal detail', async () => {
     const { handleBackchannelLogout } = await import('./backchannel-logout-handler.js');
-    const { GenericRequestError } = await import('../errors/index.js');
 
-    const originalError = new Error('internal validation detail');
     const req = {
       body: { logout_token: 'x' },
       auth0: {
         client: {
           handleBackchannelLogout: async () => {
-            throw originalError;
+            throw new Error('internal validation detail');
           },
         },
       },
     } as unknown as Parameters<typeof handleBackchannelLogout>[0];
-    const res = { status: () => res, send: () => res } as unknown as Parameters<typeof handleBackchannelLogout>[1];
-    const next = vi.fn();
 
-    await handleBackchannelLogout(req, res, next);
+    let sentStatus: number | undefined;
+    let sentBody: unknown;
+    const res = {
+      status(code: number) {
+        sentStatus = code;
+        return this;
+      },
+      send(body?: unknown) {
+        sentBody = body;
+        return this;
+      },
+    } as unknown as Parameters<typeof handleBackchannelLogout>[1];
 
-    // The error reaches Express error handling (for logging) carrying the
-    // spec-mandated 400 status, while the internal detail is kept on `cause`
-    // rather than exposed as the top-level message (SDK-4).
-    expect(next).toHaveBeenCalledTimes(1);
-    const forwarded = next.mock.calls[0][0] as InstanceType<typeof GenericRequestError>;
-    expect(forwarded).toBeInstanceOf(GenericRequestError);
-    expect(forwarded.status).toBe(400);
-    expect(forwarded.message).not.toContain('internal validation detail');
-    expect(forwarded.cause).toBe(originalError);
+    // The endpoint is server-to-server, so the handler owns the response: it
+    // responds 400 itself (never delegating to Express error middleware) and
+    // does not echo the internal error detail to the caller (SDK-4).
+    await handleBackchannelLogout(req, res);
+
+    expect(sentStatus).toBe(400);
+    expect(String(sentBody ?? '')).not.toContain('internal validation detail');
   });
 
   test('returns 204 on successful logout token processing', async () => {
