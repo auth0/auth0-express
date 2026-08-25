@@ -1,4 +1,4 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { createRouteUrl, toSafeRedirect } from '../utils.js';
 import { resolveAppBaseUrl } from '../app-base-url.js';
 import { Auth0Options } from '../index.js';
@@ -45,7 +45,7 @@ function filterAuthorizationParams(
   return Object.keys(filtered).length > 0 ? filtered : undefined;
 }
 
-export async function handleLogin(req: Request, res: Response, options: Auth0Options): Promise<void> {
+export async function handleLogin(req: Request, res: Response, options: Auth0Options, next: NextFunction): Promise<void> {
   try {
     const appBaseUrl = resolveAppBaseUrl(options.appBaseUrl, req);
     const callbackPath = options.routes?.callback ?? '/auth/callback';
@@ -66,9 +66,6 @@ export async function handleLogin(req: Request, res: Response, options: Auth0Opt
 
     res.redirect(authorizationUrl.href);
   } catch (error) {
-    res.status(500).json({
-      error: (error as Error).name,
-      message: (error as Error).message,
-    });
+    next(error);
   }
 }

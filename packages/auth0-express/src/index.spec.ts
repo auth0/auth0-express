@@ -480,24 +480,36 @@ test('auth/login preserves returnTo with prompt=none', async () => {
 });
 
 test('auth/callback handles login_required error from prompt=none', async () => {
-  const app = createConfiguredApp({
-    domain: domain,
-    clientId: '<client_id>',
-    clientSecret: '<client_secret>',
-    appBaseUrl: 'http://localhost:3000',
-    sessionSecret: '<secret>',
-  });
+  // Express's default error handler (finalhandler) only omits the stack
+  // trace when NODE_ENV === 'production'; that setting is captured at
+  // app-construction time, so it must be set before createConfiguredApp
+  // runs, to exercise the sanitized contract apps see in a real deployment.
+  const originalNodeEnv = process.env.NODE_ENV;
+  process.env.NODE_ENV = 'production';
+  try {
+    const app = createConfiguredApp({
+      domain: domain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: '<secret>',
+    });
 
-  const cookieName = '__a0_tx';
-  const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
-  const res = await request(app)
-    .get('/auth/callback')
-    .query({ error: 'login_required', error_description: 'Login required' })
-    .set('cookie', `${cookieName}=${cookieValue}`);
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ error: 'login_required', error_description: 'Login required' })
+      .set('cookie', `${cookieName}=${cookieValue}`);
 
-  expect(res.status).toBe(500);
-  expect(res.body.error).toBe('login_required');
-  expect(res.body.message).toBe('Login required');
+    expect(res.status).toBe(500);
+    // Error detail is NOT leaked to the client (SDK-4); Express default
+    // handler responds without the internal error_description/name.
+    expect(res.text).not.toContain('Login required');
+    expect(res.text).not.toContain('login_required');
+  } finally {
+    process.env.NODE_ENV = originalNodeEnv;
+  }
 });
 
 test('getUser and getSession methods are available after authentication', async () => {
