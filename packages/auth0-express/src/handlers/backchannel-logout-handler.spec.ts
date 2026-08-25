@@ -60,8 +60,9 @@ describe('backchannel logout handler', () => {
     expect(res.text).not.toContain('invalid_token');
   });
 
-  test('forwards the failure via next() with status 400 and the original error as cause', async () => {
+  test('forwards a GenericRequestError via next() with status 400 and the original error as cause', async () => {
     const { handleBackchannelLogout } = await import('./backchannel-logout-handler.js');
+    const { GenericRequestError } = await import('../errors/index.js');
 
     const originalError = new Error('internal validation detail');
     const req = {
@@ -83,7 +84,8 @@ describe('backchannel logout handler', () => {
     // spec-mandated 400 status, while the internal detail is kept on `cause`
     // rather than exposed as the top-level message (SDK-4).
     expect(next).toHaveBeenCalledTimes(1);
-    const forwarded = next.mock.calls[0][0] as Error & { status?: number; cause?: unknown };
+    const forwarded = next.mock.calls[0][0] as InstanceType<typeof GenericRequestError>;
+    expect(forwarded).toBeInstanceOf(GenericRequestError);
     expect(forwarded.status).toBe(400);
     expect(forwarded.message).not.toContain('internal validation detail');
     expect(forwarded.cause).toBe(originalError);

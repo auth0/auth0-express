@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { GenericRequestError } from '../errors/index.js';
 
 export async function handleBackchannelLogout(req: Request, res: Response, next: NextFunction): Promise<void> {
   const logoutToken = req.body.logout_token;
@@ -14,13 +15,11 @@ export async function handleBackchannelLogout(req: Request, res: Response, next:
   } catch (error) {
     // OIDC Back-Channel Logout §2.8 is binary: on success respond 2xx, and "if
     // the logout request was invalid or the logout failed, the RP MUST respond
-    // with HTTP 400 Bad Request." Forward a new error carrying `status: 400` so
-    // Express's error pipeline emits the spec-mandated status (its default
-    // handler reads `err.status`) and the app's error middleware can still log
-    // it — while the original detail is kept on `cause`, not echoed to the
-    // client (SDK-4).
-    const logoutError = new Error('Back-channel logout failed.', { cause: error });
-    (logoutError as Error & { status: number }).status = 400;
-    next(logoutError);
+    // with HTTP 400 Bad Request." Forward a GenericRequestError carrying
+    // status 400 so Express's error pipeline emits the spec-mandated status
+    // (its default handler reads `err.status`) without echoing detail to the
+    // client (SDK-4), while the original error stays on `cause` for the app's
+    // error middleware to log or branch on.
+    next(new GenericRequestError(400, 'Back-channel logout request could not be processed.', { cause: error }));
   }
 }
