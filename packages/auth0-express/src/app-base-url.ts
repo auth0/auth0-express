@@ -59,7 +59,11 @@ export function inferBaseUrlFromRequest(req: Request): string | null {
   const host = forwardedHost || getFirstHeaderValue(req.headers['host']);
   const proto = req.protocol;
 
-  if (!host || !proto) {
+  // Reject hosts containing userinfo (`@`). A value like `legitimate.com@evil.com`
+  // is parsed by the URL constructor as userinfo `legitimate.com` with origin
+  // `evil.com`, which would let an attacker smuggle an attacker-controlled origin
+  // past the origin checks that consume this base URL.
+  if (!host || !proto || host.includes('@')) {
     return null;
   }
 
