@@ -543,7 +543,10 @@ class DatabaseStore {
 By default, users with an existing `express-openid-connect` session are logged out when you
 switch SDKs, because `@auth0/auth0-express` cannot read the old session format. Set
 `legacyCompatibility` to have the SDK transparently read existing `express-openid-connect`
-sessions and upgrade them to the new format on the next write — so users stay logged in:
+sessions and upgrade them to the new format — on first read for a stateful (server-side store)
+session, or on the next write for a stateless (cookie) session (see
+[Stateless vs. stateful](#stateless-cookie-vs-stateful-server-side-store) below) — so users
+stay logged in:
 
 ```javascript
 app.use(createAuth0({
