@@ -73,6 +73,8 @@ The `SESSION_SECRET` is the key used to encrypt the session cookie. You can gene
 openssl rand -hex 64
 ```
 
+To rotate the session secret without logging existing users out, pass an array (`sessionSecret: [newSecret, oldSecret]`) or a comma-separated `AUTH0_SESSION_SECRET`. The first secret encrypts new cookies; all secrets are tried, in order, when decrypting. Once every session has been re-encrypted under the new secret, drop the old one.
+
 The `APP_BASE_URL` is the URL that your application is running on. When developing locally, this is most commonly `http://localhost:3000`. `APP_BASE_URL` is optional. Omit it to infer the base URL from the request host (useful for preview deployments), or provide a comma-separated list of allowed URLs. See [Dynamic Application Base URLs](./EXAMPLES.md#dynamic-application-base-urls).
 
 #### Using Environment Variables
