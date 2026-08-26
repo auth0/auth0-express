@@ -296,35 +296,32 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
   }
 
   async #verifySignedCookie(cookieName: string, cookieValue: string, secret: string): Promise<string | undefined> {
-    try {
-      const dotIndex = cookieValue.lastIndexOf('.');
-      if (dotIndex === -1) return undefined;
+    const dotIndex = cookieValue.lastIndexOf('.');
+    if (dotIndex === -1) return undefined;
 
-      const sessionId = cookieValue.substring(0, dotIndex);
-      const signatureB64 = cookieValue.substring(dotIndex + 1);
+    const sessionId = cookieValue.substring(0, dotIndex);
+    const signatureB64 = cookieValue.substring(dotIndex + 1);
 
-      // The fixed JWS header used by express-openid-connect
-      const HEADER_B64 = 'eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19';
+    // The fixed JWS header used by express-openid-connect
+    const HEADER_B64 = 'eyJhbGciOiJIUzI1NiIsImI2NCI6ZmFsc2UsImNyaXQiOlsiYjY0Il19';
 
-      const encoder = new TextEncoder();
-      const rawPayload = encoder.encode(`${cookieName}=${sessionId}`);
-      const headerBytes = encoder.encode(HEADER_B64 + '.');
-      const signingInput = new Uint8Array(headerBytes.length + rawPayload.length);
-      signingInput.set(headerBytes, 0);
-      signingInput.set(rawPayload, headerBytes.length);
+    const encoder = new TextEncoder();
+    const rawPayload = encoder.encode(`${cookieName}=${sessionId}`);
+    const headerBytes = encoder.encode(HEADER_B64 + '.');
+    const signingInput = new Uint8Array(headerBytes.length + rawPayload.length);
+    signingInput.set(headerBytes, 0);
+    signingInput.set(rawPayload, headerBytes.length);
 
-      const cryptoKey = await this.#deriveLegacySigningKey(secret);
+    // `Buffer.from(_, 'base64url')` does not throw on malformed input — it decodes what it can — so
+    // a bad signature simply yields bytes that fail verification below (verify returns false, it
+    // does not throw). Nothing here needs a try/catch: with no expected throw to swallow, a genuine
+    // fault in key derivation or verification propagates instead of silently degrading to the
+    // raw-cookie-as-store-key fallback. This mirrors the stateless store, which only swallows JOSE
+    // decryption errors and rethrows everything else.
+    const sigBytes = new Uint8Array(Buffer.from(signatureB64, 'base64url'));
 
-      // Decode the base64url signature
-      const sigBase64 = signatureB64.replace(/-/g, '+').replace(/_/g, '/');
-      const sigRaw = atob(sigBase64);
-      const sigBytes = new Uint8Array(sigRaw.length);
-      for (let i = 0; i < sigRaw.length; i++) sigBytes[i] = sigRaw.charCodeAt(i);
-
-      const valid = await crypto.subtle.verify('HMAC', cryptoKey, sigBytes, signingInput);
-      return valid ? sessionId : undefined;
-    } catch {
-      return undefined;
-    }
+    const cryptoKey = await this.#deriveLegacySigningKey(secret);
+    const valid = await crypto.subtle.verify('HMAC', cryptoKey, sigBytes, signingInput);
+    return valid ? sessionId : undefined;
   }
 }
