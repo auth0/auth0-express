@@ -637,7 +637,10 @@ res.redirect(`/auth/login?${params.toString()}`);
 ```
 
 <details>
-<summary><strong>All Supported Authorization Parameters</strong></summary>
+<summary><strong>Commonly Used Authorization Parameters</strong></summary>
+
+Any query parameter on `/auth/login` is forwarded to `/authorize` **except** a reserved set
+(see below). These are the ones integrators pass most often:
 
 | Parameter | Purpose | Example |
 |-----------|---------|---------|
@@ -647,6 +650,17 @@ res.redirect(`/auth/login?${params.toString()}`);
 | `ui_locales` | UI language | `es`, `fr` |
 | `screen_hint` | Skip login/signup UI | `signup` |
 | `max_age` | Max age in seconds | `3600` |
+| `organization` | Organization to log into | `org_123` |
+| `connection` | Connection to use | `google-oauth2` |
+
+**Reserved (never forwarded from the query):** the SDK strips protocol- and routing-critical
+parameters so a crafted login link cannot control them — `response_type`, `state`,
+`code_challenge`, `code_challenge_method`, `client_id`, `redirect_uri`, `nonce`, `scope`, the
+target-API family (`audience`, `aud`, `resource`, `resources`, `resource_indicator`), the
+Request-Object family (`request`, `request_uri`, `id_token_hint`, `claims`, `response_mode`), and
+`authorization_details`. To set any of these, call
+[`req.auth0.client.startInteractiveLogin`](../../README.md) directly instead of relying on
+query-string forwarding.
 
 </details>
 
