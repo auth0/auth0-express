@@ -69,6 +69,10 @@ export class LegacySessionTransformer {
           ]
         : [],
       internal: {
+        // Prefer the session-level sid, fall back to the ID token's sid claim, and finally to ''
+        // when neither is present. A session with an empty sid cannot be targeted by backchannel
+        // logout (which resolves sessions by sid), so stores that index by sid should skip indexing
+        // an empty value rather than collapsing every sid-less session onto one shared key.
         sid: (legacy.sid as string | undefined) ?? (user?.sid as string | undefined) ?? '',
         createdAt: Math.floor(Date.now() / 1000),
       },
