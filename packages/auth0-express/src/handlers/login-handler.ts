@@ -22,7 +22,15 @@ const RESERVED_OAUTH_PARAMS = new Set([
   'redirect_uri',
   'nonce',
   'scope',
+  // Target-API params are one family: the transaction only records `audience`, so a link
+  // supplying an alias (`resource`, etc.) would mint a token for that target while it is stored
+  // under our own audience key, and `getAccessToken()` would later hand the app a token minted
+  // for someone else's resource. Reserve the whole family, matching auth0-auth-js's denylist.
   'audience',
+  'aud',
+  'resource',
+  'resources',
+  'resource_indicator',
   // Request Objects and related params must be SDK/tenant-controlled, not
   // user-supplied via a login link. prompt/login_hint are
   // intentionally NOT reserved — integrators commonly forward them.
@@ -31,6 +39,9 @@ const RESERVED_OAUTH_PARAMS = new Set([
   'id_token_hint',
   'claims',
   'response_mode',
+  // Rich Authorization Requests: a crafted link must not be able to inject its own grant
+  // details, which an app reading `authorizationDetails` in its callback would then act on.
+  'authorization_details',
 ]);
 
 /**

@@ -149,8 +149,27 @@ describe('login handler - query parameter sanitization', () => {
   };
 
   describe('OAuth protocol parameter blocklist', () => {
-    // These params are completely absent from the authorization URL because the SDK does not include them
-    test.each(['state', 'nonce'])('strips %s from the authorization URL', async (param) => {
+    // These params are completely absent from the authorization URL because the SDK does not
+    // include them. Assert full absence (stronger than `!== 'evil'`): a regression that forwarded
+    // the param with any other value would still be caught.
+    test.each([
+      'state',
+      'nonce',
+      // Target-API family — the SDK routes the target via the typed `audience` only.
+      'audience',
+      'aud',
+      'resource',
+      'resources',
+      'resource_indicator',
+      // Request-Object and related params must not be user-forwardable.
+      'request',
+      'request_uri',
+      'id_token_hint',
+      'claims',
+      'response_mode',
+      // Rich Authorization Requests grant details.
+      'authorization_details',
+    ])('strips %s from the authorization URL', async (param) => {
       const app = createConfiguredApp(appConfig);
 
       const res = await request(app).get('/auth/login').query({ [param]: 'evil' });
@@ -168,18 +187,6 @@ describe('login handler - query parameter sanitization', () => {
 
         const res = await request(app).get('/auth/login').query({ [param]: 'evil' });
 
-        expect(res.status).toBe(302);
-        const url = new URL(res.headers['location']?.toString() ?? '');
-        expect(url.searchParams.get(param)).not.toBe('evil');
-      }
-    );
-
-    // Request-Object and related params must not be user-forwardable
-    test.each(['request', 'request_uri', 'id_token_hint', 'claims', 'response_mode'])(
-      'strips %s from the authorization URL',
-      async (param) => {
-        const app = createConfiguredApp(appConfig);
-        const res = await request(app).get('/auth/login').query({ [param]: 'evil' });
         expect(res.status).toBe(302);
         const url = new URL(res.headers['location']?.toString() ?? '');
         expect(url.searchParams.get(param)).not.toBe('evil');
