@@ -376,6 +376,62 @@ describe('MigrationStatefulStateStore', () => {
     });
   });
 
+  describe('get - absoluteDuration and the migrated session age', () => {
+    // A migrated session keeps its original express-openid-connect `iat` as `createdAt`, and the
+    // base store expires it at `createdAt + absoluteDuration`. express-openid-connect defaults
+    // absoluteDuration to 7 days, this SDK to 3. If the app does not raise absoluteDuration to at
+    // least the old value, a legacy session already older than 3 days is transformed successfully
+    // but the write-back emits a maxAge<=0 cookie the browser immediately drops — a silent logout.
+    const FOUR_DAYS = 4 * 24 * 60 * 60;
+
+    const agedLegacyPayload = () => {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        // Issued 4 days ago, but still valid under express-openid-connect (exp in the future).
+        header: { iat: now - FOUR_DAYS, uat: now - 100, exp: now + 3600 },
+        data: { id_token: sampleIdToken, access_token: 'aged-token', expires_at: now + 3600 },
+        cookie: { expires: now + 3600, maxAge: 3600 },
+      };
+    };
+
+    it('cuts a >3-day-old legacy session short under the default (3-day) absoluteDuration', async () => {
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore({ secret, store: mockStore }, handler);
+
+      await mockStore.set('sess:aged-default', agedLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-default');
+
+      const result = await store.get('__a0_session', {});
+
+      // The session still transforms (it was valid under express-openid-connect)...
+      expect(result).toBeDefined();
+      // ...but the eager write-back emits a maxAge<=0 cookie, which the browser drops: silent logout.
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
+      expect(emittedMaxAge).toBe(0);
+    });
+
+    it('keeps a >3-day-old legacy session alive when absoluteDuration matches express-openid-connect', async () => {
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore(
+        { secret, store: mockStore, sessionConfiguration: { absoluteDuration: 604800 } },
+        handler
+      );
+
+      await mockStore.set('sess:aged-configured', agedLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-configured');
+
+      const result = await store.get('__a0_session', {});
+
+      expect(result).toBeDefined();
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
+      // Raising the absolute cap to 7 days keeps `createdAt + absoluteDuration` in the future, so
+      // the rolling inactivity window (1 day) governs and the cookie survives instead of expiring.
+      expect(emittedMaxAge).toBeGreaterThan(0);
+    });
+  });
+
   describe('signed cookie handling', () => {
     it('should use unsigned session ID after verifying JWS-signed cookie', async () => {
       const handler = createCookieHandler();

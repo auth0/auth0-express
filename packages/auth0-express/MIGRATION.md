@@ -562,9 +562,21 @@ app.use(createAuth0({
     legacyScope: 'openid profile email offline_access',
   },
 
-  // express-openid-connect's default cookie name is `appSession`. Match it so the existing
-  // cookie is picked up; otherwise the SDK looks for its own default (`__a0_session`).
-  sessionConfiguration: { cookie: { name: 'appSession' } },
+  sessionConfiguration: {
+    // express-openid-connect's default cookie name is `appSession`. Match it so the existing
+    // cookie is picked up; otherwise the SDK looks for its own default (`__a0_session`).
+    cookie: { name: 'appSession' },
+
+    // A migrated session keeps its ORIGINAL creation time (its express-openid-connect `iat`),
+    // and this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults
+    // `absoluteDuration` to 3 days, but express-openid-connect defaults it to 7 days — so with the
+    // default a legacy session already older than 3 days would be logged out on first read even
+    // though it was still valid under express-openid-connect. Set `absoluteDuration` (and
+    // `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at
+    // least what the old deployment used, so no in-flight session is cut short by the switch.
+    absoluteDuration: 604800, // 7 days — match (or exceed) express-openid-connect's default
+    inactivityDuration: 86400, // 1 day — match (or exceed) express-openid-connect's rollingDuration
+  },
 }));
 ```
 
