@@ -34,6 +34,7 @@ This guide will help you migrate your Express.js application from `express-openi
 - [ ] **Add `await`** to user/session/token access
 - [ ] **Update route protection** - use built-in `requiresAuth()` middleware
 - [ ] **Update custom session stores** (add StoreOptions pattern)
+- [ ] **Keep users logged in** - enable `legacyCompatibility` for zero-downtime session migration ([see section](#zero-downtime-session-migration))
 - [ ] **Update tests** (mock async methods)
 
 ### Breaking Changes
@@ -458,12 +459,14 @@ app.use(createAuth0({
   clientSecret: 'YOUR_CLIENT_SECRET',
   appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
   sessionSecret: 'LONG_RANDOM_STRING',
-  // Session configuration
-  sessionConfig: {
-    name: 'appSession',
-    absoluteDuration: 604800000, // 7 days
+  // Session configuration. Durations are in SECONDS (not milliseconds).
+  sessionConfiguration: {
     rolling: true,
-    rollingDuration: 86400000, // 1 day
+    absoluteDuration: 604800, // 7 days
+    inactivityDuration: 86400, // 1 day
+    cookie: {
+      name: 'appSession',
+    },
   },
 }));
 ```
@@ -532,6 +535,54 @@ class DatabaseStore {
 ```
 
 </details>
+
+---
+
+## Zero-Downtime Session Migration
+
+By default, users with an existing `express-openid-connect` session are logged out when you
+switch SDKs, because `@auth0/auth0-express` cannot read the old session format. Set
+`legacyCompatibility` to have the SDK transparently read existing `express-openid-connect`
+sessions and upgrade them to the new format on the next write — so users stay logged in:
+
+```javascript
+app.use(createAuth0({
+  domain: 'YOUR_DOMAIN',
+  clientId: 'YOUR_CLIENT_ID',
+  clientSecret: 'YOUR_CLIENT_SECRET',
+  appBaseUrl: 'https://YOUR_APPLICATION_ROOT_URL',
+  sessionSecret: 'LONG_RANDOM_STRING',
+
+  legacyCompatibility: {
+    // The secret express-openid-connect used (its `secret` option). Defaults to sessionSecret.
+    // Pass an array to support secret rotation — each is tried in order.
+    legacySecret: process.env.AUTH0_SESSION_SECRET,
+    // Audience/scope stamped onto the token set migrated from the legacy session.
+    legacyAudience: 'https://api.example.com',
+    legacyScope: 'openid profile email offline_access',
+  },
+
+  // express-openid-connect's default cookie name is `appSession`. Match it so the existing
+  // cookie is picked up; otherwise the SDK looks for its own default (`__a0_session`).
+  sessionConfiguration: { cookie: { name: 'appSession' } },
+}));
+```
+
+### Options
+
+| Option | Default | Notes |
+|--------|---------|-------|
+| `legacySecret` | falls back to `sessionSecret` | The `secret` used by express-openid-connect. Accepts an array for secret rotation (each tried in order). |
+| `legacyAudience` | `'default'` | Audience assigned to the token set migrated from the legacy session. To carry an existing access token over, this **must** equal the `audience` you request, since `getAccessToken()` looks tokens up by audience. |
+| `legacyScope` | `'openid profile email offline_access'` | Scope assigned to the migrated token set. |
+| `requireSignedLegacyCookie` | `false` | **Stateful only.** Mirror of express-openid-connect's `requireSignedSessionStoreCookie`. When `true`, a legacy session-store cookie is honored only if it carries a valid JWS signature; unsigned or badly-signed cookies resolve to no session. Set this if you ran express-openid-connect with `requireSignedSessionStoreCookie: true`. |
+
+### Stateless (cookie) vs. stateful (server-side store)
+
+- **Stateless** (no `sessionStore`): the legacy encrypted cookie is decrypted and transformed on read; the next write re-encrypts it in the new format.
+- **Stateful** (`sessionStore` provided): the legacy session is read from your store (Redis, etc.), transformed, and immediately written back to the same store key — upgrading the session in place on that first read, not just on the caller's next write. **Backchannel logout works right away** for a migrated stateful session, since the write on read gives your store a chance to index the session by `sid` (if it does so) before any logout token can arrive for it. If your express-openid-connect deployment set `requireSignedSessionStoreCookie: true`, set `requireSignedLegacyCookie: true` to keep the store-key signature as a required integrity control.
+
+> **Note:** `legacyAudience` and `legacyScope` only apply to a legacy session's single access token, which is migrated into one token set. Match `legacyAudience` to your requested `audience` or the carried-over token will not be found.
 
 ---
 
@@ -829,18 +880,17 @@ async set(key, value, options) {
 
 ### "TypeError: fetch is not defined"
 
-**Problem:** In Node.js < 18, fetch is not available globally.
+**Problem:** `fetch` is unavailable in the runtime.
+
+The SDK targets Node.js versions where `fetch` is available globally, so this normally only
+occurs on an unsupported (older) Node.js. Upgrade to a supported LTS. If you must run on a
+runtime without a global `fetch`, or want to route requests through a proxy, pass a custom
+implementation:
 
 **Solution:**
 ```javascript
-// Option 1: Use node-fetch
-npm install node-fetch
-
-// Option 2: Update to Node.js 18+
-
-// Option 3: Use custom HTTP client
 app.use(createAuth0({
-  httpClient: customHttpClient,
+  customFetch: myFetch, // must match the global `fetch` signature
   // ... other config
 }));
 ```
@@ -939,14 +989,15 @@ Benefits:
 <details>
 <summary><strong>Custom HTTP Configuration</strong></summary>
 
-Use custom HTTP client or proxy:
+Provide a custom `fetch` implementation (for proxies, custom timeouts, instrumentation, etc.).
+It must match the global `fetch` signature:
 
 ```javascript
 app.use(createAuth0({
   // ... config
-  httpClient: {
-    fetch: customFetchFunction,
-    timeout: 5000,
+  customFetch: async (input, init) => {
+    // e.g. add a proxy agent, custom timeout, or logging
+    return fetch(input, init);
   },
 }));
 ```

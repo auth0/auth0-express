@@ -25,10 +25,12 @@ export function createAuth0Api(options: Partial<Auth0ApiOptions> = {}): Router {
     customFetch: config.customFetch,
   });
 
-  // Attach client and requiresAuth to router locals
+  // Spread rather than reassigned, so enumerable properties another middleware
+  // put on `req.auth0` survive. A spread drops the non-enumerable `token`, but
+  // no supported ordering has it set before this runs, since `requiresAuth()`
+  // needs the client this middleware attaches.
   router.use((req, res, next) => {
-    req.auth0 = req.auth0 || {};
-    req.auth0.client = apiClient;
+    req.auth0 = { ...req.auth0, client: apiClient };
     next();
   });
 

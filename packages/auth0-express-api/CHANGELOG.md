@@ -1,5 +1,17 @@
 # Change Log
 
+## [v1.0.0-beta.3](https://github.com/auth0/auth0-express/tree/auth0-express-api-v1.0.0-beta.3) (2026-08-21)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-api-v1.0.0-beta.2...auth0-express-api-v1.0.0-beta.3)
+
+**Added**
+- feat(auth0-express-api): support Custom Token Exchange via getTokenByExchangeProfile [\#42](https://github.com/auth0/auth0-express/pull/42) ([@nandan-bhat](https://github.com/nandan-bhat))
+- feat(auth0-express-api): support Token Vault via getAccessTokenForConnection [\#41](https://github.com/auth0/auth0-express/pull/41) ([@nandan-bhat](https://github.com/nandan-bhat))
+- feat(auth0-express-api): add support for on-behalf-of token exchange [\#40](https://github.com/auth0/auth0-express/pull/40) ([@nandan-bhat](https://github.com/nandan-bhat))
+
+**Fixed**
+- fix(auth0-express-api): default scopesInclude match to 'all' [\#24](https://github.com/auth0/auth0-express/pull/24) ([@frederikprijck](https://github.com/frederikprijck))
+
+
 ## [v1.0.0-beta.2](https://github.com/auth0/auth0-express/releases/tag/auth0-express-api-v1.0.0-beta.2) (2026-06-22)
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-api-v1.0.0-beta.1...auth0-express-api-v1.0.0-beta.2)
 

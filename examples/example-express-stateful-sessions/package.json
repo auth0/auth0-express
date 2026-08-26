@@ -1,0 +1,32 @@
+{
+    "name": "example-express-stateful-sessions",
+    "version": "1.0.0",
+    "description": "",
+    "type": "module",
+    "scripts": {
+        "start": "tsx src/index.ts --project tsconfig.json",
+        "build": "tsc --project tsconfig.json",
+        "test": "vitest run",
+        "test:ci": "vitest run"
+    },
+    "devDependencies": {
+        "@auth0/auth0-server-js": "^1.6.1",
+        "@types/ejs": "^3.1.5",
+        "@types/express": "^5.0.6",
+        "@types/express-ejs-layouts": "^2.5.4",
+        "@types/supertest": "^7.2.1",
+        "jose": "^6.2.3",
+        "msw": "^2.12.14",
+        "supertest": "^7.2.2",
+        "tsx": "^4.21.0",
+        "typescript": "~7.0.2",
+        "vitest": "^4.1.2"
+    },
+    "dependencies": {
+        "@auth0/auth0-express": "*",
+        "dotenv": "^17.2.3",
+        "ejs": "^6.0.1",
+        "express": "^5.2.1",
+        "express-ejs-layouts": "^2.5.1"
+    }
+}

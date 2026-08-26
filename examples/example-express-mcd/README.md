@@ -2,7 +2,7 @@
 
 This example demonstrates Multiple Custom Domains (MCD) support in `@auth0/auth0-express`.
 
-A single Express app serves two distinct hostnames — `tenant-1.localhost` and `tenant-2.localhost` — on port 3000 using one `createAuth0` instance. Instead of a static `domain` string, the SDK is configured with a **domain resolver function** that maps each request's host to a different Auth0 custom domain of the **same Auth0 tenant**.
+A single Express app serves two distinct hostnames — `brand-a.localhost` and `brand-b.localhost` — on port 3000 using one `createAuth0` instance. Instead of a static `domain` string, the SDK is configured with a **domain resolver function** that maps each request's host to a different Auth0 custom domain of the **same Auth0 tenant**.
 
 > MCD is intended for the custom domains of a single Auth0 tenant. It is not a supported way to connect multiple Auth0 tenants to one application.
 
@@ -17,8 +17,8 @@ npm install
 So that both hostnames resolve to your machine, add the following to `/etc/hosts`:
 
 ```
-127.0.0.1  tenant-1.localhost
-127.0.0.1  tenant-2.localhost
+127.0.0.1  brand-a.localhost
+127.0.0.1  brand-b.localhost
 ```
 
 ## Configuration
@@ -32,10 +32,10 @@ AUTH0_SESSION_SECRET=YOUR_AUTH0_SESSION_SECRET
 AUTH0_DOMAIN=YOUR_DEFAULT_AUTH0_CUSTOM_DOMAIN
 AUTH0_CUSTOM_DOMAIN_1=YOUR_FIRST_AUTH0_CUSTOM_DOMAIN
 AUTH0_CUSTOM_DOMAIN_2=YOUR_SECOND_AUTH0_CUSTOM_DOMAIN
-APP_BASE_URL=http://tenant-1.localhost:3000,http://tenant-2.localhost:3000
+APP_BASE_URL=http://brand-a.localhost:3000,http://brand-b.localhost:3000
 ```
 
-`AUTH0_CUSTOM_DOMAIN_1` and `AUTH0_CUSTOM_DOMAIN_2` are two [custom domains](https://auth0.com/docs/customize/custom-domains) configured on the same Auth0 tenant. `tenant-1.localhost` resolves to the first, `tenant-2.localhost` to the second, and any other host falls back to `AUTH0_DOMAIN`.
+`AUTH0_CUSTOM_DOMAIN_1` and `AUTH0_CUSTOM_DOMAIN_2` are two [custom domains](https://auth0.com/docs/customize/custom-domains) configured on the same Auth0 tenant. `brand-a.localhost` resolves to the first, `brand-b.localhost` to the second, and any other host falls back to `AUTH0_DOMAIN`.
 
 The `AUTH0_SESSION_SECRET` is the key used to encrypt the session cookie. You can generate a secret using `openssl`:
 
@@ -51,9 +51,9 @@ Note that the example's `createAuth0()` call only passes the MCD-specific option
 
 Because the app serves two origins, both must be registered in your Auth0 application settings:
 
-- **Allowed Callback URLs:** `http://tenant-1.localhost:3000/auth/callback, http://tenant-2.localhost:3000/auth/callback`
-- **Allowed Logout URLs:** `http://tenant-1.localhost:3000, http://tenant-2.localhost:3000`
-- **Allowed Web Origins:** `http://tenant-1.localhost:3000, http://tenant-2.localhost:3000`
+- **Allowed Callback URLs:** `http://brand-a.localhost:3000/auth/callback, http://brand-b.localhost:3000/auth/callback`
+- **Allowed Logout URLs:** `http://brand-a.localhost:3000, http://brand-b.localhost:3000`
+- **Allowed Web Origins:** `http://brand-a.localhost:3000, http://brand-b.localhost:3000`
 
 ## Run the app
 
@@ -71,10 +71,10 @@ The application has 3 routes:
 
 Open each origin in your browser and walk through login/logout on each:
 
-- http://tenant-1.localhost:3000
-- http://tenant-2.localhost:3000
+- http://brand-a.localhost:3000
+- http://brand-b.localhost:3000
 
-When you log in from `tenant-1.localhost`, the resolver maps that host to `AUTH0_CUSTOM_DOMAIN_1`, so the SDK authenticates against the first custom domain. The same flow on `tenant-2.localhost` uses `AUTH0_CUSTOM_DOMAIN_2` — same configuration, correct Auth0 domain per request. The current host and the resolved Auth0 domain are displayed at the top of each page so you can confirm which is in use.
+When you log in from `brand-a.localhost`, the resolver maps that host to `AUTH0_CUSTOM_DOMAIN_1`, so the SDK authenticates against the first custom domain. The same flow on `brand-b.localhost` uses `AUTH0_CUSTOM_DOMAIN_2` — same configuration, correct Auth0 domain per request. The current host and the resolved Auth0 domain are displayed at the top of each page so you can confirm which is in use.
 
 The SDK caches OIDC discovery metadata and JWKS **per resolved domain**, so serving many domains from one process stays efficient. See the `discoveryCache` option in `src/index.ts`.
 

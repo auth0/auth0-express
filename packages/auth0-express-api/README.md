@@ -25,7 +25,11 @@ Jump straight to the capability you need.
 | [Environment variables](./EXAMPLES.md#using-environment-variables) | Configure from `AUTH0_*` env vars instead of hardcoding |
 | [Protect an API route (`requiresAuth`)](#protecting-api-routes) | Require a valid bearer access token |
 | [Read token claims (`req.auth0.user`)](#protecting-api-routes) | Access claims extracted from the verified token |
-| [Require specific scopes](./EXAMPLES.md#requiring-specific-scopes) | Gate routes with `scopesInclude` (match any or all) |
+| [Call another API on behalf of the user](./EXAMPLES.md#calling-another-api-on-behalf-of-the-user) | Exchange the caller's token for one issued to a downstream API |
+| [Call a third party API (Token Vault)](./EXAMPLES.md#calling-a-third-party-api-with-token-vault) | Get a Google or Slack access token for the caller from Token Vault |
+| [Exchange an external token (Custom Token Exchange)](./EXAMPLES.md#exchanging-an-external-token-for-an-auth0-token) | Turn a legacy or partner token into an Auth0 access token |
+| [Handle a failed Token Vault exchange](./EXAMPLES.md#handling-a-failed-connection-exchange) | Tell a misconfiguration from a tenant refusal with `isConnectionExchangeError` |
+| [Require specific scopes](./EXAMPLES.md#requiring-specific-scopes) | Gate routes with `scopesInclude` (match all or any) |
 | [Authorization with claims](#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Custom token / user type](#custom-types) | Type your custom claims via module augmentation |
 | [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
@@ -71,7 +75,7 @@ app.get(
   '/protected-api',
   requiresAuth(),
   async (req, res) => {
-    res.json({ message: `Hello, ${req.auth0.user.sub}` });
+    res.json({ message: `Hello, ${req.auth0.user!.sub}` });
   }
 );
 ```
@@ -103,9 +107,9 @@ app.get('/premium', requiresAuth(), claimCheck(
   'Premium tier or admin role required'
 ), handler);
 
-// Flexible scope matching - match ANY (default) or ALL
-app.get('/messages', requiresAuth(), scopesInclude('read:messages read:admin'), handler);
-app.get('/admin/edit', requiresAuth(), scopesInclude('read:admin write:admin', { match: 'all' }), handler);
+// Flexible scope matching - match ALL (default) or ANY
+app.get('/admin/edit', requiresAuth(), scopesInclude('read:admin write:admin'), handler);
+app.get('/messages', requiresAuth(), scopesInclude('read:messages read:admin', { match: 'any' }), handler);
 ```
 
 See [EXAMPLES.md](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express-api/EXAMPLES.md#authorization-with-claims) for more authorization patterns.
@@ -131,7 +135,7 @@ app.get(
   '/protected-api',
   requiresAuth(),
   async (req, res) => {
-    res.json({ message: `Hello, ${req.auth0.user.name}` });
+    res.json({ message: `Hello, ${req.auth0.user!.name}` });
   }
 );
 ```
