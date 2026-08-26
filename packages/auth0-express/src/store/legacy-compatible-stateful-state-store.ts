@@ -197,8 +197,17 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
 
       // When there is legacy state data found, we write-on-first-read to
       // convert the legacy session data, to the session data used by this SDK.
+      //
+      // This eager write is an optimization (it lets the app's store build its `sid` index so
+      // backchannel logout resolves immediately) — the read itself does not depend on it. A
+      // transient store failure here must not fail an otherwise-successful read: swallow it and
+      // return the transformed session, letting a later write retry the upgrade.
       if (stateData) {
-        await this.set(identifier, stateData, false, options);
+        try {
+          await this.set(identifier, stateData, false, options);
+        } catch {
+          // Ignore: the session was read and transformed successfully; the upgrade retries later.
+        }
       }
       return stateData;
     }

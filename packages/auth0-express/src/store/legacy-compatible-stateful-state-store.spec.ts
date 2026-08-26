@@ -376,6 +376,28 @@ describe('MigrationStatefulStateStore', () => {
     });
   });
 
+  describe('get - eager upgrade write failures do not fail the read', () => {
+    it('returns the transformed session even when the write-back store.set rejects', async () => {
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore({ secret, store: mockStore }, handler);
+
+      const plainSessionId = 'sess:write-fails';
+      await mockStore.set(plainSessionId, createFutureLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue(plainSessionId);
+
+      // Make the eager upgrade write fail transiently (e.g. Redis blip). The read already
+      // succeeded and transformed the session; the failure must not propagate out of get().
+      const setSpy = vi.spyOn(mockStore, 'set').mockRejectedValueOnce(new Error('store unavailable'));
+
+      const result = await store.get('__a0_session', {});
+
+      expect(setSpy).toHaveBeenCalled();
+      expect(result).toBeDefined();
+      expect(result!.user!.sub).toBe('auth0|123456');
+      expect(result!.tokenSets[0]!.accessToken).toBe('legacy-access-token');
+    });
+  });
+
   describe('signed cookie handling', () => {
     it('should use unsigned session ID after verifying JWS-signed cookie', async () => {
       const handler = createCookieHandler();
