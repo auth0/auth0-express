@@ -8,6 +8,12 @@ const app = express();
 const redisUrl = process.env.REDIS_URL;
 const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl) : undefined;
 
+// Scenario 3 of the runbook lowers the absolute cap to simulate an aged session. Parse the override
+// defensively: a missing or non-numeric value falls back to the express-openid-connect default (7
+// days) rather than silently becoming NaN, which would drop every session.
+const parsedAbsoluteDuration = Number(process.env.SESSION_ABSOLUTE_DURATION);
+const absoluteDuration = Number.isFinite(parsedAbsoluteDuration) ? parsedAbsoluteDuration : 604800;
+
 // Auth0 sends the backchannel logout token as application/x-www-form-urlencoded.
 // Express 5 does not parse request bodies by default, so mount a parser before the
 // Auth0 router or `POST /auth/backchannel-logout` would see an undefined `req.body`.
@@ -35,9 +41,9 @@ app.use(
       // days but express-openid-connect defaults it to 7 — so without raising absoluteDuration a
       // legacy session older than 3 days would be logged out on first read despite still being valid
       // under the old SDK. Match the old deployment's durations so no in-flight session is cut short.
-      // Default matches express-openid-connect (7 days). SESSION_ABSOLUTE_DURATION lets the
-      // migration runbook (Scenario 3) lower the cap to simulate an aged session without editing code.
-      absoluteDuration: process.env.SESSION_ABSOLUTE_DURATION ? Number(process.env.SESSION_ABSOLUTE_DURATION) : 604800,
+      // Default matches express-openid-connect (7 days); the SESSION_ABSOLUTE_DURATION override
+      // (parsed defensively above) lets the runbook simulate an aged session without editing code.
+      absoluteDuration,
       // Matches this SDK's own default (1 day); only needs changing if you customized
       // express-openid-connect's `rollingDuration`. Kept here for symmetry with absoluteDuration.
       inactivityDuration: 86400, // 1 day (express-openid-connect default rollingDuration)

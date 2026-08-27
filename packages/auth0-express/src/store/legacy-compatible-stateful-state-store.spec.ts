@@ -356,8 +356,11 @@ describe('MigrationStatefulStateStore', () => {
       );
 
       const now = Math.floor(Date.now() / 1000);
+      // A recent iat (within the default absoluteDuration) so the store returns the session; this
+      // test pins the iat -> createdAt mapping, not the cap enforcement covered elsewhere.
+      const iat = now - 3600;
       const legacyPayload = {
-        header: { iat: 1700000000, uat: 1700000001, exp: now + 3600 },
+        header: { iat, uat: iat + 1, exp: now + 3600 },
         data: {
           id_token: sampleIdToken,
           access_token: 'test-access-token',
@@ -372,7 +375,7 @@ describe('MigrationStatefulStateStore', () => {
 
       const result = await store.get('__a0_session', {});
 
-      expect(result!.internal.createdAt).toBe(1700000000);
+      expect(result!.internal.createdAt).toBe(iat);
     });
   });
 
@@ -394,24 +397,19 @@ describe('MigrationStatefulStateStore', () => {
       };
     };
 
-    it('cuts a >3-day-old legacy session short under the default (3-day) absoluteDuration', async () => {
+    it('returns no session for a >3-day-old legacy session under the default (3-day) absoluteDuration', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const handler = createCookieHandler();
       const store = new MigrationStatefulStateStore({ secret, store: mockStore }, handler);
 
       await mockStore.set('sess:aged-default', agedLegacyPayload());
       (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-default');
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const result = await store.get('__a0_session', {});
 
-      // The session still transforms (it was valid under express-openid-connect)...
-      expect(result).toBeDefined();
-      // ...and the store warns that this session will be dropped on write (invisible misconfig → log).
-      expect(warn).toHaveBeenCalledWith(expect.stringContaining('will be logged out on its first write'));
-      // ...but the eager write-back emits a maxAge<=0 cookie, which the browser drops: silent logout.
-      expect(handler.setCookie).toHaveBeenCalled();
-      const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
-      expect(emittedMaxAge).toBe(0);
+      // The envelope decrypts (it was valid under express-openid-connect), but it is already past
+      // this SDK's absoluteDuration, so the store enforces the cap on read and returns no session.
+      expect(result).toBeUndefined();
 
       warn.mockRestore();
     });
@@ -425,18 +423,70 @@ describe('MigrationStatefulStateStore', () => {
 
       await mockStore.set('sess:aged-configured', agedLegacyPayload());
       (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-configured');
-      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const result = await store.get('__a0_session', {});
 
       expect(result).toBeDefined();
-      // The session fits within the raised cap, so no silent-logout warning fires.
-      expect(warn).not.toHaveBeenCalled();
       expect(handler.setCookie).toHaveBeenCalled();
       const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
       // Raising the absolute cap to 7 days keeps `createdAt + absoluteDuration` in the future, so
       // the rolling inactivity window (1 day) governs and the cookie survives instead of expiring.
       expect(emittedMaxAge).toBeGreaterThan(0);
+    });
+
+    it('read-rejection and write-drop agree on the same aged createdAt', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore({ secret, store: mockStore }, handler);
+
+      await mockStore.set('sess:aged-agree', agedLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-agree');
+
+      // Read rejects the aged session (no write-back, since transform returns undefined)...
+      const result = await store.get('__a0_session', {});
+      expect(result).toBeUndefined();
+      expect(handler.setCookie).not.toHaveBeenCalled();
+
+      // ...and a write of state carrying that same aged createdAt would emit a Max-Age<=0 cookie the
+      // browser drops. Both paths are driven by calculateMaxAge(createdAt), so there is no state the
+      // write path keeps alive while the read path logs out.
+      const now = Math.floor(Date.now() / 1000);
+      const agedStateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: undefined,
+        refreshToken: undefined,
+        tokenSets: [],
+        internal: { sid: 'aged-sid', createdAt: now - FOUR_DAYS },
+      };
+
+      await store.set('__a0_session', agedStateData, false, {});
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
+      expect(emittedMaxAge).toBe(0);
+
+      warn.mockRestore();
+    });
+
+    it('warns once at construction when absoluteDuration is left unset', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      new MigrationStatefulStateStore({ secret, store: mockStore }, createCookieHandler());
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('without sessionConfiguration.absoluteDuration'));
+
+      warn.mockRestore();
+    });
+
+    it('does not warn at construction when absoluteDuration is set explicitly', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      new MigrationStatefulStateStore(
+        { secret, store: mockStore, sessionConfiguration: { absoluteDuration: 604800 } },
+        createCookieHandler()
+      );
+
+      expect(warn).not.toHaveBeenCalled();
 
       warn.mockRestore();
     });
