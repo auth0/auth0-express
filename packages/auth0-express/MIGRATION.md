@@ -543,7 +543,10 @@ class DatabaseStore {
 By default, users with an existing `express-openid-connect` session are logged out when you
 switch SDKs, because `@auth0/auth0-express` cannot read the old session format. Set
 `legacyCompatibility` to have the SDK transparently read existing `express-openid-connect`
-sessions and upgrade them to the new format on the next write — so users stay logged in:
+sessions and upgrade them to the new format — on first read for a stateful (server-side store)
+session, or on the next write for a stateless (cookie) session (see
+[Stateless vs. stateful](#stateless-cookie-vs-stateful-server-side-store) below) — so users
+stay logged in:
 
 ```javascript
 app.use(createAuth0({
@@ -595,6 +598,8 @@ app.use(createAuth0({
 
 - **Stateless** (no `sessionStore`): the legacy encrypted cookie is decrypted and transformed on read; the next write re-encrypts it in the new format.
 - **Stateful** (`sessionStore` provided): the legacy session is read from your store (Redis, etc.), transformed, and immediately written back to the same store key — upgrading the session in place on that first read, not just on the caller's next write. **Backchannel logout works right away** for a migrated stateful session, since the write on read gives your store a chance to index the session by `sid` (if it does so) before any logout token can arrive for it. If your express-openid-connect deployment set `requireSignedSessionStoreCookie: true`, set `requireSignedLegacyCookie: true` to keep the store-key signature as a required integrity control.
+
+> **Caveat — sessions without a `sid`:** a session's `sid` is taken from the legacy session's `sid`, falling back to the ID token's `sid` claim, and finally to the empty string `''` if neither is present. Backchannel logout resolves a session by `sid`, so a migrated session that has no `sid` cannot be targeted by a logout token (only front-channel logout ends it). When your store builds a `sid` index inside `set()`, **skip indexing when `sid` is empty** — otherwise every `sid`-less session collides on one shared index key and overwrites each other. The example Redis store does this with a simple `if (sid)` guard.
 
 > **Note:** `legacyAudience` and `legacyScope` only apply to a legacy session's single access token, which is migrated into one token set. Match `legacyAudience` to your requested `audience` or the carried-over token will not be found.
 

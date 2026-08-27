@@ -149,12 +149,11 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
 
         const header = protectedHeader as JWEHeaderParameters & Record<string, unknown>;
 
-        // Check header-level exp (express-openid-connect stores exp in JWE header, not payload).
-        // A genuine express-openid-connect cookie always carries a numeric exp; reject a cookie
-        // that lacks one or is expired, mirroring appSession's `exp > epoch()` assertion rather
-        // than accepting an exp-less cookie indefinitely.
-        // Reject once exp has been reached, mirroring appSession's `exp > epoch()` assertion
-        // (i.e. invalid when `exp <= now`), not one second later.
+        // Check header-level exp (express-openid-connect stores exp in the JWE header, not the
+        // payload). A genuine express-openid-connect cookie always carries a numeric exp; reject a
+        // cookie that lacks one, rather than accepting an exp-less cookie indefinitely. Reject once
+        // exp has been reached, mirroring appSession's `exp > epoch()` assertion (i.e. invalid when
+        // `exp <= now`), not one second later.
         const headerExp = header.exp;
         if (typeof headerExp !== 'number' || headerExp <= Math.floor(Date.now() / 1000)) {
           return undefined;
