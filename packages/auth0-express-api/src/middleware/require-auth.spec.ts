@@ -30,12 +30,16 @@ describe('requiresAuth', () => {
     end: vi.fn().mockReturnThis(),
   });
 
-  it('should throw when the Auth0 router is not registered', async () => {
+  it('should forward an error to next() and write no response when the Auth0 router is not registered', async () => {
     const req = { headers: {}, auth0: {} as Request['auth0'] } as Partial<Request>;
+    const res = createMockResponse();
 
-    await expect(
-      requiresAuth()(req as Request, createMockResponse() as Response, mockNext as NextFunction)
-    ).rejects.toThrow('Auth0 ApiClient not found on request');
+    await requiresAuth()(req as Request, res as Response, mockNext as NextFunction);
+
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockNext).toHaveBeenCalledWith(expect.any(Error));
+    expect((mockNext.mock.calls[0][0] as Error).message).toContain('Auth0 ApiClient not found on request');
+    expect(res.status).not.toHaveBeenCalled();
   });
 
   it('should return 401 with a bare Bearer challenge when no token is present', async () => {
