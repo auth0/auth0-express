@@ -119,3 +119,24 @@ export class LegacySessionTransformer {
     }
   }
 }
+
+/**
+ * Emits a one-line warning that a freshly transformed migrated session will be dropped on its
+ * first write. Call this once the store has determined the session exceeds its expiry window
+ * (i.e. `calculateMaxAge(createdAt) <= 0`) — the exact condition under which the write-back emits
+ * a cookie the browser discards, a silent logout of a session that was still valid under
+ * express-openid-connect. Surfacing it in logs turns an invisible misconfiguration (someone
+ * followed the migration guide but did not raise `absoluteDuration`) into an immediate, actionable
+ * signal.
+ *
+ * @param createdAt The migrated session's original creation time (the eoc `iat`), in seconds.
+ */
+export function warnSessionDropped(createdAt: number): void {
+  const ageDays = Math.floor((Math.floor(Date.now() / 1000) - createdAt) / (60 * 60 * 24));
+  console.warn(
+    `[auth0-express] Migrated session is ${ageDays}d old and already exceeds the configured ` +
+      `sessionConfiguration.absoluteDuration, so it will be logged out on its first write. Set ` +
+      `sessionConfiguration.absoluteDuration to at least your express-openid-connect deployment's ` +
+      `value (default 7 days / 604800) to keep in-flight sessions alive across the migration.`
+  );
+}

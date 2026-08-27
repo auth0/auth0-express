@@ -400,15 +400,20 @@ describe('MigrationStatefulStateStore', () => {
 
       await mockStore.set('sess:aged-default', agedLegacyPayload());
       (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-default');
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const result = await store.get('__a0_session', {});
 
       // The session still transforms (it was valid under express-openid-connect)...
       expect(result).toBeDefined();
+      // ...and the store warns that this session will be dropped on write (invisible misconfig → log).
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('will be logged out on its first write'));
       // ...but the eager write-back emits a maxAge<=0 cookie, which the browser drops: silent logout.
       expect(handler.setCookie).toHaveBeenCalled();
       const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
       expect(emittedMaxAge).toBe(0);
+
+      warn.mockRestore();
     });
 
     it('keeps a >3-day-old legacy session alive when absoluteDuration matches express-openid-connect', async () => {
@@ -420,15 +425,20 @@ describe('MigrationStatefulStateStore', () => {
 
       await mockStore.set('sess:aged-configured', agedLegacyPayload());
       (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-configured');
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       const result = await store.get('__a0_session', {});
 
       expect(result).toBeDefined();
+      // The session fits within the raised cap, so no silent-logout warning fires.
+      expect(warn).not.toHaveBeenCalled();
       expect(handler.setCookie).toHaveBeenCalled();
       const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
       // Raising the absolute cap to 7 days keeps `createdAt + absoluteDuration` in the future, so
       // the rolling inactivity window (1 day) governs and the cookie survives instead of expiring.
       expect(emittedMaxAge).toBeGreaterThan(0);
+
+      warn.mockRestore();
     });
   });
 

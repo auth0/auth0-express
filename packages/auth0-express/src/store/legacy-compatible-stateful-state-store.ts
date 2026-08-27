@@ -5,7 +5,7 @@ import {
   type SessionStore,
 } from '@auth0/auth0-server-js';
 import type { CookieHandler, StateData } from '@auth0/auth0-server-js';
-import { LegacySessionTransformer } from './legacy-session-transformer.js';
+import { LegacySessionTransformer, warnSessionDropped } from './legacy-session-transformer.js';
 import type { ExpressOpenidConnectStorePayload } from './legacy-session-transformer.js';
 import { deriveHkdfKey } from './express-oidc-hkdf.js';
 
@@ -264,6 +264,9 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
     }
     const sessionData = this.#transformer.transformLegacySession(payload.data);
     sessionData.internal.createdAt = payload.header.iat;
+    if (this.calculateMaxAge(payload.header.iat) <= 0) {
+      warnSessionDropped(payload.header.iat);
+    }
     return sessionData;
   }
 

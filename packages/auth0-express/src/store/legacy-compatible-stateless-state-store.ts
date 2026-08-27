@@ -2,7 +2,7 @@ import { StatelessStateStore, SessionConfiguration } from '@auth0/auth0-server-j
 import type { CookieHandler } from '@auth0/auth0-server-js';
 import { jwtDecrypt, errors } from 'jose';
 import type { JWEHeaderParameters } from 'jose';
-import { LegacySessionTransformer } from './legacy-session-transformer.js';
+import { LegacySessionTransformer, warnSessionDropped } from './legacy-session-transformer.js';
 import type { ExpressOpenidConnectSession } from './legacy-session-transformer.js';
 import { deriveHkdfKey } from './express-oidc-hkdf.js';
 
@@ -126,6 +126,9 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
     const stateData = this.#transformer.transformLegacySession(legacyData);
     if (iat !== undefined) {
       stateData.internal.createdAt = iat;
+      if (this.calculateMaxAge(iat) <= 0) {
+        warnSessionDropped(iat);
+      }
     }
     return stateData as TData;
   }

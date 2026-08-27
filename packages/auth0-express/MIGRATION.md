@@ -598,7 +598,7 @@ app.use(createAuth0({
 
 > **Note:** `legacyAudience` and `legacyScope` only apply to a legacy session's single access token, which is migrated into one token set. Match `legacyAudience` to your requested `audience` or the carried-over token will not be found.
 
-> **Note:** A migrated session keeps its original creation time, and this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults `absoluteDuration` to 3 days while express-openid-connect defaults it to 7 — so set `sessionConfiguration.absoluteDuration` (and `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at least the old deployment's value, or in-flight sessions older than the default are cut short on their first write. See the `sessionConfiguration` block in the example above.
+> **Note:** A migrated session keeps its original creation time, and this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults `absoluteDuration` to 3 days while express-openid-connect defaults it to 7 — so set `sessionConfiguration.absoluteDuration` (and `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at least the old deployment's value, or in-flight sessions older than the default are cut short on their first write. See the `sessionConfiguration` block in the example above. If a migrated session is already older than the configured `absoluteDuration`, the migration store logs a `console.warn` on read so this misconfiguration surfaces in your logs instead of only showing up as user "why was I logged out?" reports.
 
 ---
 

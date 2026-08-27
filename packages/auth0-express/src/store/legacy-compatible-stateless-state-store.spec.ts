@@ -641,16 +641,22 @@ describe('MigrationStatelessStateStore', () => {
         { secret, legacySecret: secret, sessionConfiguration: { cookie: { name: cookieName } } },
         handler
       );
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
 
       // The session still decrypts and transforms (it was valid under express-openid-connect)...
       const result = await store.get(cookieName, {});
       expect(result).toBeDefined();
+
+      // ...and the store warns that this session will be dropped on write (invisible misconfig → log).
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('will be logged out on its first write'));
 
       // ...but the re-encrypting write emits a maxAge<=0 cookie, which the browser drops: silent logout.
       await store.set(cookieName, result!, false, {});
       expect(handler.setCookie).toHaveBeenCalled();
       const emittedMaxAge = handler.setCookie.mock.calls[0]![2]!.maxAge;
       expect(emittedMaxAge).toBe(0);
+
+      warn.mockRestore();
     });
 
     it('keeps a >3-day-old legacy session alive when absoluteDuration matches express-openid-connect', async () => {
@@ -664,8 +670,12 @@ describe('MigrationStatelessStateStore', () => {
         handler
       );
 
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
       const result = await store.get(cookieName, {});
       expect(result).toBeDefined();
+
+      // The session fits within the raised cap, so no silent-logout warning fires.
+      expect(warn).not.toHaveBeenCalled();
 
       await store.set(cookieName, result!, false, {});
       expect(handler.setCookie).toHaveBeenCalled();
@@ -673,6 +683,8 @@ describe('MigrationStatelessStateStore', () => {
       // Raising the absolute cap to 7 days keeps `createdAt + absoluteDuration` in the future, so
       // the rolling inactivity window (1 day) governs and the cookie survives instead of expiring.
       expect(emittedMaxAge).toBeGreaterThan(0);
+
+      warn.mockRestore();
     });
   });
 });
