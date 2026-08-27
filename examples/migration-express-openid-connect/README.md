@@ -76,6 +76,28 @@ cookie name so the same-browser cookie is picked up across the migration.
    Expected: `204`. Then confirm both the session key and its `logout:sid:<sid>`
    index are gone from Redis. Reloading `/` shows logged-out.
 
+## Scenario 3 — Aged session survives the absoluteDuration gap
+
+Scenarios 1 and 2 both start from a fresh login, so they never exercise the one
+state where the migration silently logs a user out: a session already older than
+this SDK's default `absoluteDuration` (3 days) but still valid under
+express-openid-connect (default 7 days). The migration stores keep the original
+creation time, so `createdAt + absoluteDuration` can already be in the past on the
+first read — the write-back then emits a `Max-Age<=0` cookie the browser drops.
+The `after` app sets `absoluteDuration: 604800` to avoid this; this scenario proves
+that guard is load-bearing.
+
+1. Log in with the **legacy** app (either store) as in Scenario 1 or 2, then stop it.
+2. Simulate an aged session by lowering the cap below the session's age on the
+   `after` app: start it with `SESSION_ABSOLUTE_DURATION=1` (1 second), then reload
+   in the same browser. Expected: you are logged out on that first reload. In
+   DevTools the `appSession` cookie is dropped (stateless) or the Redis key is
+   written with an expired TTL (stateful). This is the failure the fix prevents.
+3. Restart the `after` app without the override (back to the default
+   `absoluteDuration: 604800`) and reload with the original legacy cookie/session
+   still present. Expected: still logged in — the aged session is preserved because
+   the cap now exceeds its age.
+
 ### Notes
 
 - `logout_token` is a signed JWT issued by Auth0; you cannot hand-craft one that

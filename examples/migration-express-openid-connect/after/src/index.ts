@@ -32,10 +32,14 @@ app.use(
       cookie: { name: 'appSession' },
       // A migrated session keeps its original creation time (the express-openid-connect `iat`), and
       // this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults that to 3
-      // days but express-openid-connect defaults it to 7 — so without these a legacy session older
-      // than 3 days would be logged out on first read despite still being valid under the old SDK.
-      // Match the old deployment's durations so no in-flight session is cut short by the switch.
-      absoluteDuration: 604800, // 7 days (express-openid-connect default)
+      // days but express-openid-connect defaults it to 7 — so without raising absoluteDuration a
+      // legacy session older than 3 days would be logged out on first read despite still being valid
+      // under the old SDK. Match the old deployment's durations so no in-flight session is cut short.
+      // Default matches express-openid-connect (7 days). SESSION_ABSOLUTE_DURATION lets the
+      // migration runbook (Scenario 3) lower the cap to simulate an aged session without editing code.
+      absoluteDuration: process.env.SESSION_ABSOLUTE_DURATION ? Number(process.env.SESSION_ABSOLUTE_DURATION) : 604800,
+      // Matches this SDK's own default (1 day); only needs changing if you customized
+      // express-openid-connect's `rollingDuration`. Kept here for symmetry with absoluteDuration.
       inactivityDuration: 86400, // 1 day (express-openid-connect default rollingDuration)
     },
     // Only set for the stateful scenario; undefined => cookie (stateless) store.

@@ -575,6 +575,8 @@ app.use(createAuth0({
     // `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at
     // least what the old deployment used, so no in-flight session is cut short by the switch.
     absoluteDuration: 604800, // 7 days — match (or exceed) express-openid-connect's default
+    // Already this SDK's default (1 day); only change it if you customized express-openid-connect's
+    // `rollingDuration`. Shown here for symmetry with absoluteDuration.
     inactivityDuration: 86400, // 1 day — match (or exceed) express-openid-connect's rollingDuration
   },
 }));
@@ -595,6 +597,8 @@ app.use(createAuth0({
 - **Stateful** (`sessionStore` provided): the legacy session is read from your store (Redis, etc.), transformed, and immediately written back to the same store key — upgrading the session in place on that first read, not just on the caller's next write. **Backchannel logout works right away** for a migrated stateful session, since the write on read gives your store a chance to index the session by `sid` (if it does so) before any logout token can arrive for it. If your express-openid-connect deployment set `requireSignedSessionStoreCookie: true`, set `requireSignedLegacyCookie: true` to keep the store-key signature as a required integrity control.
 
 > **Note:** `legacyAudience` and `legacyScope` only apply to a legacy session's single access token, which is migrated into one token set. Match `legacyAudience` to your requested `audience` or the carried-over token will not be found.
+
+> **Note:** A migrated session keeps its original creation time, and this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults `absoluteDuration` to 3 days while express-openid-connect defaults it to 7 — so set `sessionConfiguration.absoluteDuration` (and `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at least the old deployment's value, or in-flight sessions older than the default are cut short on their first write. See the `sessionConfiguration` block in the example above.
 
 ---
 

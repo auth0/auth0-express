@@ -601,6 +601,80 @@ describe('MigrationStatelessStateStore', () => {
       expect(decrypted.internal.createdAt).toBe(headerIat);
     });
   });
+
+  describe('get/set - absoluteDuration and the migrated session age', () => {
+    // Mirrors the MigrationStatefulStateStore coverage for the cookie-only (stateless) path.
+    // A migrated session keeps its original express-openid-connect `iat` as `createdAt`, and the
+    // base store expires it at `createdAt + absoluteDuration`. express-openid-connect defaults
+    // absoluteDuration to 7 days, this SDK to 3. If the app does not raise absoluteDuration to at
+    // least the old value, a legacy session already older than 3 days decrypts successfully but the
+    // re-encrypting write emits a maxAge<=0 cookie the browser immediately drops — a silent logout.
+    // Unlike the stateful store (which writes back eagerly on read), the stateless store computes
+    // maxAge on `set`, so the flow here is get() to load the aged session, then set() it back.
+    const FOUR_DAYS = 4 * 24 * 60 * 60;
+    const cookieName = 'appSession';
+
+    const agedLegacyCookie = async () => {
+      const now = Math.floor(Date.now() / 1000);
+      // Issued 4 days ago, but still valid under express-openid-connect (header exp in the future).
+      return await encryptLegacyWithHeaderIat(
+        { id_token: sampleIdToken, access_token: 'aged-token' },
+        secret,
+        now - FOUR_DAYS,
+        now + 3600
+      );
+    };
+
+    const mockHandlerWithCookie = (cookieValue: string) => {
+      const cookies: Record<string, string> = { [`${cookieName}.0`]: cookieValue };
+      return {
+        getCookie: (name: string) => cookies[name],
+        getCookies: () => cookies,
+        setCookie: vi.fn(),
+        deleteCookie: vi.fn(),
+      };
+    };
+
+    it('cuts a >3-day-old legacy session short under the default (3-day) absoluteDuration', async () => {
+      const handler = mockHandlerWithCookie(await agedLegacyCookie());
+      const store = new MigrationStatelessStateStore(
+        { secret, legacySecret: secret, sessionConfiguration: { cookie: { name: cookieName } } },
+        handler
+      );
+
+      // The session still decrypts and transforms (it was valid under express-openid-connect)...
+      const result = await store.get(cookieName, {});
+      expect(result).toBeDefined();
+
+      // ...but the re-encrypting write emits a maxAge<=0 cookie, which the browser drops: silent logout.
+      await store.set(cookieName, result!, false, {});
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = handler.setCookie.mock.calls[0]![2]!.maxAge;
+      expect(emittedMaxAge).toBe(0);
+    });
+
+    it('keeps a >3-day-old legacy session alive when absoluteDuration matches express-openid-connect', async () => {
+      const handler = mockHandlerWithCookie(await agedLegacyCookie());
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+          sessionConfiguration: { cookie: { name: cookieName }, absoluteDuration: 604800 },
+        },
+        handler
+      );
+
+      const result = await store.get(cookieName, {});
+      expect(result).toBeDefined();
+
+      await store.set(cookieName, result!, false, {});
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = handler.setCookie.mock.calls[0]![2]!.maxAge;
+      // Raising the absolute cap to 7 days keeps `createdAt + absoluteDuration` in the future, so
+      // the rolling inactivity window (1 day) governs and the cookie survives instead of expiring.
+      expect(emittedMaxAge).toBeGreaterThan(0);
+    });
+  });
 });
 
 /**
