@@ -15,6 +15,6 @@
     "@auth0/auth0-express": "*",
     "dotenv": "^17.2.3",
     "express": "^5.2.1",
-    "redis": "^4.7.0"
+    "redis": "^6.2.1"
   }
 }
