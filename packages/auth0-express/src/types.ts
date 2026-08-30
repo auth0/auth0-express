@@ -3,10 +3,28 @@ import type {
   DomainResolver,
   SessionConfiguration,
   SessionStore,
+  UserClaims,
 } from '@auth0/auth0-server-js';
 import type { Request, Response } from 'express';
 
-export type { DomainResolver, DiscoveryCacheOptions } from '@auth0/auth0-server-js';
+export type { DomainResolver, DiscoveryCacheOptions, UserClaims } from '@auth0/auth0-server-js';
+
+/**
+ * Hook called after the OAuth callback completes in Enterprise Connect mode.
+ * Auth0 writes no session cookie; the app must write its own here and call
+ * res.redirect() (or equivalent) before the promise resolves.
+ *
+ * Required when `enterpriseConnect: true`.
+ */
+export type EnterpriseConnectCallbackHook = (
+  req: Request,
+  res: Response,
+  result: {
+    idTokenClaims?: Record<string, unknown>;
+    user?: UserClaims;
+    appState?: unknown;
+  }
+) => Promise<void>;
 
 /**
  * Options passed to custom session store implementations.
@@ -168,6 +186,18 @@ export interface Auth0Options {
    * `ServerClient` defaults (TTL 600s, max 100 entries) when omitted.
    */
   discoveryCache?: DiscoveryCacheOptions;
+
+  /**
+   * Put the SDK in Enterprise Connect mode. Auth0 acts as a pure SSO relay;
+   * no Auth0 session is written. `onCallback` is required in this mode.
+   */
+  enterpriseConnect?: true;
+
+  /**
+   * Required when `enterpriseConnect: true`. Called after code exchange with
+   * the ID token claims. Write your own session here and call res.redirect().
+   */
+  onCallback?: EnterpriseConnectCallbackHook;
 
   /** Custom paths for authentication routes (only used if mountRoutes is true) */
   routes?: {

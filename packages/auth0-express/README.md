@@ -32,6 +32,7 @@ Jump straight to the capability you need.
 | [Call an API (`getAccessToken`)](#requesting-an-access-token-to-call-an-api) | Get an access token to call APIs as the user |
 | [Authorization with claims](./EXAMPLES.md#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Dynamic app base URLs](./EXAMPLES.md#dynamic-application-base-urls) | Infer the base URL per host or use an allow-list |
+| [Enterprise Connect](./EXAMPLES.md#enterprise-connect) | Use Auth0 as a pure SSO relay while your app owns the session |
 | [Multiple Custom Domains (MCD)](./EXAMPLES.md#multiple-custom-domains-mcd) | Resolve the Auth0 domain per request |
 | [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
 | [Discovery cache](./EXAMPLES.md#discovery-cache) | Control caching of OIDC discovery metadata |

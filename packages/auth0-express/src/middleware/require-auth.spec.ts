@@ -1,13 +1,17 @@
-import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import request from 'supertest';
+import express, { NextFunction, Request, Response } from 'express';
+import cookieParser from 'cookie-parser';
 import { requiresAuth } from './require-auth.js';
 import {
+  domain,
   server,
   setupTests,
   resetMockConfig,
   createConfiguredApp,
   authenticateUser,
 } from '../test-utils/test-setup.js';
+import { createAuth0 } from '../index.js';
 
 beforeAll(() =>
   server.listen({
@@ -196,5 +200,33 @@ describe('requiresAuth middleware', () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toContain('returnTo=');
+  });
+});
+
+describe('requiresAuth - Enterprise Connect mode', () => {
+  test('throws EnterpriseConnectNotSupportedError when used in EC mode', async () => {
+    const app = express();
+    app.use(cookieParser());
+    app.use(
+      createAuth0({
+        domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+        enterpriseConnect: true,
+        onCallback: vi.fn(async (_req, res) => res.redirect('/dashboard')),
+      })
+    );
+    app.get('/protected', requiresAuth(), (_req, res) => res.json({ ok: true }));
+    // Express identifies error-handling middleware by its 4-arg arity, so `next` must be present.
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    app.use((err: Error, _req: Request, res: Response, _next: NextFunction) => {
+      res.status(500).json({ error: err.name });
+    });
+
+    const res = await request(app).get('/protected');
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBe('EnterpriseConnectNotSupportedError');
   });
 });
