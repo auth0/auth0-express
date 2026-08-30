@@ -7,6 +7,18 @@ export async function handleCallback(req: Request, res: Response, options: Auth0
   try {
     const appBaseUrl = resolveAppBaseUrl(options.appBaseUrl, req);
 
+    if (options.enterpriseConnect) {
+      const result = await req.auth0.client.completeInteractiveLogin<unknown>(
+        createRouteUrl(req.url, appBaseUrl)
+      );
+      await options.onCallback!(req, res, {
+        idTokenClaims: result.idTokenClaims,
+        user: result.user,
+        appState: result.appState,
+      });
+      return;
+    }
+
     const { appState } = await req.auth0.client.completeInteractiveLogin<{ returnTo: string } | undefined>(
       createRouteUrl(req.url, appBaseUrl)
     );
