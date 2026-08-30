@@ -1,0 +1,22 @@
+<% if(isLoggedIn){ %>
+  <h1>Hello, <%= locals.user && locals.user.name ? locals.user.name : 'there' %>!</h1>
+  <p>You are signed in via Enterprise Connect.</p>
+<% } else{ %>
+  <h1>Sign in with your work email</h1>
+  <p>Enter your email — if your domain is federated, you'll be sent to your enterprise identity provider.</p>
+
+  <% if(locals.error === 'not_federated'){ %>
+    <div class="alert alert-warning">That email domain is not federated for Enterprise Connect.</div>
+  <% } else if(locals.error === 'missing_email'){ %>
+    <div class="alert alert-warning">Please enter an email address.</div>
+  <% } %>
+
+  <form method="post" action="/auth/enterprise-login" class="mt-3" style="max-width: 360px;">
+    <input type="hidden" name="returnTo" value="<%= locals.returnTo || '/' %>" />
+    <div class="mb-3">
+      <label for="email" class="form-label">Work email</label>
+      <input type="email" class="form-control" id="email" name="email" placeholder="you@company.com" required />
+    </div>
+    <button type="submit" class="btn btn-primary">Continue</button>
+  </form>
+<% } %>
