@@ -55,7 +55,7 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   const auth0Client = createServerClientInstance(options);
 
   // Attach to request
-  router.use((req: Request, res: Response, next: NextFunction) => {
+  router.use((req: Request, _res: Response, next: NextFunction) => {
     req.auth0 = { client: auth0Client };
     req.app.locals.auth0Client = auth0Client;
     req.app.locals.auth0ClientOptions = options;

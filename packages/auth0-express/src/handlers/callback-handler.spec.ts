@@ -1,6 +1,8 @@
-import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach } from 'vitest';
+import { expect, test, describe, beforeAll, afterAll, beforeEach, afterEach, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import request from 'supertest';
+import express from 'express';
+import cookieParser from 'cookie-parser';
 import { encrypt } from '../test-utils/encryption.js';
 import {
   domain,
@@ -9,7 +11,9 @@ import {
   resetMockConfig,
   mockOpenIdConfiguration,
   createConfiguredApp,
+  parseCookies,
 } from '../test-utils/test-setup.js';
+import { createAuth0 } from '../index.js';
 
 beforeAll(() =>
   server.listen({
@@ -319,5 +323,114 @@ describe('callback handler', () => {
 
     expect(res.status).toBe(302);
     expect(res.headers.location).toBe('https://app2.example.com');
+  });
+});
+
+describe('callback handler - Enterprise Connect mode', () => {
+  test('calls onCallback with user, idTokenClaims, and appState; does not set session cookie', async () => {
+    const onCallback = vi.fn(async (_req: unknown, res: express.Response) => {
+      res.redirect('/dashboard');
+    });
+
+    const app = express();
+    app.use(cookieParser());
+    app.use(
+      createAuth0({
+        domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+        enterpriseConnect: true,
+        onCallback,
+      })
+    );
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(302);
+    expect(res.headers.location).toBe('/dashboard');
+    expect(onCallback).toHaveBeenCalledOnce();
+
+    // No Auth0 session cookie should be set
+    const cookies = parseCookies(res.headers['set-cookie']);
+    const sessionCookies = Object.keys(cookies).filter((name) => name.startsWith('__a0_session'));
+    expect(sessionCookies).toHaveLength(0);
+  });
+
+  test('passes appState from transaction cookie to onCallback', async () => {
+    let capturedResult: Record<string, unknown> | undefined;
+    const onCallback = vi.fn(async (_req: unknown, res: express.Response, result: Record<string, unknown>) => {
+      capturedResult = result;
+      res.redirect('/dashboard');
+    });
+
+    const app = express();
+    app.use(cookieParser());
+    app.use(
+      createAuth0({
+        domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+        enterpriseConnect: true,
+        onCallback,
+      })
+    );
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt(
+      { appState: { returnTo: 'http://localhost:3000/dashboard' } },
+      '<secret>',
+      cookieName,
+      Date.now() + 1000
+    );
+
+    await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(capturedResult?.appState).toEqual({ returnTo: 'http://localhost:3000/dashboard' });
+  });
+
+  test('returns 500 when completeInteractiveLogin throws in EC mode', async () => {
+    server.use(
+      http.post(mockOpenIdConfiguration.token_endpoint, () => {
+        return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
+      })
+    );
+
+    const app = express();
+    app.use(cookieParser());
+    app.use(
+      createAuth0({
+        domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+        enterpriseConnect: true,
+        onCallback: vi.fn(async (_req: unknown, res: express.Response) => res.redirect('/dashboard')),
+      })
+    );
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ code: '123' })
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(500);
+    expect(res.body.error).toBeDefined();
   });
 });

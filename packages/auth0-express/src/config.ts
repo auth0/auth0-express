@@ -129,5 +129,12 @@ export function getConfig(config: Partial<Auth0Options> = {}): Auth0Options {
 
   enforceSecureCookies(mergedConfig);
 
+  if (mergedConfig.enterpriseConnect && !mergedConfig.onCallback) {
+    throw new InvalidConfigurationError(
+      '`onCallback` is required when `enterpriseConnect: true`. ' +
+        'Write your own session inside the hook and call res.redirect().'
+    );
+  }
+
   return mergedConfig;
 }
