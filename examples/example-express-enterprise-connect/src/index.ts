@@ -8,50 +8,31 @@ import { fileURLToPath } from 'node:url';
 
 const app = express();
 
-// Fix to use __dirname in ES modules
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
-// Serve static files
 app.use(express.static(path.join(__dirname, '../public')));
-
-// Setup view engine. `express-ejs-layouts` wraps each rendered view in
-// views/layout.ejs (which holds the nav, including the logout link).
 app.set('view engine', 'ejs');
 app.set('views', path.join(__dirname, '../views'));
 app.use(expressLayouts);
 
-const APP_SESSION_COOKIE = 'appSession';
-const APP_SESSION_SECRET = process.env.APP_SESSION_SECRET as string;
+const APP_SESSION_COOKIE = 'app_session';
 const APP_BASE_URL = process.env.APP_BASE_URL as string;
 
-// In Enterprise Connect mode the SDK writes NO Auth0 session — this app owns
-// its own session. We use a signed cookie for it, so cookie-parser MUST be
-// mounted with our secret BEFORE createAuth0() (the SDK mounts its own
-// secret-less cookie-parser, and cookie-parser no-ops once req.cookies exists).
-app.use(cookieParser(APP_SESSION_SECRET));
+// HMAC helpers — sign and verify the app session cookie so it can't be forged.
+const enc = new TextEncoder();
+const key = () =>
+  crypto.subtle.importKey(
+    'raw',
+    enc.encode(process.env.AUTH0_SESSION_SECRET!),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
 
-// Parse the login form (email-based Home Realm Discovery).
+// cookie-parser must be registered before createAuth0 so `req.cookies` is populated.
+app.use(cookieParser());
 app.use(express.urlencoded({ extended: false }));
-
-// The app's session: a signed cookie holding the identity from onCallback.
-interface AppSession {
-  sub?: string;
-  name?: string;
-  email?: string;
-}
-
-function getSession(req: Request): AppSession | undefined {
-  const raw = req.signedCookies?.[APP_SESSION_COOKIE] as string | undefined;
-  if (!raw) {
-    return undefined;
-  }
-  try {
-    return JSON.parse(raw) as AppSession;
-  } catch {
-    return undefined;
-  }
-}
 
 // Only allow same-origin, relative redirect targets (prevents open redirects).
 function safePath(value: unknown): string {
@@ -65,36 +46,74 @@ app.use(
     domain: process.env.AUTH0_DOMAIN as string,
     clientId: process.env.AUTH0_CLIENT_ID as string,
     clientSecret: process.env.AUTH0_CLIENT_SECRET as string,
-    appBaseUrl: process.env.APP_BASE_URL as string,
+    appBaseUrl: APP_BASE_URL,
     sessionSecret: process.env.AUTH0_SESSION_SECRET as string,
     enterpriseConnect: true,
-    onCallback: async (_req, res, { user, appState }) => {
-      const session: AppSession = { sub: user?.sub, name: user?.name, email: user?.email };
-      res.cookie(APP_SESSION_COOKIE, JSON.stringify(session), {
+    // Fired by the mounted /auth/callback route. Auth0 writes nothing —
+    // create your own session here, then end the response.
+    async onCallback(_req, res, { user, appState }) {
+      if (!user) {
+        return res.redirect('/login?error=no-session');
+      }
+
+      const orgId = (user['org_id'] as string) ?? '';
+      // Optional: validate orgId against your approved-org list before continuing.
+
+      // user holds the OIDC claims; keep only the fields you need.
+      const appSession = { sub: user.sub, email: user.email, name: user.name, orgId };
+
+      // Sign the payload so the cookie can't be forged: "<body>.<signature>".
+      const body = Buffer.from(JSON.stringify(appSession)).toString('base64url');
+      const signature = Buffer.from(
+        await crypto.subtle.sign('HMAC', await key(), enc.encode(body))
+      ).toString('base64url');
+
+      res.cookie(APP_SESSION_COOKIE, `${body}.${signature}`, {
         httpOnly: true,
+        secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
-        signed: true,
-        maxAge: 24 * 60 * 60 * 1000,
+        path: '/',
       });
+
       res.redirect(safePath((appState as { returnTo?: string } | undefined)?.returnTo));
     },
   })
 );
 
-// Redirect to the home page (email form) when there is no app session.
-function requireSession(req: Request, res: Response, next: NextFunction) {
-  if (!getSession(req)) {
-    res.redirect(`/?returnTo=${encodeURIComponent(req.originalUrl)}`);
+async function getAppSession(req: Request) {
+  const raw = req.cookies[APP_SESSION_COOKIE] as string | undefined;
+  if (!raw) return null;
+  const [body, signature] = raw.split('.');
+  if (!body || !signature) return null;
+  try {
+    // Verify the signature before trusting the payload; reject if tampered.
+    const valid = await crypto.subtle.verify(
+      'HMAC',
+      await key(),
+      Buffer.from(signature, 'base64url'),
+      enc.encode(body)
+    );
+    return valid ? (JSON.parse(Buffer.from(body, 'base64url').toString()) as Record<string, string>) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function requireSession(req: Request, res: Response, next: NextFunction) {
+  const session = await getAppSession(req);
+  if (!session) {
+    res.redirect(`/login?returnTo=${encodeURIComponent(req.originalUrl)}`);
     return;
   }
+  (req as any).appUser = session;
   next();
 }
 
 // Routes
 // The login page (email form) is served at both `/` and `/login`. Logout
 // returns users to `/login`, which is registered in Auth0's Allowed Logout URLs.
-function renderLogin(req: Request, res: Response) {
-  const session = getSession(req);
+async function renderLogin(req: Request, res: Response) {
+  const session = await getAppSession(req);
   res.render('index', {
     isLoggedIn: !!session,
     user: session,
@@ -110,53 +129,56 @@ app.get('/login', renderLogin);
 // Start Enterprise Connect login. startEnterpriseLogin runs WebFinger discovery
 // on the email domain and, if federated, redirects to Auth0 and returns true.
 // If the domain is not federated it returns false and leaves the response alone.
-app.post('/auth/enterprise-login', async (req: Request, res: Response) => {
-  const email = (req.body as { email?: string }).email;
-  const returnTo = safePath((req.body as { returnTo?: string }).returnTo);
+app.post('/login', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    const email = String((req.body as { email?: string }).email ?? '');
+    const returnTo = safePath((req.body as { returnTo?: string }).returnTo);
 
-  if (!email) {
-    res.redirect('/?error=missing_email');
-    return;
-  }
+    if (!email) {
+      res.redirect('/login?error=missing_email');
+      return;
+    }
 
-  const federated = await startEnterpriseLogin(req, res, { email, returnTo });
-  if (!federated) {
-    res.redirect(`/?error=not_federated&returnTo=${encodeURIComponent(returnTo)}`);
+    const redirected = await startEnterpriseLogin(req, res, { email, returnTo });
+    if (!redirected) {
+      res.redirect(`/login?error=not_federated&returnTo=${encodeURIComponent(returnTo)}`);
+    }
+  } catch (err) {
+    next(err);
   }
 });
 
-app.get('/public', (req: Request, res: Response) => {
-  const session = getSession(req);
+app.get('/public', async (req: Request, res: Response) => {
+  const session = await getAppSession(req);
   res.render('public', { isLoggedIn: !!session, user: session, layout: 'layout' });
 });
 
 app.get('/private', requireSession, (req: Request, res: Response) => {
-  const session = getSession(req);
-  res.render('private', { isLoggedIn: !!session, user: session, layout: 'layout' });
+  res.render('private', { isLoggedIn: true, user: (req as any).appUser, layout: 'layout' });
 });
 
 // Clear our session, then federated-logout to end the upstream enterprise IdP
 // session. We build the logout URL ourselves (instead of forwarding to the
 // SDK's /auth/logout) so we can return the user to /login — the URL registered
 // in Auth0's Allowed Logout URLs.
-app.get('/logout', async (req: Request, res: Response) => {
-  res.clearCookie(APP_SESSION_COOKIE);
-  const logoutUrl = await req.auth0.client.logout({
-    returnTo: `${APP_BASE_URL}/login`,
-    federated: true,
-  });
-  res.redirect(logoutUrl.href);
+app.get('/logout', async (req: Request, res: Response, next: NextFunction) => {
+  try {
+    res.clearCookie(APP_SESSION_COOKIE, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+
+    const logoutUrl = await req.auth0.client.logout({
+      returnTo: `${APP_BASE_URL}/login`,
+      federated: true,
+    });
+
+    res.redirect(logoutUrl.href);
+  } catch (err) {
+    next(err);
+  }
 });
 
-const start = async () => {
-  try {
-    app.listen(3000, () => {
-      console.log('Server listening on http://localhost:3000');
-    });
-  } catch (err) {
-    console.error(err);
-    process.exit(1);
-  }
-};
-
-start();
+app.listen(3000, () => console.log('Server listening on http://localhost:3000'));
