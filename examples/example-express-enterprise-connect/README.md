@@ -11,12 +11,12 @@ Three pieces make up the EC surface:
 ## How this example works
 
 1. The home page shows an **email form** (Home Realm Discovery by email domain).
-2. `POST /auth/enterprise-login` calls `startEnterpriseLogin`. Federated domains are redirected to Auth0; non-federated domains return to the form with an error.
-3. After Auth0 relays the enterprise login back to `/auth/callback`, `onCallback` writes the identity into a **signed cookie** (`appSession`) — the app's own session — and redirects.
+2. `POST /login` calls `startEnterpriseLogin`. Federated domains are redirected to Auth0; non-federated domains return to the form with an error.
+3. After Auth0 relays the enterprise login back to `/auth/callback`, `onCallback` writes the identity into an **HMAC-signed cookie** (`app_session`) — the app's own session — and redirects.
 4. `/private` is guarded by a small `requireSession` middleware that reads that cookie. Note the SDK's `requiresAuth()` / `getUser()` are **not** available in EC mode (they throw `EnterpriseConnectNotSupportedError`), because there is no Auth0 session to read.
 5. `/logout` clears the app cookie, then calls `req.auth0.client.logout({ returnTo, federated: true })` and redirects to the resulting URL — a **federated** logout that also ends the upstream enterprise IdP session. It returns the user to `/login` (which must be in the tenant's Allowed Logout URLs).
 
-> Cookie order matters: `cookie-parser` is mounted with the app secret **before** `createAuth0()`. The SDK mounts its own secret-less `cookie-parser`, and `cookie-parser` no-ops once `req.cookies` exists — so the app's parser (with the secret) must run first for signed cookies to work.
+> `cookie-parser` must be mounted **before** `createAuth0()` so `req.cookies` is populated when the SDK's middleware runs.
 
 ## Install dependencies
 
@@ -34,10 +34,9 @@ AUTH0_CLIENT_ID=YOUR_AUTH0_CLIENT_ID
 AUTH0_CLIENT_SECRET=YOUR_AUTH0_CLIENT_SECRET
 AUTH0_SESSION_SECRET=YOUR_AUTH0_SESSION_SECRET
 APP_BASE_URL=http://localhost:3000
-APP_SESSION_SECRET=YOUR_APP_SESSION_SECRET
 ```
 
-`AUTH0_SESSION_SECRET` encrypts the SDK's transaction cookie; `APP_SESSION_SECRET` signs this app's own session cookie. Generate secrets with:
+`AUTH0_SESSION_SECRET` is used for both the SDK's transaction cookie and to HMAC-sign the app's own session cookie. Generate a secret with:
 
 ```shell
 openssl rand -hex 64
@@ -59,7 +58,7 @@ npm run start
 The application has these routes:
 
 - `/` and `/login`: Home — email sign-in form (or a greeting once signed in). Both serve the same page; logout returns here.
-- `/auth/enterprise-login`: Receives the email form and calls `startEnterpriseLogin`.
+- `POST /login`: Receives the email form and calls `startEnterpriseLogin`.
 - `/public`: A public route that can be accessed without authentication.
 - `/private`: A private route guarded by the app's own session.
 - `/logout`: Clears the app session and performs a federated logout.
@@ -71,7 +70,7 @@ The application has these routes:
 ```ts
 import { isFederatedDomain } from '@auth0/auth0-express';
 
-app.post('/auth/enterprise-login', async (req, res) => {
+app.post('/login', async (req, res) => {
   const email = req.body.email;
   const emailDomain = email?.split('@')[1];
 
@@ -81,7 +80,7 @@ app.post('/auth/enterprise-login', async (req, res) => {
     : false;
 
   if (!federated) {
-    res.redirect('/?error=not_federated');
+    res.redirect('/login?error=not_federated');
     return;
   }
 
