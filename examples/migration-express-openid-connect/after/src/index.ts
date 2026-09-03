@@ -6,7 +6,8 @@ import { createRedisSessionStore } from './redis-store.js';
 const app = express();
 
 const redisUrl = process.env.REDIS_URL;
-const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl) : undefined;
+const absoluteDuration = 60 * 60 * 24 * 3; // 3 days — must match sessionConfiguration below
+const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl, absoluteDuration) : undefined;
 
 // Auth0 sends the backchannel logout token as application/x-www-form-urlencoded.
 // Express 5 does not parse request bodies by default, so mount a parser before the
@@ -28,7 +29,7 @@ app.use(
       legacyAudience: process.env.AUTH0_AUDIENCE,
     },
     // Match express-openid-connect's default cookie name so the same-browser cookie is picked up.
-    sessionConfiguration: { cookie: { name: 'appSession' } },
+    sessionConfiguration: { cookie: { name: 'appSession' }, absoluteDuration },
     // Only set for the stateful scenario; undefined => cookie (stateless) store.
     sessionStore,
   })

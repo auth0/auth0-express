@@ -16,7 +16,10 @@ import type { StateData, SessionStore, LogoutTokenClaims } from '@auth0/auth0-se
  * caller's next write), so this index exists as soon as a migrated session is read, not only
  * after some later action re-writes it.
  */
-export async function createRedisSessionStore(url: string): Promise<SessionStore<unknown>> {
+export async function createRedisSessionStore(
+  url: string,
+  absoluteDuration: number = 60 * 60 * 24 * 3
+): Promise<SessionStore<unknown>> {
   const client = createClient({ url });
   client.on('error', (err) => console.error('Redis error', err));
   await client.connect();
@@ -30,10 +33,11 @@ export async function createRedisSessionStore(url: string): Promise<SessionStore
     },
 
     async set(id: string, stateData: StateData): Promise<void> {
-      await client.set(id, JSON.stringify(stateData));
+      const ttl = Math.max(1, stateData.internal.createdAt + absoluteDuration - Math.floor(Date.now() / 1000));
+      await client.set(id, JSON.stringify(stateData), { EX: ttl });
       const sid = stateData.internal?.sid;
       if (sid) {
-        await client.set(sidKey(sid), id);
+        await client.set(sidKey(sid), id, { EX: ttl });
       }
     },
 
