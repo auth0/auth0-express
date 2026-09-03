@@ -31,12 +31,12 @@
     }
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.2",
+    "@eslint/js": "^10.0.1",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
     "@types/supertest": "^6.0.3",
     "@vitest/coverage-v8": "^4.1.2",
-    "eslint": "^9.39.2",
+    "eslint": "^10.9.1",
     "express": "^5.2.1",
     "express-openid-connect": "^3.2.0",
     "msw": "^2.12.14",
