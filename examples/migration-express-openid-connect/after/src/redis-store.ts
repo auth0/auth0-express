@@ -10,18 +10,18 @@ import type { StateData, SessionStore, LogoutTokenClaims } from '@auth0/auth0-se
  * old app) or a StateData object (modern, written here). MigrationStatefulStateStore detects
  * and transforms the legacy shape on read, so this adapter can store/return values verbatim.
  *
- * On set() we also maintain a `logout:sid:<sid> -> <sessionId>` index so deleteByLogoutToken
- * (which only receives { sub, sid }) can resolve to the session key. MigrationStatefulStateStore
- * writes the transformed StateData back on the first get() of a legacy session (not just on the
- * caller's next write), so this index exists as soon as a migrated session is read, not only
- * after some later action re-writes it.
+ * On set() we also maintain a `session:<sid>:<sub> -> <sessionId>` index so deleteByLogoutToken
+ * can resolve a { sid, sub } pair from the logout token to the session key without a separate
+ * sub cross-check at delete time. MigrationStatefulStateStore writes the transformed StateData
+ * back on the first get() of a legacy session (not just on the caller's next write), so this
+ * index exists as soon as a migrated session is read, not only after some later action re-writes it.
  */
 export async function createRedisSessionStore(url: string): Promise<SessionStore<unknown>> {
   const client = createClient({ url });
   client.on('error', (err) => console.error('Redis error', err));
   await client.connect();
 
-  const sidKey = (sid: string) => `logout:sid:${sid}`;
+  const sidKey = (sid: string, sub: string) => `session:${sid}:${sub}`;
 
   return {
     async get(id: string): Promise<StateData | undefined> {
@@ -32,8 +32,9 @@ export async function createRedisSessionStore(url: string): Promise<SessionStore
     async set(id: string, stateData: StateData): Promise<void> {
       await client.set(id, JSON.stringify(stateData));
       const sid = stateData.internal?.sid;
-      if (sid) {
-        await client.set(sidKey(sid), id);
+      const sub = stateData.user?.sub;
+      if (sid && sub) {
+        await client.set(sidKey(sid, sub), id);
       }
     },
 
@@ -43,7 +44,8 @@ export async function createRedisSessionStore(url: string): Promise<SessionStore
         try {
           const data = JSON.parse(raw) as StateData;
           const sid = data.internal?.sid;
-          if (sid) await client.del(sidKey(sid));
+          const sub = data.user?.sub;
+          if (sid && sub) await client.del(sidKey(sid, sub));
         } catch {
           // ignore malformed payloads
         }
@@ -52,13 +54,12 @@ export async function createRedisSessionStore(url: string): Promise<SessionStore
     },
 
     async deleteByLogoutToken(claims: LogoutTokenClaims): Promise<void> {
-      const sid = claims.sid;
-      if (!sid) return;
-      const sessionId = await client.get(sidKey(sid));
-      if (sessionId) {
-        await client.del(sessionId);
-        await client.del(sidKey(sid));
-      }
+      const { sid, sub } = claims;
+      if (!sid || !sub) return;
+      const sessionId = await client.get(sidKey(sid, sub));
+      if (!sessionId) return;
+      await client.del(sessionId);
+      await client.del(sidKey(sid, sub));
     },
   };
 }
