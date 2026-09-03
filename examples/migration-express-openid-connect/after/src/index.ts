@@ -6,13 +6,16 @@ import { createRedisSessionStore } from './redis-store.js';
 const app = express();
 
 const redisUrl = process.env.REDIS_URL;
-const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl) : undefined;
 
 // Scenario 3 of the runbook lowers the absolute cap to simulate an aged session. Parse the override
 // defensively: a missing or non-numeric value falls back to the express-openid-connect default (7
 // days) rather than silently becoming NaN, which would drop every session.
 const parsedAbsoluteDuration = Number(process.env.SESSION_ABSOLUTE_DURATION);
 const absoluteDuration = Number.isFinite(parsedAbsoluteDuration) ? parsedAbsoluteDuration : 604800;
+
+// Pass absoluteDuration to the Redis store so session keys get a matching TTL (createdAt +
+// absoluteDuration) and expire instead of persisting after the SDK considers them expired.
+const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl, absoluteDuration) : undefined;
 
 // Auth0 sends the backchannel logout token as application/x-www-form-urlencoded.
 // Express 5 does not parse request bodies by default, so mount a parser before the
