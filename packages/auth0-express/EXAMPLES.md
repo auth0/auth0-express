@@ -408,6 +408,9 @@ console.log(accessTokenResult.accessToken);
 
 ## Enterprise Connect
 
+> [!NOTE]
+> Enterprise Connect is in **Early Access**. To enable it for your tenant, contact Auth0 support.
+
 Enterprise Connect (EC) uses Auth0 as a pure SSO relay: Auth0 federates the login to an enterprise identity provider but writes **no Auth0 session**. Your application owns the session — you establish it yourself in the `onCallback` hook after the login completes.
 
 Enable it with `enterpriseConnect: true` and provide the required `onCallback` hook:
