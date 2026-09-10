@@ -191,7 +191,7 @@ export interface Auth0Options {
    * Put the SDK in Enterprise Connect mode. Auth0 acts as a pure SSO relay;
    * no Auth0 session is written. `onCallback` is required in this mode.
    */
-  enterpriseConnect?: true;
+  enterpriseConnect?: boolean;
 
   /**
    * Required when `enterpriseConnect: true`. Called after code exchange with

@@ -6,10 +6,14 @@ export async function startEnterpriseLogin(
   res: Response,
   options: StartEnterpriseLoginOptions
 ): Promise<boolean> {
-  const authUrl = await req.auth0.client.startEnterpriseLogin(options);
-  if (authUrl) {
-    res.redirect(authUrl.href);
-    return true;
+  try {
+    const authUrl = await req.auth0.client.startEnterpriseLogin(options);
+    if (authUrl) {
+      res.redirect(authUrl.href);
+      return true;
+    }
+    return false;
+  } catch {
+    return false;
   }
-  return false;
 }

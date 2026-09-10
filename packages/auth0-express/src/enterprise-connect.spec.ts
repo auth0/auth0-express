@@ -31,9 +31,13 @@ afterEach(() => { resetMockConfig(); server.resetHandlers(); });
 
 describe('EC mode - method enforcement', () => {
   const blockedMethods: Array<{ name: string; call: (client: ServerClient<StoreOptions>) => Promise<unknown> }> = [
-    { name: 'getUser', call: (c) => c.getUser() },
+    // session read
+    { name: 'getSession', call: (c) => c.getSession() },
+    // token retrieval
     { name: 'getAccessToken', call: (c) => c.getAccessToken() },
     { name: 'getAccessTokenForConnection', call: (c) => c.getAccessTokenForConnection({ connection: 'test' }) },
+    // refresh token
+    { name: 'revokeRefreshToken', call: (c) => c.revokeRefreshToken() },
   ];
 
   for (const { name, call } of blockedMethods) {

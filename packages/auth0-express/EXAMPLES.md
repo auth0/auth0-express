@@ -415,6 +415,17 @@ Enable it with `enterpriseConnect: true` and provide the required `onCallback` h
 ```ts
 import { createAuth0 } from '@auth0/auth0-express';
 
+// HMAC helpers — sign and verify the app session cookie so it can't be forged.
+const enc = new TextEncoder();
+const key = () =>
+  crypto.subtle.importKey(
+    'raw',
+    enc.encode(process.env.AUTH0_SESSION_SECRET!),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+
 app.use(createAuth0({
   domain: '<AUTH0_DOMAIN>',
   clientId: '<AUTH0_CLIENT_ID>',
@@ -422,15 +433,35 @@ app.use(createAuth0({
   appBaseUrl: '<APP_BASE_URL>',
   sessionSecret: '<SESSION_SECRET>',
   enterpriseConnect: true,
-  onCallback: async (req, res, { user, idTokenClaims, appState }) => {
-    // Auth0 writes no session in EC mode — establish your own here, then end the response.
-    req.session.user = { sub: user?.sub, email: user?.email };
-    res.redirect((appState as { returnTo?: string } | undefined)?.returnTo ?? '/');
+  async onCallback(_req, res, { user, appState }) {
+    if (!user) { return res.redirect('/login?error=no-session'); }
+
+    // Optional: validate orgId against your approved-org list before continuing.
+    const orgId = (user['org_id'] as string) ?? '';
+
+    // session.user holds the OIDC claims; keep only the fields you need.
+    const appSession = { sub: user.sub, email: user.email };
+
+    // Sign the payload so the cookie can't be forged: "<body>.<signature>".
+    const body = Buffer.from(JSON.stringify(appSession)).toString('base64url');
+    const signature = Buffer.from(
+      await crypto.subtle.sign('HMAC', await key(), enc.encode(body))
+    ).toString('base64url');
+
+    res.cookie('app_session', `${body}.${signature}`, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+    res.redirect((appState as { returnTo?: string } | undefined)?.returnTo ?? '/dashboard');
   },
 }));
 ```
 
-`onCallback` receives `{ idTokenClaims?, user?, appState? }` and must write your session and end the response (for example with `res.redirect()`) before the promise resolves.
+`onCallback` receives `{ user?, appState? }` and must write your session and end the response (for example with `res.redirect()`) before the promise resolves.
+
+> Do **not** include `offline_access` in `scope` — EC clients receive no refresh token and the access token expires (default 24 h) with no renewal path. Use EC to establish identity only; issue your own tokens for downstream API authorization.
 
 > [!IMPORTANT]
 > Because no Auth0 session is written in EC mode, the session-backed `ServerClient` methods (`getUser`, `getSession`, `getAccessToken`, `getAccessTokenForConnection`, …) and the `requiresAuth()` middleware are unavailable — they throw `EnterpriseConnectNotSupportedError`. Guard protected routes with your own session check instead.
@@ -442,14 +473,15 @@ Use the exported `startEnterpriseLogin` handler. It runs email-domain Home Realm
 ```ts
 import { startEnterpriseLogin } from '@auth0/auth0-express';
 
-app.post('/auth/enterprise-login', async (req, res) => {
+app.post('/login', async (req, res) => {
   const federated = await startEnterpriseLogin(req, res, {
     email: req.body.email,
     returnTo: '/dashboard', // surfaced to onCallback as appState.returnTo
   });
 
   if (!federated) {
-    res.redirect('/login?error=not_federated');
+    // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
+    res.redirect('/login?mode=password');
   }
 });
 ```
@@ -461,17 +493,23 @@ app.post('/auth/enterprise-login', async (req, res) => {
 ```ts
 import { isFederatedDomain } from '@auth0/auth0-express';
 
-app.post('/auth/enterprise-login', async (req, res) => {
-  const email = req.body.email as string;
-  const emailDomain = email.split('@')[1];
+app.post('/login', async (req, res, next) => {
+  try {
+    const email = req.body.email as string;
+    const emailDomain = email?.split('@')[1];
+    if (!emailDomain) { throw new Error('Email domain is missing or invalid'); }
 
-  const federated = await isFederatedDomain('<AUTH0_DOMAIN>', emailDomain);
-  if (!federated) {
-    res.redirect('/login?error=not_federated');
-    return;
+    const federated = await isFederatedDomain('<AUTH0_DOMAIN>', emailDomain);
+    if (!federated) {
+      // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
+      res.redirect('/login?mode=password');
+      return;
+    }
+
+    res.redirect(`/auth/login?login_hint=${encodeURIComponent(email)}`);
+  } catch (err) {
+    next(err);
   }
-
-  res.redirect(`/auth/login?login_hint=${encodeURIComponent(email)}`);
 });
 ```
 
@@ -479,16 +517,41 @@ Prefer `startEnterpriseLogin` unless you specifically need to intervene between 
 
 ### Logging out
 
-Enterprise Connect logout is always **federated**: it ends the upstream enterprise IdP session as well as the Auth0 session. The mounted `/auth/logout` route does this automatically in EC mode, but it does not know about your app-owned session. Clear your own session first, then send the user to Auth0's federated logout:
+Enterprise Connect logout is always **federated**: it ends the upstream enterprise IdP session as well as the Auth0 session. There are two ways to handle this:
+
+**Option 1 — custom `/logout` route (recommended).** Gives you full control: clear your app session cookie and build the Auth0 logout URL in one place.
 
 ```ts
-app.get('/logout', async (req, res) => {
-  req.session = null; // clear your app session
-  const logoutUrl = await req.auth0.client.logout({
-    returnTo: '<APP_BASE_URL>',
-    federated: true,
+app.get('/logout', async (req, res, next) => {
+  try {
+    res.clearCookie('app_session', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+    const logoutUrl = await req.auth0.client.logout({
+      returnTo: '<APP_BASE_URL>/login',
+      federated: true,
+    });
+    res.redirect(logoutUrl.href);
+  } catch (err) {
+    next(err);
+  }
+});
+```
+
+**Option 2 — redirect to the mounted `/auth/logout`.** The SDK automatically forces federated logout in EC mode. Clear your app session cookie first, then redirect:
+
+```ts
+app.get('/logout', (req, res) => {
+  res.clearCookie('app_session', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
   });
-  res.redirect(logoutUrl.href);
+  res.redirect('/auth/logout');
 });
 ```
 
