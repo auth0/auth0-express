@@ -1,5 +1,7 @@
 # Express Enterprise Connect Example
 
+> **Note:** Enterprise Connect is in **Early Access**. To enable it for your tenant, contact Auth0 support.
+
 This example demonstrates **Enterprise Connect (EC)** with the `auth0-express` package. In EC mode Auth0 acts as a pure SSO relay: it writes **no Auth0 session** — the application owns its own session.
 
 Three pieces make up the EC surface:
@@ -11,7 +13,7 @@ Three pieces make up the EC surface:
 ## How this example works
 
 1. The home page shows an **email form** (Home Realm Discovery by email domain).
-2. `POST /login` calls `startEnterpriseLogin`. Federated domains are redirected to Auth0; non-federated domains return to the form with an error.
+2. `POST /login` calls `startEnterpriseLogin`. Federated domains are redirected to Auth0; non-federated domains are redirected to `/login?mode=password` — replace this with your existing login route.
 3. After Auth0 relays the enterprise login back to `/auth/callback`, `onCallback` writes the identity into an **HMAC-signed cookie** (`app_session`) — the app's own session — and redirects.
 4. `/private` is guarded by a small `requireSession` middleware that reads that cookie. Note the SDK's `requiresAuth()` / `getUser()` are **not** available in EC mode (they throw `EnterpriseConnectNotSupportedError`), because there is no Auth0 session to read.
 5. `/logout` clears the app cookie, then calls `req.auth0.client.logout({ returnTo, federated: true })` and redirects to the resulting URL — a **federated** logout that also ends the upstream enterprise IdP session. It returns the user to `/login` (which must be in the tenant's Allowed Logout URLs).
@@ -80,7 +82,8 @@ app.post('/login', async (req, res) => {
     : false;
 
   if (!federated) {
-    res.redirect('/login?error=not_federated');
+    // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
+    res.redirect('/login?mode=password');
     return;
   }
 
