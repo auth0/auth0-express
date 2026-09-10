@@ -75,7 +75,7 @@ app.use(
         path: '/',
       });
 
-      res.redirect(safePath((appState as { returnTo?: string } | undefined)?.returnTo));
+      res.redirect(safePath((appState as { returnTo?: string } | undefined)?.returnTo) || '/dashboard');
     },
   })
 );
@@ -141,7 +141,8 @@ app.post('/login', async (req: Request, res: Response, next: NextFunction) => {
 
     const redirected = await startEnterpriseLogin(req, res, { email, returnTo });
     if (!redirected) {
-      res.redirect(`/login?error=not_federated&returnTo=${encodeURIComponent(returnTo)}`);
+      // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
+      res.redirect(`/login?mode=password&returnTo=${encodeURIComponent(returnTo)}`);
     }
   } catch (err) {
     next(err);
