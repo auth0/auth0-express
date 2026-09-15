@@ -503,7 +503,7 @@ test('auth/callback handles login_required error from prompt=none', async () => 
       .set('cookie', `${cookieName}=${cookieValue}`);
 
     expect(res.status).toBe(500);
-    // Error detail is NOT leaked to the client (SDK-4); Express default
+    // Error detail is NOT leaked to the client; Express default
     // handler responds without the internal error_description/name.
     expect(res.text).not.toContain('Login required');
     expect(res.text).not.toContain('login_required');

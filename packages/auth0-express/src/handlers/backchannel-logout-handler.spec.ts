@@ -55,7 +55,7 @@ describe('backchannel logout handler', () => {
 
     // An invalid logout token is a client error: the handler returns the
     // spec-mandated 400 (OIDC Back-Channel Logout §2.8) without echoing the
-    // internal validation-error detail to the caller (SDK-4).
+    // internal validation-error detail to the caller.
     expect(res.status).toBe(400);
     expect(res.text).not.toContain('invalid_token');
   });
@@ -89,7 +89,7 @@ describe('backchannel logout handler', () => {
 
     // The endpoint is server-to-server, so the handler owns the response: it
     // responds 400 itself (never delegating to Express error middleware) and
-    // does not echo the internal error detail to the caller (SDK-4).
+    // does not echo the internal error detail to the caller.
     await handleBackchannelLogout(req, res);
 
     expect(sentStatus).toBe(400);

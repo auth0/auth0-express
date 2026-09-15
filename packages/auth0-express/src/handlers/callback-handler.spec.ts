@@ -69,7 +69,7 @@ describe('callback handler', () => {
         .set('cookie', `${cookieName}=${cookieValue}`);
 
       expect(res.status).toBe(500);
-      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // Error detail is NOT leaked to the client; Express default
       // handler responds without the internal error_description/name.
       expect(res.text).not.toContain('Login required');
       expect(res.text).not.toContain('login_required');
@@ -103,7 +103,7 @@ describe('callback handler', () => {
         .set('cookie', `${cookieName}=${cookieValue}`);
 
       expect(res.status).toBe(500);
-      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // Error detail is NOT leaked to the client; Express default
       // handler responds without the internal error_description/name.
       expect(res.text).not.toContain('Consent required');
       expect(res.text).not.toContain('consent_required');
@@ -137,7 +137,7 @@ describe('callback handler', () => {
         .set('cookie', `${cookieName}=${cookieValue}`);
 
       expect(res.status).toBe(500);
-      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // Error detail is NOT leaked to the client; Express default
       // handler responds without the internal error_description/name.
       expect(res.text).not.toContain('Interaction required');
       expect(res.text).not.toContain('interaction_required');
@@ -171,7 +171,7 @@ describe('callback handler', () => {
         .set('cookie', `${cookieName}=${cookieValue}`);
 
       expect(res.status).toBe(500);
-      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // Error detail is NOT leaked to the client; Express default
       // handler responds without the internal error_description/name.
       expect(res.text).not.toContain('Something went wrong');
       expect(res.text).not.toContain('server_error');
@@ -212,7 +212,7 @@ describe('callback handler', () => {
         .set('cookie', `${cookieName}=${cookieValue}`);
 
       expect(res.status).toBe(500);
-      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // Error detail is NOT leaked to the client; Express default
       // handler responds without the internal error name/message.
       expect(res.text).not.toContain('invalid_grant');
     } finally {
