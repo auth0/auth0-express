@@ -180,31 +180,44 @@ describe('callback handler', () => {
     }
   });
 
-  test('returns error name when cause.error is not available', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
-    });
+  test('does not leak error detail when the token exchange fails', async () => {
+    // Express's default error handler (finalhandler) only omits the stack
+    // trace when NODE_ENV === 'production'; that setting is captured at
+    // app-construction time, so it must be set before createConfiguredApp
+    // runs, to exercise the sanitized contract apps see in a real deployment.
+    const originalNodeEnv = process.env.NODE_ENV;
+    process.env.NODE_ENV = 'production';
+    try {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
 
-    // Mock token endpoint to throw an error without cause
-    server.use(
-      http.post(mockOpenIdConfiguration.token_endpoint, () => {
-        return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
-      })
-    );
+      // Mock token endpoint to fail the code exchange
+      server.use(
+        http.post(mockOpenIdConfiguration.token_endpoint, () => {
+          return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
+        })
+      );
 
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
 
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ code: '123' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ code: '123' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
 
-    expect(res.status).toBe(500);
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client (SDK-4); Express default
+      // handler responds without the internal error name/message.
+      expect(res.text).not.toContain('invalid_grant');
+    } finally {
+      process.env.NODE_ENV = originalNodeEnv;
+    }
   });
 
   test('redirects to returnTo from appState after successful login', async () => {
