@@ -23,7 +23,7 @@ function webfingerFederatedResponse() {
 }
 
 function webfingerNotFederatedResponse() {
-  return HttpResponse.json({ subject: 'unknown.test', links: [] });
+  return new HttpResponse(null, { status: 404 });
 }
 
 function createECApp() {

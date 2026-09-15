@@ -119,7 +119,7 @@ describe('logout handler', () => {
       sessionSecret: '<secret>',
     });
 
-    const res = await request(app).get('/auth/logout').query({ federated: '1' });
+    const res = await request(app).get('/auth/logout').query({ federated: 'true' });
 
     expect(res.status).toBe(302);
     const url = new URL(res.headers['location']?.toString() || '');
