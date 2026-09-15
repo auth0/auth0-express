@@ -2,7 +2,7 @@ import { StatelessStateStore, SessionConfiguration } from '@auth0/auth0-server-j
 import type { CookieHandler } from '@auth0/auth0-server-js';
 import { jwtDecrypt, errors } from 'jose';
 import type { JWEHeaderParameters } from 'jose';
-import { LegacySessionTransformer } from './legacy-session-transformer.js';
+import { LegacySessionTransformer, warnIfAbsoluteDurationUnset } from './legacy-session-transformer.js';
 import type { ExpressOpenidConnectSession } from './legacy-session-transformer.js';
 import { deriveHkdfKey } from './express-oidc-hkdf.js';
 
@@ -100,6 +100,8 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
     const legacyAudience = options.legacyAudience ?? 'default';
     const legacyScope = options.legacyScope ?? 'openid profile email offline_access';
     this.#transformer = new LegacySessionTransformer(legacyAudience, legacyScope);
+
+    warnIfAbsoluteDurationUnset(options.sessionConfiguration);
   }
 
   /**
@@ -126,6 +128,16 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
     const stateData = this.#transformer.transformLegacySession(legacyData);
     if (iat !== undefined) {
       stateData.internal.createdAt = iat;
+
+      // Enforce this SDK's absoluteDuration on read. A migrated cookie still carries
+      // express-openid-connect's own Max-Age/exp (the OLD deployment's window), so unlike a modern
+      // cookie the browser does not stop sending it at this SDK's cap and there is no modern `exp`
+      // to reject it. `calculateMaxAge(iat) <= 0` means the session is already past
+      // `createdAt + absoluteDuration`: treat it as expired and return no session rather than
+      // honoring it until the next write.
+      if (this.calculateMaxAge(iat) <= 0) {
+        return undefined;
+      }
     }
     return stateData as TData;
   }

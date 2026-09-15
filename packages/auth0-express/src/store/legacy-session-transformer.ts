@@ -123,3 +123,37 @@ export class LegacySessionTransformer {
     }
   }
 }
+
+/**
+ * Emits a one-time startup warning when a migration store is constructed without an explicit
+ * `sessionConfiguration.absoluteDuration`. A migrated session keeps its original
+ * express-openid-connect creation time, and this SDK expires a session at
+ * `createdAt + absoluteDuration`. This SDK defaults `absoluteDuration` to 3 days while
+ * express-openid-connect defaults it to 7 — so relying on the default *can* cut short a
+ * carried-over session already older than 3 days. Warning once at construction (rather than per
+ * read) surfaces the potential misconfiguration before any user is affected, without log spam or
+ * per-session bookkeeping.
+ *
+ * This is a heuristic for the most common mistake ("forgot to raise it"), not a precise check: it
+ * only knows whether the value was *set*, not whether it is large enough for the sessions being
+ * migrated. It cannot see the old deployment's `absoluteDuration`, so it may warn when the old
+ * value was actually lower (the default is then fine), and it stays silent when an explicit value
+ * is still too low. It only fires when the value is left unset — an app that chose a value made a
+ * deliberate decision and is not warned.
+ *
+ * @param sessionConfiguration The store's session configuration, if any.
+ */
+export function warnIfAbsoluteDurationUnset(sessionConfiguration?: { absoluteDuration?: number }): void {
+  if (sessionConfiguration?.absoluteDuration !== undefined) {
+    return;
+  }
+
+  console.warn(
+    `[auth0-express] Migration store created without sessionConfiguration.absoluteDuration. This ` +
+      `SDK defaults it to 3 days, but express-openid-connect defaults to 7 — so if your previous ` +
+      `deployment used a longer absoluteDuration, migrated sessions already older than 3 days may ` +
+      `be logged out on their first write. Set sessionConfiguration.absoluteDuration to at least ` +
+      `your express-openid-connect deployment's value (default 7 days / 604800) to keep in-flight ` +
+      `sessions alive across the migration.`
+  );
+}

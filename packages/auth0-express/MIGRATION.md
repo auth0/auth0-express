@@ -565,9 +565,23 @@ app.use(createAuth0({
     legacyScope: 'openid profile email offline_access',
   },
 
-  // express-openid-connect's default cookie name is `appSession`. Match it so the existing
-  // cookie is picked up; otherwise the SDK looks for its own default (`__a0_session`).
-  sessionConfiguration: { cookie: { name: 'appSession' } },
+  sessionConfiguration: {
+    // express-openid-connect's default cookie name is `appSession`. Match it so the existing
+    // cookie is picked up; otherwise the SDK looks for its own default (`__a0_session`).
+    cookie: { name: 'appSession' },
+
+    // A migrated session keeps its ORIGINAL creation time (its express-openid-connect `iat`),
+    // and this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults
+    // `absoluteDuration` to 3 days, but express-openid-connect defaults it to 7 days — so with the
+    // default a legacy session already older than 3 days would be logged out on first read even
+    // though it was still valid under express-openid-connect. Set `absoluteDuration` (and
+    // `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at
+    // least what the old deployment used, so no in-flight session is cut short by the switch.
+    absoluteDuration: 604800, // 7 days — match (or exceed) express-openid-connect's default
+    // Already this SDK's default (1 day); only change it if you customized express-openid-connect's
+    // `rollingDuration`. Shown here for symmetry with absoluteDuration.
+    inactivityDuration: 86400, // 1 day — match (or exceed) express-openid-connect's rollingDuration
+  },
 }));
 ```
 
@@ -588,6 +602,8 @@ app.use(createAuth0({
 > **Caveat — sessions without a `sid`:** a session's `sid` is taken from the legacy session's `sid`, falling back to the ID token's `sid` claim, and finally to the empty string `''` if neither is present. Backchannel logout resolves a session by `sid`, so a migrated session that has no `sid` cannot be targeted by a logout token (only front-channel logout ends it). When your store builds a `sid` index inside `set()`, **skip indexing when `sid` is empty** — otherwise every `sid`-less session collides on one shared index key and overwrites each other. The example Redis store does this with a simple `if (sid)` guard.
 
 > **Note:** `legacyAudience` and `legacyScope` only apply to a legacy session's single access token, which is migrated into one token set. Match `legacyAudience` to your requested `audience` or the carried-over token will not be found.
+
+> **Note:** A migrated session keeps its original creation time, and this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults `absoluteDuration` to 3 days while express-openid-connect defaults it to 7 — so set `sessionConfiguration.absoluteDuration` (and `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at least the old deployment's value, or in-flight sessions older than the default are treated as expired and rejected on the next request. The migration store enforces this cap on read (a migrated cookie still carries express-openid-connect's own `Max-Age`, so the browser keeps sending it past this SDK's cap; the store refuses it rather than honoring it until the next write). See the `sessionConfiguration` block in the example above. If you leave `absoluteDuration` unset in migration mode, the store logs a one-time `console.warn` at startup so this potential misconfiguration surfaces before it shows up as user "why was I logged out?" reports. Conversely, setting `absoluteDuration` **higher** than your old deployment used extends carried-over sessions beyond what express-openid-connect would have allowed (and the inactivity window restarts from the migration), so choose a value that matches your intended session policy, not just the largest one that avoids logouts.
 
 ---
 
