@@ -31,7 +31,9 @@ export function requiresAuth(options: RequiresAuthOptions = {}) {
     const apiClient = req.auth0?.client;
 
     if (!apiClient) {
-      throw new Error('Auth0 ApiClient not found on request. Make sure the Auth0 Express API router is registered.');
+      return next(
+        new Error('Auth0 ApiClient not found on request. Make sure the Auth0 Express API router is registered.')
+      );
     }
 
     const accessToken = getToken(req);
