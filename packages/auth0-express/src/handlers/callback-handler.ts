@@ -1,9 +1,9 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { createRouteUrl } from '../utils.js';
 import { resolveAppBaseUrl } from '../app-base-url.js';
 import { Auth0Options } from '../types.js';
 
-export async function handleCallback(req: Request, res: Response, options: Auth0Options): Promise<void> {
+export async function handleCallback(req: Request, res: Response, options: Auth0Options, next: NextFunction): Promise<void> {
   try {
     const appBaseUrl = resolveAppBaseUrl(options.appBaseUrl, req);
 
@@ -12,13 +12,7 @@ export async function handleCallback(req: Request, res: Response, options: Auth0
     );
 
     res.redirect(appState?.returnTo ?? appBaseUrl);
-  } catch (e: unknown) {
-    /* eslint-disable @typescript-eslint/no-explicit-any */
-    const error = e as any;
-
-    res.status(500).json({
-      error: error.cause?.error || error.name,
-      message: error.cause?.error_description || error.message,
-    });
+  } catch (error) {
+    next(error);
   }
 }
