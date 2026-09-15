@@ -3,7 +3,8 @@
   "version": "1.0.0",
   "workspaces": [
     "packages/*",
-    "examples/*"
+    "examples/*",
+    "examples/migration-express-openid-connect/*"
   ],
   "scripts": {
     "build": "turbo run build",
