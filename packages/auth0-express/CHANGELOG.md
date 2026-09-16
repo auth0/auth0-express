@@ -1,5 +1,17 @@
 # Change Log
 
+## [v1.0.0-beta.3](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0-beta.3) (2026-09-16)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.2...auth0-express-v1.0.0-beta.3)
+
+**Added**
+- feat(auth0-express): migration stores for express-openid-connect migration [\#7](https://github.com/auth0/auth0-express/pull/7) ([@frederikprijck](https://github.com/frederikprijck))
+
+**Fixed**
+- fix(auth0-express): reject userinfo (@) in inferred base URL host [\#45](https://github.com/auth0/auth0-express/pull/45) ([@frederikprijck](https://github.com/frederikprijck))
+- fix(auth0-express): keep migrated sessions alive across the absoluteDuration gap [\#46](https://github.com/auth0/auth0-express/pull/46) ([@frederikprijck](https://github.com/frederikprijck))
+- fix(auth0-express): reserve OIDC Request-Object params in login handler [\#25](https://github.com/auth0/auth0-express/pull/25) ([@frederikprijck](https://github.com/frederikprijck))
+
+
 ## [v1.0.0-beta.2](https://github.com/auth0/auth0-express/releases/tag/auth0-express-v1.0.0-beta.2) (2026-08-04)
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.1...auth0-express-v1.0.0-beta.2)
 
