@@ -516,6 +516,9 @@ app.post('/login', async (req, res, next) => {
 });
 ```
 
+> [!NOTE]
+> `isFederatedDomain` is a routing hint, not a security control. Optionally validate `org_id` from the returned ID token in `onCallback` against your own records regardless of what discovery returned.
+
 Prefer `startEnterpriseLogin` unless you specifically need to intervene between the two steps.
 
 ### Logging out
