@@ -5,15 +5,12 @@ import { Auth0Options } from '../types.js';
 export async function handleLogout(req: Request, res: Response, options: Auth0Options): Promise<void> {
   try {
     const returnTo = resolveAppBaseUrl(options.appBaseUrl, req);
-    const federatedParam = req.query.federated;
-    if (options.enterpriseConnect && federatedParam === 'false') {
-      console.warn(
-        '[Auth0] Enterprise Connect: logout() called with federated=false. ' +
-          'The enterprise IdP session will remain active; the user may silently re-authenticate on the next login.'
-      );
-    }
+    // In Enterprise Connect mode the mounted route always forces a federated
+    // logout so the enterprise IdP session is ended too. In classic mode we
+    // forward ?federated=true when the caller asks for it. Any warning about
+    // federated=false is emitted by the upstream client.logout(), not here.
     const federated =
-      options.enterpriseConnect || federatedParam === 'true'
+      options.enterpriseConnect || req.query.federated === 'true'
         ? { federated: true as const }
         : {};
 

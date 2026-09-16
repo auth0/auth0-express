@@ -123,4 +123,29 @@ describe('startEnterpriseLogin', () => {
     const txState = await decrypt<{ appState?: { returnTo?: string } }>(txCookie!, '<secret>', '__a0_tx');
     expect(txState.appState?.returnTo).toBe('http://localhost:3000/dashboard');
   });
+
+  test('propagates client errors instead of swallowing them as not-federated', async () => {
+    const app = createECApp();
+    let fallbackRan = false;
+    app.post('/login', async (req, res) => {
+      // Force the underlying client to fail (e.g. misconfiguration). This must
+      // surface as a thrown error, not be masked as a `false` (not-federated) result.
+      req.auth0.client.startEnterpriseLogin = async () => {
+        throw new Error('boom');
+      };
+      try {
+        const redirected = await startEnterpriseLogin(req, res, { email: 'user@federated.test' });
+        if (!redirected) fallbackRan = true;
+        res.status(200).end();
+      } catch (err) {
+        res.status(500).json({ message: (err as Error).message });
+      }
+    });
+
+    const res = await request(app).post('/login');
+
+    expect(res.status).toBe(500);
+    expect(res.body.message).toBe('boom');
+    expect(fallbackRan).toBe(false);
+  });
 });

@@ -471,20 +471,24 @@ app.use(createAuth0({
 
 ### Starting an Enterprise Connect login
 
-Use the exported `startEnterpriseLogin` handler. It runs email-domain Home Realm Discovery (WebFinger) and, if the domain is federated, redirects the browser to Auth0 and returns `true`. For a non-federated domain it does nothing and returns `false`, so you can fall back:
+Use the exported `startEnterpriseLogin` handler. It runs email-domain Home Realm Discovery (WebFinger) and, if the domain is federated, redirects the browser to Auth0 and returns `true`. For a non-federated domain it does nothing and returns `false`, so you can fall back. It throws on an unexpected error (e.g. misconfiguration), so forward that to your error handler:
 
 ```ts
 import { startEnterpriseLogin } from '@auth0/auth0-express';
 
-app.post('/login', async (req, res) => {
-  const federated = await startEnterpriseLogin(req, res, {
-    email: req.body.email,
-    returnTo: '/dashboard', // surfaced to onCallback as appState.returnTo
-  });
+app.post('/login', async (req, res, next) => {
+  try {
+    const federated = await startEnterpriseLogin(req, res, {
+      email: req.body.email,
+      returnTo: '/dashboard', // surfaced to onCallback as appState.returnTo
+    });
 
-  if (!federated) {
-    // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
-    res.redirect('/login?mode=password');
+    if (!federated) {
+      // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
+      res.redirect('/login?mode=password');
+    }
+  } catch (err) {
+    next(err);
   }
 });
 ```
@@ -515,6 +519,9 @@ app.post('/login', async (req, res, next) => {
   }
 });
 ```
+
+> [!NOTE]
+> `isFederatedDomain` is a routing hint, not a security control. Optionally validate `org_id` from the returned ID token in `onCallback` against your own records regardless of what discovery returned.
 
 Prefer `startEnterpriseLogin` unless you specifically need to intervene between the two steps.
 

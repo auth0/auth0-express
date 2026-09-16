@@ -17,7 +17,7 @@ export async function handleCallback(req: Request, res: Response, options: Auth0
         appState: result.appState,
       });
       if (!res.headersSent) {
-        res.status(500).json({ error: 'onCallback resolved without ending the response' });
+        res.status(500).json({ error: 'callback_not_resolved', message: 'onCallback resolved without ending the response' });
       }
       return;
     }
