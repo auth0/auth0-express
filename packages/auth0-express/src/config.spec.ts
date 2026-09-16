@@ -487,4 +487,28 @@ describe('getConfig', () => {
       ).toThrowError(InvalidConfigurationError);
     });
   });
+
+  describe('enterpriseConnect validation', () => {
+    beforeEach(() => {
+      process.env.AUTH0_DOMAIN = 'tenant.auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+    });
+
+    test('throws when enterpriseConnect is true and onCallback is missing', () => {
+      expect(() =>
+        getConfig({ enterpriseConnect: true })
+      ).toThrowError(InvalidConfigurationError);
+    });
+
+    test('does not throw when enterpriseConnect is true with onCallback', () => {
+      expect(() =>
+        getConfig({
+          enterpriseConnect: true,
+          onCallback: async () => {},
+        })
+      ).not.toThrow();
+    });
+  });
 });
