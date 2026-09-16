@@ -4,6 +4,7 @@
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.2...auth0-express-v1.0.0-beta.3)
 
 **Added**
+- feat(auth0-express): Enterprise Connect implementation [\#52](https://github.com/auth0/auth0-express/pull/52) ([@Piyush-85](https://github.com/Piyush-85))
 - feat(auth0-express): migration stores for express-openid-connect migration [\#7](https://github.com/auth0/auth0-express/pull/7) ([@frederikprijck](https://github.com/frederikprijck))
 
 **Fixed**
