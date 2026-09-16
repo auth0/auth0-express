@@ -199,7 +199,7 @@ export function createServerClientInstance(options: Auth0Options) {
     ? createRouteUrl(callbackPath, staticAppBaseUrl).toString()
     : undefined;
 
-  const isEC = !!options.enterpriseConnect;
+  const isEnterpriseConnect = !!options.enterpriseConnect;
 
   return new ServerClient<StoreOptions>({
     domain: wrapDomainResolver(options.domain),
@@ -207,14 +207,14 @@ export function createServerClientInstance(options: Auth0Options) {
     clientSecret: options.clientSecret,
     clientAssertionSigningKey: options.clientAssertionSigningKey,
     clientAssertionSigningAlg: options.clientAssertionSigningAlg,
-    enterpriseConnect: isEC || undefined,
+    enterpriseConnect: isEnterpriseConnect || undefined,
     authorizationParams: {
       audience: options.audience,
       redirect_uri: redirectUri,
     },
     transactionStore: new CookieTransactionStore({ secret: options.sessionSecret }, new ExpressCookieHandler()),
     // In EC mode, server-js uses NullStateStore automatically; do not pass stateStore.
-    stateStore: isEC ? undefined : getStateStore(options),
+    stateStore: isEnterpriseConnect ? undefined : getStateStore(options),
     stateIdentifier: options.sessionConfiguration?.cookie?.name,
     customFetch: options.customFetch,
     discoveryCache: options.discoveryCache,
