@@ -1,0 +1,26 @@
+{
+    "name": "example-express-enterprise-connect",
+    "version": "1.0.0",
+    "description": "",
+    "type": "module",
+    "scripts": {
+        "start": "tsx src/index.ts --project tsconfig.json",
+        "build": "tsc --project tsconfig.json"
+    },
+    "devDependencies": {
+        "@types/cookie-parser": "^1.4.9",
+        "@types/ejs": "^3.1.5",
+        "@types/express": "^5.0.6",
+        "@types/express-ejs-layouts": "^2.5.4",
+        "tsx": "^4.21.0",
+        "typescript": "~7.0.2"
+    },
+    "dependencies": {
+        "@auth0/auth0-express": "*",
+        "cookie-parser": "^1.4.7",
+        "dotenv": "^17.2.3",
+        "ejs": "^6.0.1",
+        "express": "^5.2.1",
+        "express-ejs-layouts": "^2.5.1"
+    }
+}
