@@ -20,6 +20,9 @@
   - [Starting an Enterprise Connect login](#starting-an-enterprise-connect-login)
   - [Checking Home Realm Discovery yourself](#checking-home-realm-discovery-yourself)
   - [Logging out](#logging-out)
+- [Experiment Center](#experiment-center)
+  - [Testing](#testing)
+  - [Production usage](#production-usage)
 - [Multiple Custom Domains (MCD)](#multiple-custom-domains-mcd)
 
 ## Configuration
@@ -569,6 +572,68 @@ app.get('/logout', (req, res) => {
 > Register your post-logout URL in the Auth0 application's **Allowed Logout URLs**.
 
 A complete runnable example is available under [`examples/example-express-enterprise-connect`](https://github.com/auth0/auth0-express/tree/main/examples/example-express-enterprise-connect).
+
+## Experiment Center
+
+> [!NOTE]
+> Experiment Center is in **Early Access**. To enable it for your tenant, contact Auth0 support.
+
+Experiment Center is Auth0's A/B testing platform for login flows. Pass `experiment_id` and `variation_id` as query parameters on the login URL to force a specific variation for that request, bypassing the server-side deterministic assignment. Both IDs are obtained from your Auth0 Dashboard or the Management API.
+
+```ts
+<a href="/auth/login?experiment_id=<EXPERIMENT_ID>&variation_id=<VARIATION_ID>">Log in</a>
+```
+
+When the experiment uses segment targeting, also pass `segment_id`:
+
+```ts
+<a href="/auth/login?experiment_id=<EXPERIMENT_ID>&variation_id=<VARIATION_ID>&segment_id=<SEGMENT_ID>">Log in</a>
+```
+
+> [!IMPORTANT]
+> Pass these parameters on the specific login link where you want the override, not in a global middleware that appends them to every `/auth/login` request. Adding them everywhere pins all logins to the same variation, which cancels out the A/B test.
+>
+> Do not include these parameters when triggering a silent authentication check (`prompt=none`). Experiment Center does not run during silent checks; the parameters will have no effect.
+
+### Testing
+
+When writing integration tests (Cypress, Playwright), read the IDs from environment variables and construct the login URL:
+
+```ts
+// Playwright example
+await page.goto(
+  `/auth/login?experiment_id=${process.env.EXPERIMENT_ID}&variation_id=${process.env.VARIATION_ID}`
+);
+```
+
+Avoid hardcoding variation IDs in production code — use your Auth0 Dashboard or CI environment variables instead.
+
+### Production usage
+
+In production, obtain variant decisions from a feature-flag service (e.g. LaunchDarkly) that determines the variation per request, then construct the login URL:
+
+```ts
+app.get('/login', async (req, res) => {
+  const variation = await featureFlagService.getVariation(req);
+  const params = new URLSearchParams({
+    experiment_id: variation.experimentId,
+    variation_id: variation.variationId,
+  });
+  res.redirect(`/auth/login?${params}`);
+});
+```
+
+If you have disabled the built-in routes (`mountRoutes: false`) and call `startInteractiveLogin` directly, pass the params via `authorizationParams` instead:
+
+```ts
+const url = await req.auth0.client.startInteractiveLogin({
+  authorizationParams: {
+    experiment_id: '<EXPERIMENT_ID>',
+    variation_id: '<VARIATION_ID>',
+  },
+});
+res.redirect(url.href);
+```
 
 ## Multiple Custom Domains (MCD)
 
