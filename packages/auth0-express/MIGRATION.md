@@ -543,7 +543,10 @@ class DatabaseStore {
 By default, users with an existing `express-openid-connect` session are logged out when you
 switch SDKs, because `@auth0/auth0-express` cannot read the old session format. Set
 `legacyCompatibility` to have the SDK transparently read existing `express-openid-connect`
-sessions and upgrade them to the new format on the next write — so users stay logged in:
+sessions and upgrade them to the new format — on first read for a stateful (server-side store)
+session, or on the next write for a stateless (cookie) session (see
+[Stateless vs. stateful](#stateless-cookie-vs-stateful-server-side-store) below) — so users
+stay logged in:
 
 ```javascript
 app.use(createAuth0({
@@ -562,9 +565,23 @@ app.use(createAuth0({
     legacyScope: 'openid profile email offline_access',
   },
 
-  // express-openid-connect's default cookie name is `appSession`. Match it so the existing
-  // cookie is picked up; otherwise the SDK looks for its own default (`__a0_session`).
-  sessionConfiguration: { cookie: { name: 'appSession' } },
+  sessionConfiguration: {
+    // express-openid-connect's default cookie name is `appSession`. Match it so the existing
+    // cookie is picked up; otherwise the SDK looks for its own default (`__a0_session`).
+    cookie: { name: 'appSession' },
+
+    // A migrated session keeps its ORIGINAL creation time (its express-openid-connect `iat`),
+    // and this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults
+    // `absoluteDuration` to 3 days, but express-openid-connect defaults it to 7 days — so with the
+    // default a legacy session already older than 3 days would be logged out on first read even
+    // though it was still valid under express-openid-connect. Set `absoluteDuration` (and
+    // `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at
+    // least what the old deployment used, so no in-flight session is cut short by the switch.
+    absoluteDuration: 604800, // 7 days — match (or exceed) express-openid-connect's default
+    // Already this SDK's default (1 day); only change it if you customized express-openid-connect's
+    // `rollingDuration`. Shown here for symmetry with absoluteDuration.
+    inactivityDuration: 86400, // 1 day — match (or exceed) express-openid-connect's rollingDuration
+  },
 }));
 ```
 
@@ -582,7 +599,11 @@ app.use(createAuth0({
 - **Stateless** (no `sessionStore`): the legacy encrypted cookie is decrypted and transformed on read; the next write re-encrypts it in the new format.
 - **Stateful** (`sessionStore` provided): the legacy session is read from your store (Redis, etc.), transformed, and immediately written back to the same store key — upgrading the session in place on that first read, not just on the caller's next write. **Backchannel logout works right away** for a migrated stateful session, since the write on read gives your store a chance to index the session by `sid` (if it does so) before any logout token can arrive for it. If your express-openid-connect deployment set `requireSignedSessionStoreCookie: true`, set `requireSignedLegacyCookie: true` to keep the store-key signature as a required integrity control.
 
+> **Caveat — sessions without a `sid`:** a session's `sid` is taken from the legacy session's `sid`, falling back to the ID token's `sid` claim, and finally to the empty string `''` if neither is present. Backchannel logout resolves a session by `sid`, so a migrated session that has no `sid` cannot be targeted by a logout token (only front-channel logout ends it). When your store builds a `sid` index inside `set()`, **skip indexing when `sid` is empty** — otherwise every `sid`-less session collides on one shared index key and overwrites each other. The example Redis store does this with a simple `if (sid)` guard.
+
 > **Note:** `legacyAudience` and `legacyScope` only apply to a legacy session's single access token, which is migrated into one token set. Match `legacyAudience` to your requested `audience` or the carried-over token will not be found.
+
+> **Note:** A migrated session keeps its original creation time, and this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults `absoluteDuration` to 3 days while express-openid-connect defaults it to 7 — so set `sessionConfiguration.absoluteDuration` (and `inactivityDuration` if you customized express-openid-connect's `rollingDuration`) to at least the old deployment's value, or in-flight sessions older than the default are treated as expired and rejected on the next request. The migration store enforces this cap on read (a migrated cookie still carries express-openid-connect's own `Max-Age`, so the browser keeps sending it past this SDK's cap; the store refuses it rather than honoring it until the next write). See the `sessionConfiguration` block in the example above. If you leave `absoluteDuration` unset in migration mode, the store logs a one-time `console.warn` at startup so this potential misconfiguration surfaces before it shows up as user "why was I logged out?" reports. Conversely, setting `absoluteDuration` **higher** than your old deployment used extends carried-over sessions beyond what express-openid-connect would have allowed (and the inactivity window restarts from the migration), so choose a value that matches your intended session policy, not just the largest one that avoids logouts.
 
 ---
 
@@ -632,7 +653,10 @@ res.redirect(`/auth/login?${params.toString()}`);
 ```
 
 <details>
-<summary><strong>All Supported Authorization Parameters</strong></summary>
+<summary><strong>Commonly Used Authorization Parameters</strong></summary>
+
+Any query parameter on `/auth/login` is forwarded to `/authorize` **except** a reserved set
+(see below). These are the ones integrators pass most often:
 
 | Parameter | Purpose | Example |
 |-----------|---------|---------|
@@ -642,6 +666,17 @@ res.redirect(`/auth/login?${params.toString()}`);
 | `ui_locales` | UI language | `es`, `fr` |
 | `screen_hint` | Skip login/signup UI | `signup` |
 | `max_age` | Max age in seconds | `3600` |
+| `organization` | Organization to log into | `org_123` |
+| `connection` | Connection to use | `google-oauth2` |
+
+**Reserved (never forwarded from the query):** the SDK strips protocol- and routing-critical
+parameters so a crafted login link cannot control them — `response_type`, `state`,
+`code_challenge`, `code_challenge_method`, `client_id`, `redirect_uri`, `nonce`, `scope`, the
+target-API family (`audience`, `aud`, `resource`, `resources`, `resource_indicator`), the
+Request-Object family (`request`, `request_uri`, `id_token_hint`, `claims`, `response_mode`), and
+`authorization_details`. To set any of these, call
+[`req.auth0.client.startInteractiveLogin`](../../README.md) directly instead of relying on
+query-string forwarding.
 
 </details>
 
