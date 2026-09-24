@@ -6,7 +6,8 @@ import { createRedisSessionStore } from './redis-store.js';
 const app = express();
 
 const redisUrl = process.env.REDIS_URL;
-const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl) : undefined;
+const absoluteDuration = 60 * 60 * 24 * 3; // 3 days — must match sessionConfiguration below
+const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl, absoluteDuration) : undefined;
 
 // Scenario 3 of the runbook lowers the absolute cap to simulate an aged session. Parse the override
 // defensively: a missing or non-numeric value falls back to the express-openid-connect default (7
