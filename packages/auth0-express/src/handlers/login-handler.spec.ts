@@ -204,6 +204,20 @@ describe('login handler - query parameter sanitization', () => {
       expect(url.searchParams.get('login_hint')).toBe('a@b.com');
     });
 
+    test('forwards experiment_id, variation_id, and segment_id to the authorization URL', async () => {
+      const app = createConfiguredApp(appConfig);
+      const res = await request(app).get('/auth/login').query({
+        experiment_id: 'exp_123',
+        variation_id: 'var_abc',
+        segment_id: 'seg_xyz',
+      });
+      expect(res.status).toBe(302);
+      const url = new URL(res.headers['location']?.toString() ?? '');
+      expect(url.searchParams.get('experiment_id')).toBe('exp_123');
+      expect(url.searchParams.get('variation_id')).toBe('var_abc');
+      expect(url.searchParams.get('segment_id')).toBe('seg_xyz');
+    });
+
     test('allows safe params when mixed with dangerous ones', async () => {
       const app = createConfiguredApp(appConfig);
 
