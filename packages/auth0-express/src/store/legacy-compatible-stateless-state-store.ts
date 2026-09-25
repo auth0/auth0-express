@@ -148,18 +148,16 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
 
     const { session: legacyData, iat } = legacyResult;
     const stateData = this.#transformer.transformLegacySession(legacyData);
-    if (iat !== undefined) {
-      stateData.internal.createdAt = iat;
+    stateData.internal.createdAt = iat;
 
-      // Enforce this SDK's absoluteDuration on read. A migrated cookie still carries
-      // express-openid-connect's own Max-Age/exp (the OLD deployment's window), so unlike a modern
-      // cookie the browser does not stop sending it at this SDK's cap and there is no modern `exp`
-      // to reject it. `calculateMaxAge(iat) <= 0` means the session is already past
-      // `createdAt + absoluteDuration`: treat it as expired and return no session rather than
-      // honoring it until the next write.
-      if (this.calculateMaxAge(iat) <= 0) {
-        return undefined;
-      }
+    // Enforce this SDK's absoluteDuration on read. A migrated cookie still carries
+    // express-openid-connect's own Max-Age/exp (the OLD deployment's window), so unlike a modern
+    // cookie the browser does not stop sending it at this SDK's cap and there is no modern `exp`
+    // to reject it. `calculateMaxAge(iat) <= 0` means the session is already past
+    // `createdAt + absoluteDuration`: treat it as expired and return no session rather than
+    // honoring it until the next write.
+    if (this.calculateMaxAge(iat) <= 0) {
+      return undefined;
     }
     return stateData as TData;
   }
@@ -183,9 +181,11 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
   /**
    * Decrypts data using express-openid-connect's encryption method (A256GCM with HKDF).
    * Tries each secret in order; the first successful decryption wins (key rotation support).
-   * Returns the session payload and the header `iat`, or undefined if all secrets fail.
+   * Returns the session payload and the numeric header `iat`, or undefined if all secrets fail or
+   * the decrypted cookie is missing the header-level `exp`/`iat` that a genuine
+   * express-openid-connect cookie always carries.
    */
-  async #decryptLegacy(encryptedData: string): Promise<{ session: ExpressOpenidConnectSession; iat?: number } | undefined> {
+  async #decryptLegacy(encryptedData: string): Promise<{ session: ExpressOpenidConnectSession; iat: number } | undefined> {
     for (const secret of this.#legacySecrets) {
       try {
         const key = await this.#deriveLegacyKey(secret);
@@ -206,10 +206,18 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
           return undefined;
         }
 
+        // The header iat becomes internal.createdAt and gates this SDK's absoluteDuration on read.
+        // Require it to be a number: a genuine express-openid-connect cookie always stamps a numeric
+        // iat, so a cookie that lacks one (or carries a non-numeric value) is malformed. Reject it
+        // rather than letting a session with no createdAt slip past the absolute-duration cap. This
+        // mirrors the header-exp check above and the stateful store's #isLegacyStorePayload guard.
         const headerIat = header.iat;
+        if (typeof headerIat !== 'number') {
+          return undefined;
+        }
         return {
           session: payload as ExpressOpenidConnectSession,
-          iat: typeof headerIat === 'number' ? headerIat : undefined,
+          iat: headerIat,
         };
       } catch (err) {
         // Swallow any JOSE-level failure and try the next secret / fall through to "no session".
