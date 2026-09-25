@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { MigrationStatelessStateStore } from './legacy-compatible-stateless-state-store.js';
 import { ExpressCookieHandler } from './express-cookie-handler.js';
 import { EncryptJWT } from 'jose';
+import { StatelessStateStore } from '@auth0/auth0-server-js';
 import type { StateData } from '@auth0/auth0-server-js';
 
 describe('MigrationStatelessStateStore', () => {
@@ -455,6 +456,126 @@ describe('MigrationStatelessStateStore', () => {
       vi.restoreAllMocks();
     });
 
+    it('propagates a non-jose error from modern decryption instead of masking it as logged out', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+        },
+        cookieHandler
+      );
+
+      // A real modern cookie carries a kid in its JWE header, so it routes to the base decrypt.
+      const modernSession: StateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: undefined,
+        refreshToken: 'r',
+        tokenSets: [],
+        internal: { sid: 's', createdAt: Math.floor(Date.now() / 1000) },
+      };
+      const modernCookie = await (store as any).encrypt(
+        'appSession',
+        modernSession,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      // Force the base (modern) decrypt to throw a non-jose error — a genuine fault such as a
+      // TypeError from a broken Web Crypto runtime. It must propagate, not be swallowed and
+      // surfaced to the caller as a silent "logged out".
+      vi.spyOn(StatelessStateStore.prototype as any, 'decrypt').mockRejectedValueOnce(
+        new TypeError('modern decrypt boom')
+      );
+
+      await expect((store as any).decrypt('appSession', modernCookie)).rejects.toThrow(TypeError);
+
+      vi.restoreAllMocks();
+    });
+
+    it('routes by kid: a legacy (no-kid) cookie skips the base decrypt, a modern (kid) cookie uses it', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+          legacyAudience: 'https://api.test.com',
+        },
+        cookieHandler
+      );
+
+      // spyOn without a mock implementation calls through to the real base decrypt.
+      const baseDecrypt = vi.spyOn(StatelessStateStore.prototype as any, 'decrypt');
+
+      // Legacy cookie (A256GCM, no kid) must be routed straight to the legacy decoder.
+      const legacyEncrypted = await encryptLegacy(
+        { id_token: sampleIdToken, access_token: 'legacy-token' },
+        secret
+      );
+      const legacyResult = await (store as any).decrypt('test-id', legacyEncrypted);
+      expect(legacyResult).toBeDefined();
+      expect(legacyResult.tokenSets[0].accessToken).toBe('legacy-token');
+      expect(baseDecrypt).not.toHaveBeenCalled();
+
+      // Modern cookie (carries a kid) must be routed to the base decrypt.
+      const modernSession: StateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: undefined,
+        refreshToken: 'r',
+        tokenSets: [],
+        internal: { sid: 's', createdAt: Math.floor(Date.now() / 1000) },
+      };
+      const modernCookie = await (store as any).encrypt(
+        'appSession',
+        modernSession,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+      const modernResult = await (store as any).decrypt('appSession', modernCookie);
+      expect(modernResult?.user?.sub).toBe('auth0|123456');
+      expect(baseDecrypt).toHaveBeenCalled();
+
+      vi.restoreAllMocks();
+    });
+
+    it('routes a cookie whose kid is empty or non-string to the legacy decoder, not the base store', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+          legacyAudience: 'https://api.test.com',
+        },
+        cookieHandler
+      );
+
+      // #isModernCookie requires a NON-EMPTY string kid, because auth0-server-js always stamps one
+      // (crypto.randomUUID()). A cookie whose header carries kid: '' — or a non-string kid — is
+      // therefore not a modern cookie and must route to the legacy decoder. A naive gate that only
+      // checked for the presence of a kid would misroute it to the base store, which cannot read an
+      // A256GCM/dir cookie. This pins the `typeof kid === 'string' && kid.length > 0` half of the
+      // gate that the present/absent routing test above does not exercise.
+      const baseDecrypt = vi.spyOn(StatelessStateStore.prototype as any, 'decrypt');
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+
+      const emptyKidCookie = await encryptLegacyWithHeaderKid(
+        { id_token: sampleIdToken, access_token: 'empty-kid-token' },
+        secret,
+        '',
+        exp
+      );
+      const emptyKidResult = await (store as any).decrypt('test-id', emptyKidCookie);
+      expect(baseDecrypt).not.toHaveBeenCalled();
+      expect(emptyKidResult?.tokenSets[0].accessToken).toBe('empty-kid-token');
+
+      const numericKidCookie = await encryptLegacyWithHeaderKid(
+        { id_token: sampleIdToken, access_token: 'numeric-kid-token' },
+        secret,
+        123,
+        exp
+      );
+      const numericKidResult = await (store as any).decrypt('test-id', numericKidCookie);
+      expect(baseDecrypt).not.toHaveBeenCalled();
+      expect(numericKidResult?.tokenSets[0].accessToken).toBe('numeric-kid-token');
+
+      vi.restoreAllMocks();
+    });
+
     it('should decrypt with second secret when key rotation is used', async () => {
       const oldSecret = 'old-secret-that-is-at-least-32-chars-long!';
       const newSecret = 'new-secret-that-is-at-least-32-chars-long!';
@@ -836,6 +957,45 @@ async function encryptLegacyWithHeaderIat(
 
   return await new EncryptJWT(payload)
     .setProtectedHeader({ enc: 'A256GCM', alg: 'dir', iat, exp } as any)
+    .encrypt(encryptionKey);
+}
+
+/**
+ * Encrypts data as a legacy A256GCM cookie whose protected header ALSO carries a `kid`, to exercise
+ * the modern-cookie gate in #isModernCookie. auth0-server-js always stamps a non-empty string kid,
+ * so a cookie with an empty (kid: '') or non-string kid must fail that gate and route to the legacy
+ * decoder. The cookie is otherwise a valid A256GCM/dir legacy cookie (numeric header iat + exp), so
+ * the legacy path decrypts it, proving the routing landed there.
+ */
+async function encryptLegacyWithHeaderKid(
+  payload: Record<string, unknown>,
+  secret: string,
+  kid: unknown,
+  exp: number
+): Promise<string> {
+  const BYTE_LENGTH = 32;
+  const ENCRYPTION_INFO = 'JWE CEK';
+  const DIGEST = 'SHA-256';
+
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, ['deriveBits']);
+
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'HKDF',
+      hash: DIGEST,
+      info: encoder.encode(ENCRYPTION_INFO),
+      salt: new Uint8Array(0),
+    },
+    keyMaterial,
+    BYTE_LENGTH * 8
+  );
+
+  const encryptionKey = new Uint8Array(derivedBits);
+  const now = Math.floor(Date.now() / 1000);
+
+  return await new EncryptJWT(payload)
+    .setProtectedHeader({ enc: 'A256GCM', alg: 'dir', iat: now, exp, kid } as any)
     .encrypt(encryptionKey);
 }
 
