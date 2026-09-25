@@ -1,5 +1,12 @@
 # Change Log
 
+## [v1.0.0-beta.4](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0-beta.4) (2026-09-25)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.3...auth0-express-v1.0.0-beta.4)
+
+**Added**
+- feat(auth0-express): Experiment Center support [\#57](https://github.com/auth0/auth0-express/pull/57) ([@cschetan77](https://github.com/cschetan77))
+
+
 ## [v1.0.0-beta.3](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0-beta.3) (2026-09-16)
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.2...auth0-express-v1.0.0-beta.3)
 
