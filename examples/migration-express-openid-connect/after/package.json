@@ -13,7 +13,7 @@
   },
   "dependencies": {
     "@auth0/auth0-express": "*",
-    "dotenv": "^17.2.3",
+    "dotenv": "^18.0.3",
     "express": "^5.2.1",
     "redis": "^6.2.1"
   }
