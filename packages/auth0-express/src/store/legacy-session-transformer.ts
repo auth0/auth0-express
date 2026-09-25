@@ -53,6 +53,17 @@ export class LegacySessionTransformer {
       typeof legacy.expires_at === 'string' ? parseInt(legacy.expires_at, 10) : legacy.expires_at ?? 0;
     const expiresAt = Number.isNaN(parsedExpiresAt) ? 0 : parsedExpiresAt;
 
+    // Resolve the session id, tolerating malformed legacy data. Only accept an actual string:
+    // internal.sid is used verbatim as a store index key and in backchannel-logout resolution,
+    // both of which assume a string, so a non-string value (number, object, array from a corrupt
+    // or tampered cookie) must not be cast blindly. Prefer the session-level sid, fall back to the
+    // ID token's sid claim, and finally to '' when neither is a usable string. A session with an
+    // empty sid cannot be targeted by backchannel logout (which resolves sessions by sid), so
+    // stores that index by sid should skip indexing an empty value rather than collapsing every
+    // sid-less session onto one shared key.
+    const sessionSid = typeof legacy.sid === 'string' ? legacy.sid : undefined;
+    const userSid = user && typeof user.sid === 'string' ? user.sid : undefined;
+
     // Build the transformed session data
     const transformed: StateData = {
       user,
@@ -69,11 +80,7 @@ export class LegacySessionTransformer {
           ]
         : [],
       internal: {
-        // Prefer the session-level sid, fall back to the ID token's sid claim, and finally to ''
-        // when neither is present. A session with an empty sid cannot be targeted by backchannel
-        // logout (which resolves sessions by sid), so stores that index by sid should skip indexing
-        // an empty value rather than collapsing every sid-less session onto one shared key.
-        sid: (legacy.sid as string | undefined) ?? (user?.sid as string | undefined) ?? '',
+        sid: sessionSid ?? userSid ?? '',
         createdAt: Math.floor(Date.now() / 1000),
       },
     };

@@ -34,6 +34,68 @@ describe('LegacySessionTransformer', () => {
     });
   });
 
+  describe('sid resolution (SDK-11514)', () => {
+    it('uses a string session-level sid', () => {
+      const result = transformer.transformLegacySession({ access_token: 'at', sid: 'session-123' });
+      expect(result.internal.sid).toBe('session-123');
+    });
+
+    it('falls back to the ID token sid claim when the session has no sid', () => {
+      const result = transformer.transformLegacySession({
+        access_token: 'at',
+        id_token: makeIdToken({ sub: 'auth0|1', sid: 'idtoken-sid' }),
+      });
+      expect(result.internal.sid).toBe('idtoken-sid');
+    });
+
+    it('prefers the session-level sid over the ID token sid claim', () => {
+      const result = transformer.transformLegacySession({
+        access_token: 'at',
+        sid: 'session-sid',
+        id_token: makeIdToken({ sub: 'auth0|1', sid: 'idtoken-sid' }),
+      });
+      expect(result.internal.sid).toBe('session-sid');
+    });
+
+    it('resolves to an empty string when no sid is present anywhere', () => {
+      const result = transformer.transformLegacySession({
+        access_token: 'at',
+        id_token: makeIdToken({ sub: 'auth0|1' }),
+      });
+      expect(result.internal.sid).toBe('');
+    });
+
+    it('ignores a non-string session-level sid rather than casting it', () => {
+      // A number/object sid (from a corrupt or tampered cookie) must not become internal.sid, which
+      // is used verbatim as a store key and in backchannel-logout resolution.
+      const numericSid = transformer.transformLegacySession(JSON.parse('{"access_token":"at","sid":12345}'));
+      expect(numericSid.internal.sid).toBe('');
+
+      const objectSid = transformer.transformLegacySession(JSON.parse('{"access_token":"at","sid":{"a":1}}'));
+      expect(objectSid.internal.sid).toBe('');
+    });
+
+    it('ignores a non-string session sid but still falls back to a valid ID token sid', () => {
+      const result = transformer.transformLegacySession(
+        JSON.parse(`{"access_token":"at","sid":99,"id_token":"${makeIdToken({ sub: 'auth0|1', sid: 'idtoken-sid' })}"}`)
+      );
+      expect(result.internal.sid).toBe('idtoken-sid');
+    });
+
+    it('ignores a non-string ID token sid claim', () => {
+      const result = transformer.transformLegacySession({
+        access_token: 'at',
+        id_token: makeIdToken({ sub: 'auth0|1', sid: { nested: true } }),
+      });
+      expect(result.internal.sid).toBe('');
+    });
+
+    it('always yields a string sid', () => {
+      const result = transformer.transformLegacySession(JSON.parse('{"access_token":"at","sid":{"a":1}}'));
+      expect(typeof result.internal.sid).toBe('string');
+    });
+  });
+
   describe('custom property passthrough hardening (SDK-11512)', () => {
     it('preserves genuine custom properties from the legacy session', () => {
       const result = transformer.transformLegacySession({
