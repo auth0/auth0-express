@@ -53,6 +53,22 @@ app.use(
   })
 );
 
+// Minimal HTML escaping for values interpolated into the demo pages below. Those pages render
+// user-controlled data (ID token claims such as the display name, and the raw claim object), and
+// res.send(string) is served as text/html, so an unescaped value like a name containing
+// "<script>" would execute in the visitor's browser. Escape the five significant HTML characters,
+// ampersand first so the others are not double-escaped. A production app should use a templating
+// engine with automatic escaping; this keeps the example dependency-free while modelling the safe
+// pattern.
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 // We never render the access token itself — it is a bearer secret and does not belong in a
 // page. To confirm the session carried over from express-openid-connect we show non-secret
 // facts about it: the user identity, and each token set's audience / scope / expiry plus
@@ -63,12 +79,12 @@ function renderSessionFacts(user: Record<string, unknown>, session: { tokenSets?
   const rows = tokenSets
     .map(
       (t) =>
-        `<tr><td>${t.audience}</td><td>${t.scope ?? '(none)'}</td>` +
+        `<tr><td>${escapeHtml(t.audience)}</td><td>${escapeHtml(t.scope ?? '(none)')}</td>` +
         `<td>${new Date(t.expiresAt * 1000).toISOString()}</td></tr>`
     )
     .join('');
   return (
-    `<h1>auth0-express</h1><p>Logged in as ${user.name ?? user.sub}</p>` +
+    `<h1>auth0-express</h1><p>Logged in as ${escapeHtml(user.name ?? user.sub)}</p>` +
     `<h2>Session facts</h2>` +
     `<ul>` +
     `<li>Refresh token present: <b>${session.refreshToken ? 'yes' : 'no'}</b></li>` +
@@ -78,7 +94,7 @@ function renderSessionFacts(user: Record<string, unknown>, session: { tokenSets?
     (tokenSets.length
       ? `<table border="1" cellpadding="4"><thead><tr><th>Audience</th><th>Scope</th><th>Expires (UTC)</th></tr></thead><tbody>${rows}</tbody></table>`
       : `<p>(no token sets)</p>`) +
-    `<h2>User</h2><pre>${JSON.stringify(user, null, 2)}</pre>` +
+    `<h2>User</h2><pre>${escapeHtml(JSON.stringify(user, null, 2))}</pre>` +
     `<p><a href="/auth/logout">Logout</a></p>`
   );
 }
@@ -95,7 +111,7 @@ app.get('/', async (req: Request, res: Response) => {
 
 app.get('/private', requiresAuth(), async (req: Request, res: Response) => {
   const user = await req.auth0.client.getUser();
-  res.send(`<h1>Private</h1><pre>${JSON.stringify(user, null, 2)}</pre>`);
+  res.send(`<h1>Private</h1><pre>${escapeHtml(JSON.stringify(user, null, 2))}</pre>`);
 });
 
 // Forces a session write to observe the cookie migrating to the modern format, and proves the
@@ -121,14 +137,14 @@ app.get('/refresh-token', requiresAuth(), async (req: Request, res: Response) =>
         `refresh token is valid.</p>` +
         `<h2>New token set</h2>` +
         `<ul>` +
-        `<li>Audience: <b>${result.audience}</b></li>` +
-        `<li>Scope: <b>${result.scope ?? '(none)'}</b></li>` +
+        `<li>Audience: <b>${escapeHtml(result.audience)}</b></li>` +
+        `<li>Scope: <b>${escapeHtml(result.scope ?? '(none)')}</b></li>` +
         `<li>Expires (UTC): <b>${new Date(result.expiresAt * 1000).toISOString()}</b></li>` +
         `</ul>` +
         `<a href="/">Back to home (confirm original session + audience token still there)</a>`
     );
   } catch (e) {
-    res.status(400).send(`getAccessToken for '${secondAudience}' failed: ${(e as Error).message}`);
+    res.status(400).send(`getAccessToken for '${escapeHtml(secondAudience)}' failed: ${escapeHtml((e as Error).message)}`);
   }
 });
 
