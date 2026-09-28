@@ -78,7 +78,12 @@ export class LegacySessionTransformer {
       },
     };
 
-    // Preserve any additional custom properties, excluding the transformed ones
+    // Preserve any additional custom properties, skipping the ones already mapped above and the
+    // prototype-chain keys. `legacy` is parsed from a cookie/store payload that could be crafted to
+    // carry a `__proto__` own property (JSON.parse keeps `__proto__` as an own key, unlike an object
+    // literal), and `transformed[key] = value` would then trip the `__proto__` setter and reparent
+    // the object's prototype. `constructor` and `prototype` are excluded for the same
+    // defense-in-depth reason. Genuine custom claims still pass through.
     const excludedKeys = new Set([
       'id_token',
       'access_token',
@@ -91,6 +96,9 @@ export class LegacySessionTransformer {
       'refreshToken',
       'tokenSets',
       'internal',
+      '__proto__',
+      'constructor',
+      'prototype',
     ]);
 
     for (const [key, value] of Object.entries(legacy)) {
