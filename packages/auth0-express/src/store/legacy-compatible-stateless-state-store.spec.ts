@@ -694,6 +694,59 @@ describe('MigrationStatelessStateStore', () => {
       expect(result).toBeUndefined();
     });
 
+    it('should return undefined for a legacy session with a valid exp but no header iat', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+        },
+        cookieHandler
+      );
+
+      const legacySession = {
+        id_token: sampleIdToken,
+        access_token: 'no-iat-access-token',
+      };
+      // The header iat becomes createdAt and gates this SDK's absoluteDuration. A genuine
+      // express-openid-connect cookie always stamps a numeric iat, so a cookie with a valid exp but
+      // no iat is malformed and must be rejected rather than bypassing the absolute-session cap.
+      const noIatEncrypted = await encryptLegacyWithHeaderExpAndIat(
+        legacySession,
+        secret,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      const result = await (store as any).decrypt('test-id', noIatEncrypted);
+      expect(result).toBeUndefined();
+    });
+
+    it('should return undefined for a legacy session whose header iat is not a number', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+        },
+        cookieHandler
+      );
+
+      const legacySession = {
+        id_token: sampleIdToken,
+        access_token: 'string-iat-access-token',
+      };
+      // A non-numeric iat cannot serve as createdAt. Before this fix it was coerced to undefined and
+      // took the identical bypass as a missing iat: createdAt was left at the read-time default and
+      // the absolute-duration cap was skipped entirely. Reject it exactly as a missing iat.
+      const badIatEncrypted = await encryptLegacyWithHeaderExpAndIat(
+        legacySession,
+        secret,
+        Math.floor(Date.now() / 1000) + 3600,
+        'not-a-number'
+      );
+
+      const result = await (store as any).decrypt('test-id', badIatEncrypted);
+      expect(result).toBeUndefined();
+    });
+
     it('uses the JWE header iat as internal.createdAt', async () => {
       const store = new MigrationStatelessStateStore(
         {
@@ -997,6 +1050,46 @@ async function encryptLegacyWithHeaderKid(
   return await new EncryptJWT(payload)
     .setProtectedHeader({ enc: 'A256GCM', alg: 'dir', iat: now, exp, kid } as any)
     .encrypt(encryptionKey);
+}
+
+/**
+ * Encrypts data with a valid header-level exp and an OPTIONAL iat, to exercise the store's rejection
+ * of a cookie missing (or carrying a non-numeric) header iat — the value that becomes createdAt and
+ * gates absoluteDuration. Omit `iat` for the no-iat case, or pass a non-number to simulate a
+ * malformed header. A genuine express-openid-connect cookie always stamps a numeric iat.
+ */
+async function encryptLegacyWithHeaderExpAndIat(
+  payload: Record<string, unknown>,
+  secret: string,
+  exp: number,
+  iat?: unknown
+): Promise<string> {
+  const BYTE_LENGTH = 32;
+  const ENCRYPTION_INFO = 'JWE CEK';
+  const DIGEST = 'SHA-256';
+
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, ['deriveBits']);
+
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'HKDF',
+      hash: DIGEST,
+      info: encoder.encode(ENCRYPTION_INFO),
+      salt: new Uint8Array(0),
+    },
+    keyMaterial,
+    BYTE_LENGTH * 8
+  );
+
+  const encryptionKey = new Uint8Array(derivedBits);
+
+  const header: Record<string, unknown> = { enc: 'A256GCM', alg: 'dir', exp };
+  if (iat !== undefined) {
+    header.iat = iat;
+  }
+
+  return await new EncryptJWT(payload).setProtectedHeader(header as any).encrypt(encryptionKey);
 }
 
 /**

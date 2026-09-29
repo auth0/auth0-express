@@ -148,18 +148,16 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
 
     const { session: legacyData, iat } = legacyResult;
     const stateData = this.#transformer.transformLegacySession(legacyData);
-    if (iat !== undefined) {
-      stateData.internal.createdAt = iat;
+    stateData.internal.createdAt = iat;
 
-      // Enforce this SDK's absoluteDuration on read. A migrated cookie still carries
-      // express-openid-connect's own Max-Age/exp (the OLD deployment's window), so unlike a modern
-      // cookie the browser does not stop sending it at this SDK's cap and there is no modern `exp`
-      // to reject it. `calculateMaxAge(iat) <= 0` means the session is already past
-      // `createdAt + absoluteDuration`: treat it as expired and return no session rather than
-      // honoring it until the next write.
-      if (this.calculateMaxAge(iat) <= 0) {
-        return undefined;
-      }
+    // Enforce this SDK's absoluteDuration on read. A migrated cookie still carries
+    // express-openid-connect's own Max-Age/exp (the OLD deployment's window), so unlike a modern
+    // cookie the browser does not stop sending it at this SDK's cap and there is no modern `exp`
+    // to reject it. `calculateMaxAge(iat) <= 0` means the session is already past
+    // `createdAt + absoluteDuration`: treat it as expired and return no session rather than
+    // honoring it until the next write.
+    if (this.calculateMaxAge(iat) <= 0) {
+      return undefined;
     }
     return stateData as TData;
   }
@@ -183,9 +181,11 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
   /**
    * Decrypts data using express-openid-connect's encryption method (A256GCM with HKDF).
    * Tries each secret in order; the first successful decryption wins (key rotation support).
-   * Returns the session payload and the header `iat`, or undefined if all secrets fail.
+   * Returns the session payload and the numeric header `iat`, or undefined if all secrets fail or
+   * the decrypted cookie is missing the header-level `exp`/`iat` that a genuine
+   * express-openid-connect cookie always carries.
    */
-  async #decryptLegacy(encryptedData: string): Promise<{ session: ExpressOpenidConnectSession; iat?: number } | undefined> {
+  async #decryptLegacy(encryptedData: string): Promise<{ session: ExpressOpenidConnectSession; iat: number } | undefined> {
     for (const secret of this.#legacySecrets) {
       try {
         const key = await this.#deriveLegacyKey(secret);
@@ -200,16 +200,30 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
         // payload). A genuine express-openid-connect cookie always carries a numeric exp; reject a
         // cookie that lacks one, rather than accepting an exp-less cookie indefinitely. Reject once
         // exp has been reached, mirroring appSession's `exp > epoch()` assertion (i.e. invalid when
-        // `exp <= now`), not one second later.
+        // `exp <= now`), not one second later. Require it to be finite: `typeof NaN === 'number'` is
+        // true and `NaN <= now` is false, so a NaN exp would otherwise slip through. NaN cannot
+        // arrive from a real cookie (JSON has no NaN literal), but the finite check costs nothing.
         const headerExp = header.exp;
-        if (typeof headerExp !== 'number' || headerExp <= Math.floor(Date.now() / 1000)) {
+        if (typeof headerExp !== 'number' || !Number.isFinite(headerExp) || headerExp <= Math.floor(Date.now() / 1000)) {
           return undefined;
         }
 
+        // The header iat becomes internal.createdAt and gates this SDK's absoluteDuration on read.
+        // Require it to be a finite number: a genuine express-openid-connect cookie always stamps a
+        // numeric iat, so a cookie that lacks one (or carries a non-numeric value) is malformed.
+        // Reject it rather than letting a session with no createdAt slip past the absolute-duration
+        // cap. The Number.isFinite check also rejects NaN — `typeof NaN === 'number'` is true, and
+        // `calculateMaxAge(NaN) <= 0` is false, so a NaN iat would otherwise pass through as
+        // createdAt = NaN and bypass the cap. NaN cannot arrive from a real cookie (JSON has no NaN
+        // literal), but the check costs nothing. This mirrors the header-exp check above and the
+        // stateful store's #isLegacyStorePayload guard.
         const headerIat = header.iat;
+        if (typeof headerIat !== 'number' || !Number.isFinite(headerIat)) {
+          return undefined;
+        }
         return {
           session: payload as ExpressOpenidConnectSession,
-          iat: typeof headerIat === 'number' ? headerIat : undefined,
+          iat: headerIat,
         };
       } catch (err) {
         // Swallow any JOSE-level failure and try the next secret / fall through to "no session".
