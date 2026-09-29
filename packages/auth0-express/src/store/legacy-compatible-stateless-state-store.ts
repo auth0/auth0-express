@@ -200,19 +200,25 @@ export class MigrationStatelessStateStore<TStoreOptions> extends StatelessStateS
         // payload). A genuine express-openid-connect cookie always carries a numeric exp; reject a
         // cookie that lacks one, rather than accepting an exp-less cookie indefinitely. Reject once
         // exp has been reached, mirroring appSession's `exp > epoch()` assertion (i.e. invalid when
-        // `exp <= now`), not one second later.
+        // `exp <= now`), not one second later. Require it to be finite: `typeof NaN === 'number'` is
+        // true and `NaN <= now` is false, so a NaN exp would otherwise slip through. NaN cannot
+        // arrive from a real cookie (JSON has no NaN literal), but the finite check costs nothing.
         const headerExp = header.exp;
-        if (typeof headerExp !== 'number' || headerExp <= Math.floor(Date.now() / 1000)) {
+        if (typeof headerExp !== 'number' || !Number.isFinite(headerExp) || headerExp <= Math.floor(Date.now() / 1000)) {
           return undefined;
         }
 
         // The header iat becomes internal.createdAt and gates this SDK's absoluteDuration on read.
-        // Require it to be a number: a genuine express-openid-connect cookie always stamps a numeric
-        // iat, so a cookie that lacks one (or carries a non-numeric value) is malformed. Reject it
-        // rather than letting a session with no createdAt slip past the absolute-duration cap. This
-        // mirrors the header-exp check above and the stateful store's #isLegacyStorePayload guard.
+        // Require it to be a finite number: a genuine express-openid-connect cookie always stamps a
+        // numeric iat, so a cookie that lacks one (or carries a non-numeric value) is malformed.
+        // Reject it rather than letting a session with no createdAt slip past the absolute-duration
+        // cap. The Number.isFinite check also rejects NaN — `typeof NaN === 'number'` is true, and
+        // `calculateMaxAge(NaN) <= 0` is false, so a NaN iat would otherwise pass through as
+        // createdAt = NaN and bypass the cap. NaN cannot arrive from a real cookie (JSON has no NaN
+        // literal), but the check costs nothing. This mirrors the header-exp check above and the
+        // stateful store's #isLegacyStorePayload guard.
         const headerIat = header.iat;
-        if (typeof headerIat !== 'number') {
+        if (typeof headerIat !== 'number' || !Number.isFinite(headerIat)) {
           return undefined;
         }
         return {
