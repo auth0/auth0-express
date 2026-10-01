@@ -1,4 +1,6 @@
 import type {
+  AnonymousCookieOptions,
+  AnonymousStore,
   DiscoveryCacheOptions,
   DomainResolver,
   SessionConfiguration,
@@ -7,7 +9,31 @@ import type {
 } from '@auth0/auth0-server-js';
 import type { Request, Response } from 'express';
 
-export type { DomainResolver, DiscoveryCacheOptions, UserClaims } from '@auth0/auth0-server-js';
+export type {
+  AnonymousCookieOptions,
+  AnonymousSessionData,
+  AnonymousStore,
+  AnonymousTokenSet,
+  CreateAnonymousSessionOptions,
+  DiscoveryCacheOptions,
+  DomainResolver,
+  GetAnonymousAccessTokenOptions,
+  UserClaims,
+} from '@auth0/auth0-server-js';
+
+/**
+ * Options for the built-in `StatelessAnonymousStore` created when `anonymousSessions` is enabled.
+ */
+export interface AnonymousSessionsOptions {
+  /**
+   * Lifetime of the anonymous session in seconds. Should match
+   * `sessions.anonymous.lifetime_in_minutes * 60` on your Auth0 tenant.
+   * @default 2592000 (30 days)
+   */
+  sessionTokenLifetime?: number;
+  /** Cookie attributes for the anonymous session cookie. */
+  cookie?: AnonymousCookieOptions;
+}
 
 /**
  * Hook called after the OAuth callback completes in Enterprise Connect mode.
@@ -186,6 +212,50 @@ export interface Auth0Options {
    * `ServerClient` defaults (TTL 600s, max 100 entries) when omitted.
    */
   discoveryCache?: DiscoveryCacheOptions;
+
+  /**
+   * Enable anonymous sessions using the built-in cookie-backed store.
+   * Set to `true` to use defaults, or provide options to configure the cookie lifetime
+   * and cookie attributes. The store is encrypted with the same `sessionSecret` used for
+   * user sessions.
+   *
+   * When set, `req.auth0.client.anonymous` becomes available for creating and managing
+   * anonymous sessions.
+   *
+   * @example
+   * ```typescript
+   * // Default settings
+   * app.use(createAuth0({ sessionSecret: '...', anonymousSessions: true }));
+   *
+   * // Custom lifetime
+   * app.use(createAuth0({
+   *   sessionSecret: '...',
+   *   anonymousSessions: { sessionTokenLifetime: 7 * 24 * 60 * 60 },
+   * }));
+   * ```
+   */
+  anonymousSessions?: boolean | AnonymousSessionsOptions;
+
+  /**
+   * Provide a custom anonymous session store (e.g. Redis-backed).
+   * Takes precedence over `anonymousSessions` when both are set.
+   */
+  anonymousStore?: AnonymousStore<StoreOptions>;
+
+  /**
+   * Cookie name (and store key) for the anonymous session.
+   * @default '__a0_anon'
+   */
+  anonymousSessionIdentifier?: string;
+
+  /**
+   * Whether to discard the anonymous session once the visitor logs in.
+   * Set to `false` if you need to read the anonymous identity at login time
+   * (e.g. to merge a guest cart) — in that case call `client.anonymous.logout()`
+   * yourself after merging.
+   * @default true
+   */
+  clearAnonymousSessionOnLogin?: boolean;
 
   /**
    * Put the SDK in Enterprise Connect mode. Auth0 acts as a pure SSO relay;
