@@ -825,7 +825,7 @@ app.get('/api/token', async (req, res) => {
 
 ### Merging what the visitor did before they logged in
 
-Set `anonymousSessions.clearOnLogin: false` to keep the anonymous session alive through the login flow. Read it in the callback before it is discarded, then clean it up yourself.
+Set `anonymousSessions.clearOnLogin: false` to keep the anonymous session alive through the login flow. You can read it on the first authenticated request after login, then clean it up yourself.
 
 ```ts
 app.use(createAuth0({
@@ -833,13 +833,10 @@ app.use(createAuth0({
   anonymousSessions: { clearOnLogin: false },
 }));
 
-// Custom callback route — read the anonymous session before login completes
-app.get('/auth/callback', async (req, res, next) => {
-  const anonymousSession = await req.auth0.client.anonymous.getSession();
-  if (anonymousSession?.sub) {
-    // Merge the guest cart into the authenticated identity
-    await mergeGuestCart(anonymousSession.sub, req);
-    // Clean up the anonymous session
+app.use(requiresAuth(), async (req, res, next) => {
+  const anonSession = await req.auth0.client.anonymous.getSession();
+  if (anonSession?.sub) {
+    await mergeGuestCart(anonSession.sub, req);
     await req.auth0.client.anonymous.logout();
   }
   next();
