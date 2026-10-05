@@ -320,6 +320,54 @@ test('anonymousSessions with options passes sessionTokenLifetime to store', asyn
   expect(anonCookie).toContain('Max-Age=604800');
 });
 
+test('anonymousSessions default clears __a0_anon cookie after login', async () => {
+  const { encrypt } = await import('./test-utils/encryption.js');
+  const { generateToken } = await import('./test-utils/tokens.js');
+
+  const idToken = await generateToken(domain, 'user_123', '<client_id>');
+  const userAccessToken = await generateToken(domain, 'user_123');
+
+  server.use(
+    http.post(`https://${domain}/custom/token`, () =>
+      HttpResponse.json({
+        access_token: userAccessToken,
+        id_token: idToken,
+        expires_in: 86400,
+        token_type: 'Bearer',
+      })
+    )
+  );
+
+  const app = createAnonApp(); // anonymousSessions: true → clearOnLogin defaults to true
+
+  app.post('/anon/create', async (req, res) => {
+    await req.auth0.client.anonymous.createSession();
+    res.json({});
+  });
+
+  const createRes = await request(app).post('/anon/create');
+  const anonCookieHeader = (createRes.headers['set-cookie'] as string[]).find((c) =>
+    c.startsWith('__a0_anon')
+  );
+  const anonCookieValue = anonCookieHeader?.split(';')[0] ?? '';
+
+  const txCookieName = '__a0_tx';
+  const txCookieValue = await encrypt({}, '<secret>', txCookieName, Date.now() + 10000);
+  const callbackRes = await request(app)
+    .get('/auth/callback')
+    .query({ code: '123' })
+    .set('cookie', `${txCookieName}=${txCookieValue}; ${anonCookieValue}`);
+
+  expect(callbackRes.status).toBe(302);
+
+  // __a0_anon SHOULD be cleared (clearOnLogin: true is the default)
+  const setCookies = callbackRes.headers['set-cookie'] as string[] | undefined;
+  const anonCleared = setCookies?.some(
+    (c) => c.startsWith('__a0_anon') && (c.includes('Max-Age=0') || c.includes('Expires='))
+  );
+  expect(anonCleared).toBe(true);
+});
+
 test('anonymousSessions.clearOnLogin: false keeps __a0_anon cookie after login', async () => {
   const { encrypt } = await import('./test-utils/encryption.js');
   const { generateToken } = await import('./test-utils/tokens.js');
@@ -368,4 +416,21 @@ test('anonymousSessions.clearOnLogin: false keeps __a0_anon cookie after login',
     (c) => c.startsWith('__a0_anon') && (c.includes('Max-Age=0') || c.includes('Expires='))
   );
   expect(anonCleared).toBeFalsy();
+});
+
+test('anonymousSessions.cookie.path scopes the __a0_anon cookie to the given path', async () => {
+  const app = createAnonApp({
+    anonymousSessions: { cookie: { path: '/app' } },
+  });
+  app.post('/anon/create', async (req, res) => {
+    await req.auth0.client.anonymous.createSession();
+    res.json({});
+  });
+
+  const res = await request(app).post('/anon/create');
+
+  expect(res.status).toBe(200);
+  const cookies = res.headers['set-cookie'] as string[];
+  const anonCookie = cookies?.find((c) => c.startsWith('__a0_anon'));
+  expect(anonCookie).toContain('Path=/app');
 });
