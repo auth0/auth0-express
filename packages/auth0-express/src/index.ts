@@ -9,6 +9,7 @@ export * from './types.js';
 export { InvalidConfigurationError } from './errors/index.js';
 export { resolveAppBaseUrl, isUrl } from './app-base-url.js';
 export {
+  AnonymousSessionError,
   AnonymousSessionExpiredError,
   isFederatedDomain,
   EnterpriseConnectNotSupportedError,

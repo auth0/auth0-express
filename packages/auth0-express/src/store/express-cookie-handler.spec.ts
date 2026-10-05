@@ -94,13 +94,31 @@ describe('ExpressCookieHandler', () => {
   });
 
   describe('deleteCookie', () => {
-    it('calls clearCookie on the response', () => {
+    it('calls clearCookie on the response without options when none provided', () => {
       const handler = new ExpressCookieHandler();
       const storeOptions = createStoreOptions();
 
       handler.deleteCookie('session', storeOptions);
 
-      expect(storeOptions.response.clearCookie).toHaveBeenCalledWith('session');
+      expect(storeOptions.response.clearCookie).toHaveBeenCalledWith('session', undefined);
+    });
+
+    it('forwards only path and domain to clearCookie, ignoring other cookie attributes', () => {
+      const handler = new ExpressCookieHandler();
+      const storeOptions = createStoreOptions();
+
+      handler.deleteCookie('session', storeOptions, {
+        path: '/app',
+        domain: 'example.com',
+        maxAge: 3600,
+        secure: true,
+        sameSite: 'lax',
+      });
+
+      expect(storeOptions.response.clearCookie).toHaveBeenCalledWith('session', {
+        path: '/app',
+        domain: 'example.com',
+      });
     });
   });
 });
