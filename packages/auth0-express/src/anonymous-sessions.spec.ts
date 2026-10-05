@@ -221,11 +221,11 @@ test('MissingAnonymousSessionError thrown when getAccessToken called with no ses
 });
 
 test('AnonymousSessionExpiredError thrown when session_expired returned on re-mint', async () => {
-  // Call sequence:
+  // Call sequence (auth0-auth-js v1.16.1+):
   //   1 → createSession  (returns stale token, expires_in=0)
-  //   2 → re-mint attempt (returns session_expired → auth0-auth-js auto-creates new session)
-  //   3 → fresh createSession by auth0-auth-js (returns valid token, sessionReplaced=true)
-  //   → server-js detects sessionReplaced, throws AnonymousSessionExpiredError
+  //   2 → re-mint attempt (returns session_expired 400)
+  //     → auth0-auth-js throws AnonymousSessionError
+  //     → server-js catches and throws AnonymousSessionExpiredError
   let callNum = 0;
   server.use(
     http.post(`https://${domain}/anonymous/token`, async () => {
@@ -239,20 +239,10 @@ test('AnonymousSessionExpiredError thrown when session_expired returned on re-mi
           session_expires_in: 2592000,
         });
       }
-      if (callNum === 2) {
-        return HttpResponse.json(
-          { error: 'session_expired', error_description: 'Session has expired' },
-          { status: 400 }
-        );
-      }
-      // Call 3: fresh session created by auth0-auth-js internally
-      return HttpResponse.json({
-        access_token: anonAccessToken,
-        token_type: 'N_A',
-        expires_in: 7200,
-        session_token: SESSION_TOKEN + '_new',
-        session_expires_in: 2592000,
-      });
+      return HttpResponse.json(
+        { error: 'session_expired', error_description: 'Session has expired' },
+        { status: 400 }
+      );
     })
   );
 
