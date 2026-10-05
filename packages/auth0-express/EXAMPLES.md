@@ -788,7 +788,7 @@ app.get('/api/data', async (req, res) => {
 
 ### Ending the anonymous session
 
-`logout()` removes the `__a0_anon` cookie. The anonymous session is also cleared automatically when the visitor logs in (controlled by `clearAnonymousSessionOnLogin`, which defaults to `true`).
+`logout()` removes the `__a0_anon` cookie. The anonymous session is also cleared automatically when the visitor logs in (controlled by `anonymousSessions.clearOnLogin`, which defaults to `true`).
 
 ```ts
 app.post('/api/session/end', async (req, res) => {
@@ -825,13 +825,12 @@ app.get('/api/token', async (req, res) => {
 
 ### Merging what the visitor did before they logged in
 
-Set `clearAnonymousSessionOnLogin: false` to keep the anonymous session alive through the login flow. Read it in the callback before it is discarded, then clean it up yourself.
+Set `anonymousSessions.clearOnLogin: false` to keep the anonymous session alive through the login flow. Read it in the callback before it is discarded, then clean it up yourself.
 
 ```ts
 app.use(createAuth0({
   // ...
-  anonymousSessions: true,
-  clearAnonymousSessionOnLogin: false,
+  anonymousSessions: { clearOnLogin: false },
 }));
 
 // Custom callback route — read the anonymous session before login completes
@@ -849,7 +848,7 @@ app.get('/auth/callback', async (req, res, next) => {
 
 ### Custom store
 
-For advanced use cases (e.g. a Redis-backed store), implement the `AnonymousStore` interface and pass it via `anonymousStore`. This takes precedence over `anonymousSessions`.
+For advanced use cases (e.g. a Redis-backed store), implement the `AnonymousStore` interface and pass it via `anonymousSessions.store`.
 
 ```ts
 import type { AnonymousStore } from '@auth0/auth0-express';
@@ -860,7 +859,9 @@ class RedisAnonymousStore implements AnonymousStore<StoreOptions> {
 
 app.use(createAuth0({
   // ...
-  anonymousStore: new RedisAnonymousStore(),
-  anonymousSessionIdentifier: '__a0_anon', // optional, defaults to '__a0_anon'
+  anonymousSessions: {
+    store: new RedisAnonymousStore(),
+    identifier: '__a0_anon', // optional, defaults to '__a0_anon'
+  },
 }));
 ```

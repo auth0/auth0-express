@@ -190,10 +190,11 @@ function getStateStore(options: Auth0Options) {
 }
 
 function getAnonymousStore(options: Auth0Options) {
-  if (options.anonymousStore) return options.anonymousStore;
   if (!options.anonymousSessions) return undefined;
   const anonOpts = typeof options.anonymousSessions === 'object' ? options.anonymousSessions : {};
-  return new StatelessAnonymousStore({ secret: options.sessionSecret, ...anonOpts }, new ExpressCookieHandler());
+  if (anonOpts.store) return anonOpts.store;
+  const { store: _s, identifier: _i, clearOnLogin: _c, ...storeOpts } = anonOpts;
+  return new StatelessAnonymousStore({ secret: options.sessionSecret, ...storeOpts }, new ExpressCookieHandler());
 }
 
 export function createServerClientInstance(options: Auth0Options) {
@@ -226,7 +227,7 @@ export function createServerClientInstance(options: Auth0Options) {
     customFetch: options.customFetch,
     discoveryCache: options.discoveryCache,
     anonymousStore: getAnonymousStore(options),
-    anonymousSessionIdentifier: options.anonymousSessionIdentifier,
-    clearAnonymousSessionOnLogin: options.clearAnonymousSessionOnLogin,
+    anonymousSessionIdentifier: typeof options.anonymousSessions === 'object' ? options.anonymousSessions.identifier : undefined,
+    clearAnonymousSessionOnLogin: typeof options.anonymousSessions === 'object' ? options.anonymousSessions.clearOnLogin : undefined,
   });
 }

@@ -320,7 +320,7 @@ test('anonymousSessions with options passes sessionTokenLifetime to store', asyn
   expect(anonCookie).toContain('Max-Age=604800');
 });
 
-test('clearAnonymousSessionOnLogin: false keeps __a0_anon cookie after login', async () => {
+test('anonymousSessions.clearOnLogin: false keeps __a0_anon cookie after login', async () => {
   const { encrypt } = await import('./test-utils/encryption.js');
   const { generateToken } = await import('./test-utils/tokens.js');
 
@@ -338,7 +338,7 @@ test('clearAnonymousSessionOnLogin: false keeps __a0_anon cookie after login', a
     )
   );
 
-  const app = createAnonApp({ clearAnonymousSessionOnLogin: false });
+  const app = createAnonApp({ anonymousSessions: { clearOnLogin: false } });
 
   app.post('/anon/create', async (req, res) => {
     await req.auth0.client.anonymous.createSession();
@@ -362,7 +362,7 @@ test('clearAnonymousSessionOnLogin: false keeps __a0_anon cookie after login', a
 
   expect(callbackRes.status).toBe(302);
 
-  // __a0_anon should NOT be cleared (clearAnonymousSessionOnLogin: false)
+  // __a0_anon should NOT be cleared (anonymousSessions.clearOnLogin: false)
   const setCookies = callbackRes.headers['set-cookie'] as string[] | undefined;
   const anonCleared = setCookies?.some(
     (c) => c.startsWith('__a0_anon') && (c.includes('Max-Age=0') || c.includes('Expires='))
