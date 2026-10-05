@@ -757,10 +757,11 @@ app.use(createAuth0({
 
 ```ts
 app.post('/api/session/start', async (req, res) => {
-  const tokenSet = await req.auth0.client.anonymous.createSession({
+  await req.auth0.client.anonymous.createSession({
     metadata: { source: 'landing-page', cart: req.body.cartId },
   });
-  res.json({ sub: tokenSet.accessToken });
+  const session = await req.auth0.client.anonymous.getSession();
+  res.status(201).json({ sub: session.sub });
 });
 
 app.get('/api/session', async (req, res) => {
