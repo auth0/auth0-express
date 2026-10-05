@@ -193,8 +193,8 @@ function getAnonymousStore(options: Auth0Options) {
   if (!options.anonymousSessions) return undefined;
   const anonOpts = typeof options.anonymousSessions === 'object' ? options.anonymousSessions : {};
   if (anonOpts.store) return anonOpts.store;
-  const { store: _s, identifier: _i, clearOnLogin: _c, ...storeOpts } = anonOpts;
-  return new StatelessAnonymousStore({ secret: options.sessionSecret, ...storeOpts }, new ExpressCookieHandler());
+  const { sessionTokenLifetime, cookie } = anonOpts;
+  return new StatelessAnonymousStore({ secret: options.sessionSecret, sessionTokenLifetime, cookie }, new ExpressCookieHandler());
 }
 
 export function createServerClientInstance(options: Auth0Options) {
