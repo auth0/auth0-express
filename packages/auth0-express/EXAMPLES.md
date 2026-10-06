@@ -739,7 +739,7 @@ app.use(createAuth0({
 }));
 ```
 
-To customise the cookie lifetime (default 30 days, should match your tenant's `sessions.anonymous.lifetime_in_minutes`):
+To customise the cookie lifetime (default 30 days, should match your tenant's `sessions.anonymous.lifetime_in_minutes * 60` — `sessionTokenLifetime` is in seconds):
 
 ```ts
 app.use(createAuth0({
