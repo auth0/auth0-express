@@ -802,12 +802,36 @@ app.post('/api/session/end', async (req, res) => {
 
 ### Error handling
 
+`createSession` throws `AnonymousSessionError` when Auth0 rejects the request. Common codes:
+- `feature_not_enabled` — anonymous sessions are not enabled on the tenant
+- `unauthorized_client` — the client is not configured for anonymous sessions
+- `invalid_request` — metadata exceeds 1 024 bytes or contains non-string values
+- `invalid_target` — the requested audience does not allow anonymous access
+
 ```ts
 import {
+  AnonymousSessionError,
   AnonymousSessionExpiredError,
   MissingAnonymousSessionError,
 } from '@auth0/auth0-express';
 
+app.post('/api/session/start', async (req, res) => {
+  try {
+    await req.auth0.client.anonymous.createSession();
+    res.sendStatus(201);
+  } catch (e) {
+    if (e instanceof AnonymousSessionError) {
+      // Auth0 rejected the request — check e.code for the reason
+      return res.status(403).json({ error: e.code });
+    }
+    throw e;
+  }
+});
+```
+
+`getAccessToken` throws when the session is missing or has expired on Auth0's side:
+
+```ts
 app.get('/api/token', async (req, res) => {
   try {
     const { accessToken } = await req.auth0.client.anonymous.getAccessToken();
@@ -818,8 +842,10 @@ app.get('/api/token', async (req, res) => {
       return res.status(401).json({ error: 'no_session' });
     }
     if (e instanceof AnonymousSessionExpiredError) {
-      // The session token expired on Auth0's side — create a new session
-      return res.status(410).json({ error: 'session_expired' });
+      // The session token expired on Auth0's side — start a fresh anonymous session
+      await req.auth0.client.anonymous.createSession();
+      const { accessToken } = await req.auth0.client.anonymous.getAccessToken();
+      return res.json({ accessToken });
     }
     throw e;
   }
