@@ -751,6 +751,8 @@ app.use(createAuth0({
 }));
 ```
 
+> **`cookie.path` warning:** keep the default `/`. Setting a subpath (e.g. `cookie: { path: '/app' }`) scopes the cookie away from the auth routes (`/auth/login`, `/auth/callback`), so the browser will not send it there. This silently disables anonymous-to-authenticated linking at login and the `clearOnLogin` behaviour at callback. Only use a subpath if your auth routes are also mounted under that same path.
+
 ### Creating and reading a session
 
 `req.auth0.client.anonymous` is the anonymous sub-client. Call `createSession()` on the visitor's first request to establish their anonymous identity.

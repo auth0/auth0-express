@@ -53,6 +53,12 @@ export interface AnonymousSessionsOptions {
   /**
    * Cookie attributes for the anonymous session cookie.
    * Only applies when using the built-in store (i.e. `store` is not set).
+   *
+   * **`path` warning:** keep the default `/`. Setting a subpath (e.g. `/app`) scopes the cookie
+   * away from the auth routes (`/auth/login`, `/auth/callback`), so the browser will not send it
+   * there. This silently disables anonymous-to-authenticated linking at login and the
+   * `clearOnLogin` behaviour at callback. Only use a subpath if your auth routes are also
+   * mounted under that same path.
    */
   cookie?: AnonymousCookieOptions;
 }
