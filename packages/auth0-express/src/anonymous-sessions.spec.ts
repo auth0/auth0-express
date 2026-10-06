@@ -203,6 +203,34 @@ test('anonymous.logout clears the __a0_anon cookie', async () => {
   expect(cleared).toBe(true);
 });
 
+test('anonymous.logout clears the cookie with the configured path', async () => {
+  const app = createAnonApp({ anonymousSessions: { cookie: { path: '/app' } } });
+
+  app.post('/anon/create', async (req, res) => {
+    await req.auth0.client.anonymous.createSession();
+    res.json({});
+  });
+
+  app.post('/anon/logout', async (req, res) => {
+    await req.auth0.client.anonymous.logout();
+    res.json({});
+  });
+
+  const createRes = await request(app).post('/anon/create');
+  const anonCookieValue = (createRes.headers['set-cookie'] as string[])
+    .find((c) => c.startsWith('__a0_anon'))
+    ?.split(';')[0] ?? '';
+
+  const logoutRes = await request(app).post('/anon/logout').set('cookie', anonCookieValue);
+
+  const setCookies = logoutRes.headers['set-cookie'] as string[] | undefined;
+  const cleared = setCookies?.find(
+    (c) => c.startsWith('__a0_anon') && (c.includes('Max-Age=0') || c.includes('Expires='))
+  );
+  expect(cleared).toBeDefined();
+  expect(cleared).toContain('Path=/app');
+});
+
 test('MissingAnonymousSessionError thrown when getAccessToken called with no session', async () => {
   const app = createAnonApp();
   app.get('/anon/token', async (req, res) => {
@@ -318,6 +346,49 @@ test('anonymousSessions with options passes sessionTokenLifetime to store', asyn
   const cookies = res.headers['set-cookie'] as string[];
   const anonCookie = cookies?.find((c) => c.startsWith('__a0_anon'));
   expect(anonCookie).toContain('Max-Age=604800');
+});
+
+test('anonymousSessions.store uses the custom store for get and set', async () => {
+  let setCalls = 0;
+  let getCalls = 0;
+  const customStore = {
+    set: async () => { setCalls++; },
+    get: async () => { getCalls++; return undefined; },
+    delete: async () => {},
+  };
+
+  const app = createAnonApp({ anonymousSessions: { store: customStore } });
+  app.post('/anon/create', async (req, res) => {
+    await req.auth0.client.anonymous.createSession();
+    res.json({});
+  });
+  app.get('/anon/session', async (req, res) => {
+    await req.auth0.client.anonymous.getSession();
+    res.json({});
+  });
+
+  // Built-in StatelessAnonymousStore sets no __a0_anon cookie — the custom store owns its I/O
+  const createRes = await request(app).post('/anon/create');
+  expect(setCalls).toBe(1);
+  const cookies = createRes.headers['set-cookie'] as string[] | undefined;
+  expect(cookies?.some((c) => c.startsWith('__a0_anon'))).toBeFalsy();
+
+  await request(app).get('/anon/session');
+  expect(getCalls).toBe(1);
+});
+
+test('anonymousSessions.identifier changes the cookie name', async () => {
+  const app = createAnonApp({ anonymousSessions: { identifier: '__my_anon' } });
+  app.post('/anon/create', async (req, res) => {
+    await req.auth0.client.anonymous.createSession();
+    res.json({});
+  });
+
+  const res = await request(app).post('/anon/create');
+
+  const cookies = res.headers['set-cookie'] as string[];
+  expect(cookies?.some((c) => c.startsWith('__my_anon'))).toBe(true);
+  expect(cookies?.some((c) => c.startsWith('__a0_anon'))).toBe(false);
 });
 
 test('anonymousSessions default clears __a0_anon cookie after login', async () => {
