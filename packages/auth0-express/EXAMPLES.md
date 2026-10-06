@@ -851,7 +851,7 @@ app.use(requiresAuth(), async (req, res, next) => {
 For advanced use cases (e.g. a Redis-backed store), implement the `AnonymousStore` interface and pass it via `anonymousSessions.store`.
 
 ```ts
-import type { AnonymousStore } from '@auth0/auth0-express';
+import type { AnonymousStore, StoreOptions } from '@auth0/auth0-express';
 
 class RedisAnonymousStore implements AnonymousStore<StoreOptions> {
   // implement get(), set(), delete()
