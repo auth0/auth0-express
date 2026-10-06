@@ -1,5 +1,19 @@
 # Change Log
 
+## [v1.0.0-beta.5](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0-beta.5) (2026-10-06)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.4...auth0-express-v1.0.0-beta.5)
+
+**Added**
+- feat(auth0-express): add anonymous sessions support [\#65](https://github.com/auth0/auth0-express/pull/65) ([@cschetan77](https://github.com/cschetan77))
+
+**Fixed**
+- fix(auth0-express): route stateless decrypt by cookie kid [\#59](https://github.com/auth0/auth0-express/pull/59) ([@nandan-bhat](https://github.com/nandan-bhat))
+- fix(auth0-express): require a numeric header iat in the stateless legacy path [\#60](https://github.com/auth0/auth0-express/pull/60) ([@nandan-bhat](https://github.com/nandan-bhat))
+- fix(auth0-express): exclude prototype-chain keys from custom-property passthrough [\#61](https://github.com/auth0/auth0-express/pull/61) ([@nandan-bhat](https://github.com/nandan-bhat))
+- fix(auth0-express): validate that a migrated sid is a string [\#62](https://github.com/auth0/auth0-express/pull/62) ([@nandan-bhat](https://github.com/nandan-bhat))
+- fix(auth0-express): HTML-escape interpolated values in the migration example [\#63](https://github.com/auth0/auth0-express/pull/63) ([@nandan-bhat](https://github.com/nandan-bhat))
+
+
 ## [v1.0.0-beta.4](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0-beta.4) (2026-09-25)
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.3...auth0-express-v1.0.0-beta.4)
 
