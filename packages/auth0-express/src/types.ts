@@ -12,6 +12,7 @@ import type { Request, Response } from 'express';
 export type {
   AnonymousCookieOptions,
   AnonymousSessionData,
+  AnonymousStateData,
   AnonymousStore,
   AnonymousTokenSet,
   CreateAnonymousSessionOptions,
