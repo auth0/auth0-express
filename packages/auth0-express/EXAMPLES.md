@@ -763,7 +763,7 @@ app.post('/api/session/start', async (req, res) => {
     metadata: { source: 'landing-page', cart: req.body.cartId },
   });
   const session = await req.auth0.client.anonymous.getSession();
-  res.status(201).json({ sub: session.sub });
+  res.status(201).json({ sub: session?.sub });
 });
 
 app.get('/api/session', async (req, res) => {
