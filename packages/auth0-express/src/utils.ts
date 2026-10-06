@@ -1,4 +1,4 @@
-import { CookieTransactionStore, ServerClient, StatefulStateStore, StatelessStateStore } from '@auth0/auth0-server-js';
+import { CookieTransactionStore, ServerClient, StatefulStateStore, StatelessAnonymousStore, StatelessStateStore } from '@auth0/auth0-server-js';
 import type { DomainResolver } from '@auth0/auth0-server-js';
 import { Auth0Options, StoreOptions } from './types.js';
 import { ExpressCookieHandler } from './store/express-cookie-handler.js';
@@ -189,6 +189,14 @@ function getStateStore(options: Auth0Options) {
   );
 }
 
+function getAnonymousStore(options: Auth0Options) {
+  if (!options.anonymousSessions) return undefined;
+  const anonOpts = typeof options.anonymousSessions === 'object' ? options.anonymousSessions : {};
+  if (anonOpts.store) return anonOpts.store;
+  const { sessionTokenLifetime, cookie } = anonOpts;
+  return new StatelessAnonymousStore({ secret: options.sessionSecret, sessionTokenLifetime, cookie }, new ExpressCookieHandler());
+}
+
 export function createServerClientInstance(options: Auth0Options) {
   const callbackPath = options.routes?.callback ?? '/auth/callback';
   // Only a static string base URL yields a startup redirect_uri. In dynamic
@@ -218,5 +226,8 @@ export function createServerClientInstance(options: Auth0Options) {
     stateIdentifier: options.sessionConfiguration?.cookie?.name,
     customFetch: options.customFetch,
     discoveryCache: options.discoveryCache,
+    anonymousStore: getAnonymousStore(options),
+    anonymousSessionIdentifier: typeof options.anonymousSessions === 'object' ? options.anonymousSessions.identifier : undefined,
+    clearAnonymousSessionOnLogin: typeof options.anonymousSessions === 'object' ? options.anonymousSessions.clearOnLogin : undefined,
   });
 }

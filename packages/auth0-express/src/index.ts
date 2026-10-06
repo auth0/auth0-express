@@ -8,6 +8,12 @@ export type { ClaimAuthOptions, ClaimCheckFunction } from './middleware/claim-au
 export * from './types.js';
 export { InvalidConfigurationError } from './errors/index.js';
 export { resolveAppBaseUrl, isUrl } from './app-base-url.js';
-export { isFederatedDomain, EnterpriseConnectNotSupportedError } from '@auth0/auth0-server-js';
+export {
+  AnonymousSessionError,
+  AnonymousSessionExpiredError,
+  isFederatedDomain,
+  EnterpriseConnectNotSupportedError,
+  MissingAnonymousSessionError,
+} from '@auth0/auth0-server-js';
 export type { EnterpriseConnectCallbackHook } from './types.js';
 export { startEnterpriseLogin } from './handlers/start-enterprise-login.js';

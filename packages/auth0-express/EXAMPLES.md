@@ -23,6 +23,14 @@
 - [Experiment Center](#experiment-center)
   - [Testing](#testing)
   - [Production usage](#production-usage)
+- [Anonymous Sessions](#anonymous-sessions)
+  - [Enabling anonymous sessions](#enabling-anonymous-sessions)
+  - [Creating and reading a session](#creating-and-reading-a-session)
+  - [Getting an access token](#getting-an-access-token)
+  - [Ending the anonymous session](#ending-the-anonymous-session)
+  - [Error handling](#error-handling)
+  - [Merging what the visitor did before they logged in](#merging-what-the-visitor-did-before-they-logged-in)
+  - [Custom store](#custom-store)
 - [Multiple Custom Domains (MCD)](#multiple-custom-domains-mcd)
 
 ## Configuration
@@ -704,3 +712,182 @@ When resolving tenant custom domains via a resolver, you are responsible for ens
 
 - **Single-tenant only:** resolvers are for multiple custom domains of one Auth0 tenant, not for connecting multiple tenants.
 - **Secure proxy:** when inferring the host from request headers, deploy behind a trusted edge/reverse proxy (Cloudflare, Nginx, AWS ALB) that sanitizes and overwrites `Host` / `X-Forwarded-Host` before they reach the app. Without that, an attacker can influence domain resolution and produce malicious redirects during login/logout. See the `trust proxy` and allow-list guidance under [Dynamic Application Base URLs](#dynamic-application-base-urls).
+## Anonymous Sessions
+
+Anonymous Sessions give unauthenticated visitors a persistent identity before they log in. Use it to carry guest-cart contents, pre-login personalisation data, or Post-Login Action correlation into the authenticated session.
+
+> [!NOTE]
+> The Auth0 tenant must have the anonymous sessions feature enabled and the client ID must be configured for anonymous sessions via the Management API.
+
+### Enabling anonymous sessions
+
+Add `anonymousSessions: true` to your `createAuth0` configuration. The SDK creates a JWE-encrypted `__a0_anon` cookie using the same `sessionSecret` as your user session.
+
+```ts
+import express from 'express';
+import { createAuth0 } from '@auth0/auth0-express';
+
+const app = express();
+
+app.use(createAuth0({
+  domain: '<AUTH0_DOMAIN>',
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  appBaseUrl: '<APP_BASE_URL>',
+  sessionSecret: '<SESSION_SECRET>',
+  anonymousSessions: true,
+}));
+```
+
+To customise the cookie lifetime (default 30 days, should match your tenant's `sessions.anonymous.lifetime_in_minutes * 60` — `sessionTokenLifetime` is in seconds):
+
+```ts
+app.use(createAuth0({
+  // ...
+  anonymousSessions: {
+    sessionTokenLifetime: 7 * 24 * 60 * 60, // 7 days in seconds
+    cookie: { sameSite: 'lax', secure: true },
+  },
+}));
+```
+
+> **`cookie.path` warning:** keep the default `/`. Setting a subpath (e.g. `cookie: { path: '/app' }`) scopes the cookie away from the auth routes (`/auth/login`, `/auth/callback`), so the browser will not send it there. This silently disables anonymous-to-authenticated linking at login and the `clearOnLogin` behaviour at callback. Only use a subpath if your auth routes are also mounted under that same path.
+
+### Creating and reading a session
+
+`req.auth0.client.anonymous` is the anonymous sub-client. Call `createSession()` on the visitor's first request to establish their anonymous identity.
+
+```ts
+app.post('/api/session/start', async (req, res) => {
+  await req.auth0.client.anonymous.createSession({
+    metadata: { source: 'landing-page', cart: req.body.cartId },
+  });
+  const session = await req.auth0.client.anonymous.getSession();
+  res.status(201).json({ sub: session?.sub });
+});
+
+app.get('/api/session', async (req, res) => {
+  const session = await req.auth0.client.anonymous.getSession();
+  if (!session) {
+    return res.status(404).json({ error: 'no anonymous session' });
+  }
+  res.json({ sub: session.sub, metadata: session.metadata });
+});
+```
+
+### Getting an access token
+
+`getAccessToken()` returns a cached token if it is still valid, or re-mints one from the session token otherwise. Pass the API `audience` that the token should be scoped to.
+
+```ts
+app.get('/api/data', async (req, res) => {
+  const { accessToken } = await req.auth0.client.anonymous.getAccessToken({
+    audience: 'https://api.example.com',
+  });
+  // forward accessToken to your upstream API
+  res.json({ token: accessToken });
+});
+```
+
+### Ending the anonymous session
+
+`logout()` removes the `__a0_anon` cookie. The anonymous session is also cleared automatically when the visitor logs in (controlled by `anonymousSessions.clearOnLogin`, which defaults to `true`).
+
+```ts
+app.post('/api/session/end', async (req, res) => {
+  await req.auth0.client.anonymous.logout();
+  res.sendStatus(204);
+});
+```
+
+### Error handling
+
+`createSession` throws `AnonymousSessionError` when Auth0 rejects the request. Common codes:
+- `feature_not_enabled` — anonymous sessions are not enabled on the tenant
+- `unauthorized_client` — the client is not configured for anonymous sessions
+- `invalid_request` — metadata exceeds 1 024 bytes or contains non-string values
+- `invalid_target` — the requested audience does not allow anonymous access
+
+```ts
+import {
+  AnonymousSessionError,
+  AnonymousSessionExpiredError,
+  MissingAnonymousSessionError,
+} from '@auth0/auth0-express';
+
+app.post('/api/session/start', async (req, res) => {
+  try {
+    await req.auth0.client.anonymous.createSession();
+    res.sendStatus(201);
+  } catch (e) {
+    if (e instanceof AnonymousSessionError) {
+      // Auth0 rejected the request — check e.code for the reason
+      return res.status(403).json({ error: e.code });
+    }
+    throw e;
+  }
+});
+```
+
+`getAccessToken` throws when the session is missing or has expired on Auth0's side:
+
+```ts
+app.get('/api/token', async (req, res) => {
+  try {
+    const { accessToken } = await req.auth0.client.anonymous.getAccessToken();
+    res.json({ accessToken });
+  } catch (e) {
+    if (e instanceof MissingAnonymousSessionError) {
+      // No anonymous session exists — visitor must call createSession first
+      return res.status(401).json({ error: 'no_session' });
+    }
+    if (e instanceof AnonymousSessionExpiredError) {
+      // The session token expired on Auth0's side — start a fresh anonymous session
+      await req.auth0.client.anonymous.createSession();
+      const { accessToken } = await req.auth0.client.anonymous.getAccessToken();
+      return res.json({ accessToken });
+    }
+    throw e;
+  }
+});
+```
+
+### Merging what the visitor did before they logged in
+
+Set `anonymousSessions.clearOnLogin: false` to keep the anonymous session alive through the login flow. You can read it on the first authenticated request after login, then clean it up yourself.
+
+```ts
+app.use(createAuth0({
+  // ...
+  anonymousSessions: { clearOnLogin: false },
+}));
+
+app.use(requiresAuth(), async (req, res, next) => {
+  const anonSession = await req.auth0.client.anonymous.getSession();
+  if (anonSession?.sub) {
+    await mergeGuestCart(anonSession.sub, req);
+    await req.auth0.client.anonymous.logout();
+  }
+  next();
+});
+```
+
+### Custom store
+
+For advanced use cases (e.g. a Redis-backed store), implement the `AnonymousStore` interface and pass it via `anonymousSessions.store`.
+
+```ts
+import type { AnonymousStore, StoreOptions } from '@auth0/auth0-express';
+
+class RedisAnonymousStore implements AnonymousStore<StoreOptions> {
+  // implement get(), set(), delete()
+}
+
+app.use(createAuth0({
+  // ...
+  anonymousSessions: {
+    store: new RedisAnonymousStore(),
+    identifier: '__a0_anon', // optional, defaults to '__a0_anon'
+  },
+}));
+```

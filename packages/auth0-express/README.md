@@ -35,6 +35,7 @@ Jump straight to the capability you need.
 | [Enterprise Connect](./EXAMPLES.md#enterprise-connect) | Use Auth0 as a pure SSO relay while your app owns the session |
 | [Multiple Custom Domains (MCD)](./EXAMPLES.md#multiple-custom-domains-mcd) | Resolve the Auth0 domain per request |
 | [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
+| [Anonymous Sessions](./EXAMPLES.md#anonymous-sessions) | Give unauthenticated visitors a persistent identity before login |
 | [Discovery cache](./EXAMPLES.md#discovery-cache) | Control caching of OIDC discovery metadata |
 
 ## Getting Started
