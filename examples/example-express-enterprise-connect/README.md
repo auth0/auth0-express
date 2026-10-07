@@ -30,7 +30,7 @@ npm install
 
 Rename `.env.example` to `.env` and fill in the values:
 
-```ts
+```dotenv
 AUTH0_DOMAIN=YOUR_AUTH0_DOMAIN
 AUTH0_CLIENT_ID=YOUR_AUTH0_CLIENT_ID
 AUTH0_CLIENT_SECRET=YOUR_AUTH0_CLIENT_SECRET
@@ -74,12 +74,13 @@ import { isFederatedDomain } from '@auth0/auth0-express';
 
 app.post('/login', async (req, res, next) => {
   try {
-    const email = req.body.email;
-    const emailDomain = email?.split('@')[1];
+    const email = String(req.body.email ?? '');
+    if (!email) { res.redirect('/login?error=missing_email'); return; }
+    const emailDomain = email.split('@')[1];
 
     // (1) Home Realm Discovery — resolve the email domain via WebFinger.
     const federated = emailDomain
-      ? await isFederatedDomain(process.env.AUTH0_DOMAIN, emailDomain)
+      ? await isFederatedDomain(process.env.AUTH0_DOMAIN!, emailDomain)
       : false;
 
     if (!federated) {

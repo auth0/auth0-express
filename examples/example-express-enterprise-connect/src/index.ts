@@ -60,7 +60,9 @@ app.use(
       // Optional: validate orgId against your approved-org list before continuing.
 
       // user holds the OIDC claims; keep only the fields you need.
-      const appSession = { sub: user.sub, email: user.email, name: user.name, orgId };
+      // exp limits session lifetime — verify it in getAppSession to reject stale cookies.
+      const SESSION_TTL_MS = 8 * 60 * 60 * 1000; // 8 hours
+      const appSession = { sub: user.sub, email: user.email, name: user.name, orgId, exp: Date.now() + SESSION_TTL_MS };
 
       // Sign the payload so the cookie can't be forged: "<body>.<signature>".
       const body = Buffer.from(JSON.stringify(appSession)).toString('base64url');
@@ -73,9 +75,10 @@ app.use(
         secure: process.env.NODE_ENV === 'production',
         sameSite: 'lax',
         path: '/',
+        maxAge: SESSION_TTL_MS,
       });
 
-      res.redirect(safePath((appState as { returnTo?: string } | undefined)?.returnTo) || '/dashboard');
+      res.redirect(safePath((appState as { returnTo?: string } | undefined)?.returnTo));
     },
   })
 );
@@ -93,7 +96,11 @@ async function getAppSession(req: Request) {
       Buffer.from(signature, 'base64url'),
       enc.encode(body)
     );
-    return valid ? (JSON.parse(Buffer.from(body, 'base64url').toString()) as Record<string, string>) : null;
+    if (!valid) return null;
+    const session = JSON.parse(Buffer.from(body, 'base64url').toString()) as Record<string, unknown>;
+    // Reject expired sessions.
+    if (typeof session.exp === 'number' && session.exp < Date.now()) return null;
+    return session as Record<string, string>;
   } catch {
     return null;
   }

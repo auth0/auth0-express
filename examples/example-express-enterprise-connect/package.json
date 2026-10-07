@@ -3,6 +3,7 @@
     "version": "1.0.0",
     "description": "",
     "type": "module",
+    "engines": { "node": ">=20" },
     "scripts": {
         "start": "tsx src/index.ts --project tsconfig.json",
         "build": "tsc --project tsconfig.json"
