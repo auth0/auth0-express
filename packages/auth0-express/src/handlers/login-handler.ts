@@ -1,6 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { createRouteUrl, toSafeRedirect } from '../utils.js';
 import { resolveAppBaseUrl } from '../app-base-url.js';
+import { sanitizeHandlerError } from '../errors.js';
 import { Auth0Options } from '../index.js';
 
 // Block both Object.prototype own-property names and commonly abused
@@ -85,6 +86,6 @@ export async function handleLogin(req: Request, res: Response, options: Auth0Opt
 
     res.redirect(authorizationUrl.href);
   } catch (error) {
-    next(error);
+    next(sanitizeHandlerError(error));
   }
 }

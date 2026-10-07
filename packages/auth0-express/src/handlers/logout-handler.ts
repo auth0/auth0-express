@@ -1,5 +1,6 @@
 import { Request, Response, NextFunction } from 'express';
 import { resolveAppBaseUrl } from '../app-base-url.js';
+import { sanitizeHandlerError } from '../errors.js';
 import { Auth0Options } from '../types.js';
 
 export async function handleLogout(req: Request, res: Response, options: Auth0Options, next: NextFunction): Promise<void> {
@@ -18,6 +19,6 @@ export async function handleLogout(req: Request, res: Response, options: Auth0Op
 
     res.redirect(logoutUrl.href);
   } catch (error) {
-    next(error);
+    next(sanitizeHandlerError(error));
   }
 }

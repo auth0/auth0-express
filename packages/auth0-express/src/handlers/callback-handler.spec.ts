@@ -13,6 +13,7 @@ import {
   createConfiguredApp,
   parseCookies,
 } from '../test-utils/test-setup.js';
+import { withNodeEnv } from '../test-utils/env.js';
 import { createAuth0 } from '../index.js';
 
 beforeAll(() =>
@@ -49,13 +50,10 @@ describe('callback handler', () => {
   });
 
   test('handles login_required error with 500 status', async () => {
-    // Express's default error handler (finalhandler) only omits the stack
-    // trace when NODE_ENV === 'production'; that setting is captured at
-    // app-construction time, so it must be set before createConfiguredApp
-    // runs, to exercise the sanitized contract apps see in a real deployment.
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
       const app = createConfiguredApp({
         domain: domain,
         clientId: '<client_id>',
@@ -77,19 +75,14 @@ describe('callback handler', () => {
       // handler responds without the internal error_description/name.
       expect(res.text).not.toContain('Login required');
       expect(res.text).not.toContain('login_required');
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
+    });
   });
 
   test('handles consent_required error with 500 status', async () => {
-    // Express's default error handler (finalhandler) only omits the stack
-    // trace when NODE_ENV === 'production'; that setting is captured at
-    // app-construction time, so it must be set before createConfiguredApp
-    // runs, to exercise the sanitized contract apps see in a real deployment.
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
       const app = createConfiguredApp({
         domain: domain,
         clientId: '<client_id>',
@@ -111,19 +104,14 @@ describe('callback handler', () => {
       // handler responds without the internal error_description/name.
       expect(res.text).not.toContain('Consent required');
       expect(res.text).not.toContain('consent_required');
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
+    });
   });
 
   test('handles interaction_required error with 500 status', async () => {
-    // Express's default error handler (finalhandler) only omits the stack
-    // trace when NODE_ENV === 'production'; that setting is captured at
-    // app-construction time, so it must be set before createConfiguredApp
-    // runs, to exercise the sanitized contract apps see in a real deployment.
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
       const app = createConfiguredApp({
         domain: domain,
         clientId: '<client_id>',
@@ -145,19 +133,14 @@ describe('callback handler', () => {
       // handler responds without the internal error_description/name.
       expect(res.text).not.toContain('Interaction required');
       expect(res.text).not.toContain('interaction_required');
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
+    });
   });
 
   test('handles other errors with 500 status', async () => {
-    // Express's default error handler (finalhandler) only omits the stack
-    // trace when NODE_ENV === 'production'; that setting is captured at
-    // app-construction time, so it must be set before createConfiguredApp
-    // runs, to exercise the sanitized contract apps see in a real deployment.
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
       const app = createConfiguredApp({
         domain: domain,
         clientId: '<client_id>',
@@ -179,19 +162,14 @@ describe('callback handler', () => {
       // handler responds without the internal error_description/name.
       expect(res.text).not.toContain('Something went wrong');
       expect(res.text).not.toContain('server_error');
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
+    });
   });
 
   test('does not leak error detail when the token exchange fails', async () => {
-    // Express's default error handler (finalhandler) only omits the stack
-    // trace when NODE_ENV === 'production'; that setting is captured at
-    // app-construction time, so it must be set before createConfiguredApp
-    // runs, to exercise the sanitized contract apps see in a real deployment.
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
       const app = createConfiguredApp({
         domain: domain,
         clientId: '<client_id>',
@@ -219,9 +197,40 @@ describe('callback handler', () => {
       // Error detail is NOT leaked to the client; Express default
       // handler responds without the internal error name/message.
       expect(res.text).not.toContain('invalid_grant');
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
+    });
+  });
+
+  test('does not leak error detail outside production (development env)', async () => {
+    // The production tests above pin NODE_ENV=production. This one proves the
+    // sanitized-error contract holds even when the app runs in development,
+    // where Express's default handler would otherwise write the error stack
+    // (including the token-endpoint failure reason) into the response body.
+    await withNodeEnv('development', async () => {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
+
+      server.use(
+        http.post(mockOpenIdConfiguration.token_endpoint, () => {
+          return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
+        })
+      );
+
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ code: '123' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
+
+      expect(res.status).toBe(500);
+      expect(res.text).not.toContain('invalid_grant');
+    });
   });
 
   test('redirects to returnTo from appState after successful login', async () => {
@@ -487,6 +496,9 @@ describe('callback handler - Enterprise Connect mode', () => {
       .set('cookie', `${cookieName}=${cookieValue}`);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBeDefined();
+    // The handler delegates to Express via next() with a sanitized error, so the
+    // response carries no internal detail. This app runs in a non-production env,
+    // showing the sanitization does not depend on NODE_ENV=production.
+    expect(res.text).not.toContain('invalid_grant');
   });
 });

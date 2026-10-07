@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { createAuth0 } from './index.js';
 import { decrypt, encrypt } from './test-utils/encryption.js';
+import { withNodeEnv } from './test-utils/env.js';
 import { claimCheck } from './middleware/claim-check.js';
 import { claimEquals } from './middleware/claim-equals.js';
 import { claimIncludes } from './middleware/claim-includes.js';
@@ -480,13 +481,10 @@ test('auth/login preserves returnTo with prompt=none', async () => {
 });
 
 test('auth/callback handles login_required error from prompt=none', async () => {
-  // Express's default error handler (finalhandler) only omits the stack
-  // trace when NODE_ENV === 'production'; that setting is captured at
-  // app-construction time, so it must be set before createConfiguredApp
-  // runs, to exercise the sanitized contract apps see in a real deployment.
-  const originalNodeEnv = process.env.NODE_ENV;
-  process.env.NODE_ENV = 'production';
-  try {
+  // Assert the response an app sees in a real deployment (NODE_ENV=production).
+  // The SDK sanitizes handler errors regardless of NODE_ENV before delegating
+  // to Express.
+  await withNodeEnv('production', async () => {
     const app = createConfiguredApp({
       domain: domain,
       clientId: '<client_id>',
@@ -507,9 +505,7 @@ test('auth/callback handles login_required error from prompt=none', async () => 
     // handler responds without the internal error_description/name.
     expect(res.text).not.toContain('Login required');
     expect(res.text).not.toContain('login_required');
-  } finally {
-    process.env.NODE_ENV = originalNodeEnv;
-  }
+  });
 });
 
 test('getUser and getSession methods are available after authentication', async () => {

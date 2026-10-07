@@ -9,6 +9,7 @@ import {
   createConfiguredApp,
   parseCookies,
 } from '../test-utils/test-setup.js';
+import { withNodeEnv } from '../test-utils/env.js';
 import { decrypt } from '../test-utils/encryption.js';
 
 beforeAll(() =>
@@ -94,13 +95,10 @@ describe('login handler', () => {
   test('handles errors in startInteractiveLogin', async () => {
     const domain = 'auth0.local.nocache';
 
-    // Express's default error handler (finalhandler) only omits the stack
-    // trace when NODE_ENV === 'production'; that setting is captured at
-    // app-construction time, so it must be set before createConfiguredApp
-    // runs, to exercise the sanitized contract apps see in a real deployment.
-    const originalNodeEnv = process.env.NODE_ENV;
-    process.env.NODE_ENV = 'production';
-    try {
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK sanitizes handler errors regardless of NODE_ENV before delegating
+    // to Express.
+    await withNodeEnv('production', async () => {
       const app = createConfiguredApp({
         domain: domain,
         clientId: '<client_id>',
@@ -120,9 +118,7 @@ describe('login handler', () => {
 
       expect(res.status).toBe(500);
       expect(res.text).not.toContain('unexpected HTTP response status code');
-    } finally {
-      process.env.NODE_ENV = originalNodeEnv;
-    }
+    });
   });
 
   test('passes through additional authorization parameters', async () => {
