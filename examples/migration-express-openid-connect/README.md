@@ -66,14 +66,16 @@ cookie name so the same-browser cookie is picked up across the migration.
    `npm start --workspace examples/migration-express-openid-connect/after`.
 5. Reload `http://localhost:3000`. Expected: still logged in (migration store read
    the eoc envelope from Redis, transformed it, and immediately wrote the modern
-   `StateData` plus a `logout:sid:<sid>` index back to the same key — no further
+   `StateData` plus a `session:<sid>:<sub>` index back to the same key, no further
    action needed). Confirm the index key exists:
-   `... redis-cli keys 'logout:sid:*'`
+   `... redis-cli keys 'session:*'`
+   The session and index keys now carry a Redis TTL of `createdAt + absoluteDuration`,
+   so `... redis-cli ttl '<key>'` returns a positive number of seconds instead of `-1`.
 6. Trigger backchannel logout. In production Auth0 posts this automatically on
    logout elsewhere; to test locally, POST a real `logout_token` obtained from your
    tenant:
    `curl -i -X POST http://localhost:3000/auth/backchannel-logout -H 'Content-Type: application/x-www-form-urlencoded' --data-urlencode "logout_token=<JWT>"`
-   Expected: `204`. Then confirm both the session key and its `logout:sid:<sid>`
+   Expected: `204`. Then confirm both the session key and its `session:<sid>:<sub>`
    index are gone from Redis. Reloading `/` shows logged-out.
 
 ## Scenario 3 — Aged session survives the absoluteDuration gap

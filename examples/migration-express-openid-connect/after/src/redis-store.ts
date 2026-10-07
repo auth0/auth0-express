@@ -15,6 +15,10 @@ import type { StateData, SessionStore, LogoutTokenClaims } from '@auth0/auth0-se
  * sub cross-check at delete time. MigrationStatefulStateStore writes the transformed StateData
  * back on the first get() of a legacy session (not just on the caller's next write), so this
  * index exists as soon as a migrated session is read, not only after some later action re-writes it.
+ *
+ * Both the session key and its index are written with a Redis TTL of createdAt + absoluteDuration
+ * (seconds), matching the SDK's absolute session cap, so keys expire instead of lingering after the
+ * SDK already considers the session expired.
  */
 export async function createRedisSessionStore(
   url: string,
