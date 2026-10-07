@@ -487,4 +487,83 @@ describe('getConfig', () => {
       ).toThrowError(InvalidConfigurationError);
     });
   });
+
+  describe('anonymous session secure cookie enforcement in production dynamic mode', () => {
+    const baseEnv = () => {
+      process.env.AUTH0_DOMAIN = 'auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+      delete process.env.APP_BASE_URL;
+      delete process.env.BASE_URL;
+    };
+
+    test('forces anon cookie secure=true when production and appBaseUrl omitted', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig({ anonymousSessions: { cookie: {} } });
+
+      expect((config.anonymousSessions as Record<string, unknown>)?.cookie as Record<string, unknown>).toMatchObject({ secure: true });
+    });
+
+    test('throws when anon cookie secure is explicitly false in production dynamic mode', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      expect(() =>
+        getConfig({ anonymousSessions: { cookie: { secure: false } } })
+      ).toThrowError(InvalidConfigurationError);
+    });
+
+    test('does not force anon cookie secure when a static appBaseUrl is configured', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig({ appBaseUrl: 'https://app.example.com', anonymousSessions: { cookie: {} } });
+
+      expect((config.anonymousSessions as Record<string, unknown>)?.cookie as Record<string, unknown>).not.toMatchObject({ secure: true });
+    });
+
+    test('does not force anon cookie secure outside production', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'development';
+
+      const config = getConfig({ anonymousSessions: { cookie: {} } });
+
+      expect((config.anonymousSessions as Record<string, unknown>)?.cookie as Record<string, unknown>).not.toMatchObject({ secure: true });
+    });
+
+    test('anonymousSessions: true is unaffected (built-in store defaults secure=true already)', () => {
+      baseEnv();
+      process.env.NODE_ENV = 'production';
+
+      const config = getConfig({ anonymousSessions: true });
+
+      expect(config.anonymousSessions).toBe(true);
+    });
+  });
+
+  describe('enterpriseConnect validation', () => {
+    beforeEach(() => {
+      process.env.AUTH0_DOMAIN = 'tenant.auth0.com';
+      process.env.AUTH0_CLIENT_ID = 'client_id';
+      process.env.APP_BASE_URL = 'http://localhost:3000';
+      process.env.AUTH0_SESSION_SECRET = 'secret';
+    });
+
+    test('throws when enterpriseConnect is true and onCallback is missing', () => {
+      expect(() =>
+        getConfig({ enterpriseConnect: true })
+      ).toThrowError(InvalidConfigurationError);
+    });
+
+    test('does not throw when enterpriseConnect is true with onCallback', () => {
+      expect(() =>
+        getConfig({
+          enterpriseConnect: true,
+          onCallback: async () => {},
+        })
+      ).not.toThrow();
+    });
+  });
 });

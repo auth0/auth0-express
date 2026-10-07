@@ -356,8 +356,11 @@ describe('MigrationStatefulStateStore', () => {
       );
 
       const now = Math.floor(Date.now() / 1000);
+      // A recent iat (within the default absoluteDuration) so the store returns the session; this
+      // test pins the iat -> createdAt mapping, not the cap enforcement covered elsewhere.
+      const iat = now - 3600;
       const legacyPayload = {
-        header: { iat: 1700000000, uat: 1700000001, exp: now + 3600 },
+        header: { iat, uat: iat + 1, exp: now + 3600 },
         data: {
           id_token: sampleIdToken,
           access_token: 'test-access-token',
@@ -372,7 +375,120 @@ describe('MigrationStatefulStateStore', () => {
 
       const result = await store.get('__a0_session', {});
 
-      expect(result!.internal.createdAt).toBe(1700000000);
+      expect(result!.internal.createdAt).toBe(iat);
+    });
+  });
+
+  describe('get - absoluteDuration and the migrated session age', () => {
+    // A migrated session keeps its original express-openid-connect `iat` as `createdAt`, and the
+    // base store expires it at `createdAt + absoluteDuration`. express-openid-connect defaults
+    // absoluteDuration to 7 days, this SDK to 3. If the app does not raise absoluteDuration to at
+    // least the old value, a legacy session already older than 3 days is transformed successfully
+    // but the write-back emits a maxAge<=0 cookie the browser immediately drops — a silent logout.
+    const FOUR_DAYS = 4 * 24 * 60 * 60;
+
+    const agedLegacyPayload = () => {
+      const now = Math.floor(Date.now() / 1000);
+      return {
+        // Issued 4 days ago, but still valid under express-openid-connect (exp in the future).
+        header: { iat: now - FOUR_DAYS, uat: now - 100, exp: now + 3600 },
+        data: { id_token: sampleIdToken, access_token: 'aged-token', expires_at: now + 3600 },
+        cookie: { expires: now + 3600, maxAge: 3600 },
+      };
+    };
+
+    it('returns no session for a >3-day-old legacy session under the default (3-day) absoluteDuration', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore({ secret, store: mockStore }, handler);
+
+      await mockStore.set('sess:aged-default', agedLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-default');
+
+      const result = await store.get('__a0_session', {});
+
+      // The envelope decrypts (it was valid under express-openid-connect), but it is already past
+      // this SDK's absoluteDuration, so the store enforces the cap on read and returns no session.
+      expect(result).toBeUndefined();
+
+      warn.mockRestore();
+    });
+
+    it('keeps a >3-day-old legacy session alive when absoluteDuration matches express-openid-connect', async () => {
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore(
+        { secret, store: mockStore, sessionConfiguration: { absoluteDuration: 604800 } },
+        handler
+      );
+
+      await mockStore.set('sess:aged-configured', agedLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-configured');
+
+      const result = await store.get('__a0_session', {});
+
+      expect(result).toBeDefined();
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
+      // Raising the absolute cap to 7 days keeps `createdAt + absoluteDuration` in the future, so
+      // the rolling inactivity window (1 day) governs and the cookie survives instead of expiring.
+      expect(emittedMaxAge).toBeGreaterThan(0);
+    });
+
+    it('read-rejection and write-drop agree on the same aged createdAt', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const handler = createCookieHandler();
+      const store = new MigrationStatefulStateStore({ secret, store: mockStore }, handler);
+
+      await mockStore.set('sess:aged-agree', agedLegacyPayload());
+      (handler.getCookie as ReturnType<typeof vi.fn>).mockReturnValue('sess:aged-agree');
+
+      // Read rejects the aged session (no write-back, since transform returns undefined)...
+      const result = await store.get('__a0_session', {});
+      expect(result).toBeUndefined();
+      expect(handler.setCookie).not.toHaveBeenCalled();
+
+      // ...and a write of state carrying that same aged createdAt would emit a Max-Age<=0 cookie the
+      // browser drops. Both paths are driven by calculateMaxAge(createdAt), so there is no state the
+      // write path keeps alive while the read path logs out.
+      const now = Math.floor(Date.now() / 1000);
+      const agedStateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: undefined,
+        refreshToken: undefined,
+        tokenSets: [],
+        internal: { sid: 'aged-sid', createdAt: now - FOUR_DAYS },
+      };
+
+      await store.set('__a0_session', agedStateData, false, {});
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = (handler.setCookie as ReturnType<typeof vi.fn>).mock.calls[0]![2]!.maxAge;
+      expect(emittedMaxAge).toBe(0);
+
+      warn.mockRestore();
+    });
+
+    it('warns once at construction when absoluteDuration is left unset', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      new MigrationStatefulStateStore({ secret, store: mockStore }, createCookieHandler());
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('without sessionConfiguration.absoluteDuration'));
+
+      warn.mockRestore();
+    });
+
+    it('does not warn at construction when absoluteDuration is set explicitly', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      new MigrationStatefulStateStore(
+        { secret, store: mockStore, sessionConfiguration: { absoluteDuration: 604800 } },
+        createCookieHandler()
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+
+      warn.mockRestore();
     });
   });
 

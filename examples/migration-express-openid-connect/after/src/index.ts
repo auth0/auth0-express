@@ -8,6 +8,12 @@ const app = express();
 const redisUrl = process.env.REDIS_URL;
 const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl) : undefined;
 
+// Scenario 3 of the runbook lowers the absolute cap to simulate an aged session. Parse the override
+// defensively: a missing or non-numeric value falls back to the express-openid-connect default (7
+// days) rather than silently becoming NaN, which would drop every session.
+const parsedAbsoluteDuration = Number(process.env.SESSION_ABSOLUTE_DURATION);
+const absoluteDuration = Number.isFinite(parsedAbsoluteDuration) ? parsedAbsoluteDuration : 604800;
+
 // Auth0 sends the backchannel logout token as application/x-www-form-urlencoded.
 // Express 5 does not parse request bodies by default, so mount a parser before the
 // Auth0 router or `POST /auth/backchannel-logout` would see an undefined `req.body`.
@@ -27,12 +33,41 @@ app.use(
       // derive from AUTH0_AUDIENCE here — or the carried-over token is not found.
       legacyAudience: process.env.AUTH0_AUDIENCE,
     },
-    // Match express-openid-connect's default cookie name so the same-browser cookie is picked up.
-    sessionConfiguration: { cookie: { name: 'appSession' } },
+    sessionConfiguration: {
+      // Match express-openid-connect's default cookie name so the same-browser cookie is picked up.
+      cookie: { name: 'appSession' },
+      // A migrated session keeps its original creation time (the express-openid-connect `iat`), and
+      // this SDK expires a session at `createdAt + absoluteDuration`. This SDK defaults that to 3
+      // days but express-openid-connect defaults it to 7 — so without raising absoluteDuration a
+      // legacy session older than 3 days would be logged out on first read despite still being valid
+      // under the old SDK. Match the old deployment's durations so no in-flight session is cut short.
+      // Default matches express-openid-connect (7 days); the SESSION_ABSOLUTE_DURATION override
+      // (parsed defensively above) lets the runbook simulate an aged session without editing code.
+      absoluteDuration,
+      // Matches this SDK's own default (1 day); only needs changing if you customized
+      // express-openid-connect's `rollingDuration`. Kept here for symmetry with absoluteDuration.
+      inactivityDuration: 86400, // 1 day (express-openid-connect default rollingDuration)
+    },
     // Only set for the stateful scenario; undefined => cookie (stateless) store.
     sessionStore,
   })
 );
+
+// Minimal HTML escaping for values interpolated into the demo pages below. Those pages render
+// user-controlled data (ID token claims such as the display name, and the raw claim object), and
+// res.send(string) is served as text/html, so an unescaped value like a name containing
+// "<script>" would execute in the visitor's browser. Escape the five significant HTML characters,
+// ampersand first so the others are not double-escaped. A production app should use a templating
+// engine with automatic escaping; this keeps the example dependency-free while modelling the safe
+// pattern.
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // We never render the access token itself — it is a bearer secret and does not belong in a
 // page. To confirm the session carried over from express-openid-connect we show non-secret
@@ -44,12 +79,12 @@ function renderSessionFacts(user: Record<string, unknown>, session: { tokenSets?
   const rows = tokenSets
     .map(
       (t) =>
-        `<tr><td>${t.audience}</td><td>${t.scope ?? '(none)'}</td>` +
+        `<tr><td>${escapeHtml(t.audience)}</td><td>${escapeHtml(t.scope ?? '(none)')}</td>` +
         `<td>${new Date(t.expiresAt * 1000).toISOString()}</td></tr>`
     )
     .join('');
   return (
-    `<h1>auth0-express</h1><p>Logged in as ${user.name ?? user.sub}</p>` +
+    `<h1>auth0-express</h1><p>Logged in as ${escapeHtml(user.name ?? user.sub)}</p>` +
     `<h2>Session facts</h2>` +
     `<ul>` +
     `<li>Refresh token present: <b>${session.refreshToken ? 'yes' : 'no'}</b></li>` +
@@ -59,7 +94,7 @@ function renderSessionFacts(user: Record<string, unknown>, session: { tokenSets?
     (tokenSets.length
       ? `<table border="1" cellpadding="4"><thead><tr><th>Audience</th><th>Scope</th><th>Expires (UTC)</th></tr></thead><tbody>${rows}</tbody></table>`
       : `<p>(no token sets)</p>`) +
-    `<h2>User</h2><pre>${JSON.stringify(user, null, 2)}</pre>` +
+    `<h2>User</h2><pre>${escapeHtml(JSON.stringify(user, null, 2))}</pre>` +
     `<p><a href="/auth/logout">Logout</a></p>`
   );
 }
@@ -76,7 +111,7 @@ app.get('/', async (req: Request, res: Response) => {
 
 app.get('/private', requiresAuth(), async (req: Request, res: Response) => {
   const user = await req.auth0.client.getUser();
-  res.send(`<h1>Private</h1><pre>${JSON.stringify(user, null, 2)}</pre>`);
+  res.send(`<h1>Private</h1><pre>${escapeHtml(JSON.stringify(user, null, 2))}</pre>`);
 });
 
 // Forces a session write to observe the cookie migrating to the modern format, and proves the
@@ -102,14 +137,14 @@ app.get('/refresh-token', requiresAuth(), async (req: Request, res: Response) =>
         `refresh token is valid.</p>` +
         `<h2>New token set</h2>` +
         `<ul>` +
-        `<li>Audience: <b>${result.audience}</b></li>` +
-        `<li>Scope: <b>${result.scope ?? '(none)'}</b></li>` +
+        `<li>Audience: <b>${escapeHtml(result.audience)}</b></li>` +
+        `<li>Scope: <b>${escapeHtml(result.scope ?? '(none)')}</b></li>` +
         `<li>Expires (UTC): <b>${new Date(result.expiresAt * 1000).toISOString()}</b></li>` +
         `</ul>` +
         `<a href="/">Back to home (confirm original session + audience token still there)</a>`
     );
   } catch (e) {
-    res.status(400).send(`getAccessToken for '${secondAudience}' failed: ${(e as Error).message}`);
+    res.status(400).send(`getAccessToken for '${escapeHtml(secondAudience)}' failed: ${escapeHtml((e as Error).message)}`);
   }
 });
 

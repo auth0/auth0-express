@@ -5,7 +5,7 @@ import {
   type SessionStore,
 } from '@auth0/auth0-server-js';
 import type { CookieHandler, StateData } from '@auth0/auth0-server-js';
-import { LegacySessionTransformer } from './legacy-session-transformer.js';
+import { LegacySessionTransformer, warnIfAbsoluteDurationUnset } from './legacy-session-transformer.js';
 import type { ExpressOpenidConnectStorePayload } from './legacy-session-transformer.js';
 import { deriveHkdfKey } from './express-oidc-hkdf.js';
 
@@ -134,6 +134,8 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
     const legacyAudience = options.legacyAudience ?? 'default';
     const legacyScope = options.legacyScope ?? 'openid profile email offline_access';
     this.#transformer = new LegacySessionTransformer(legacyAudience, legacyScope);
+
+    warnIfAbsoluteDurationUnset(options.sessionConfiguration);
   }
 
   /**
@@ -260,6 +262,13 @@ export class MigrationStatefulStateStore<TStoreOptions> extends StatefulStateSto
     // Reject once exp has been reached, mirroring appSession's `exp > epoch()` assertion
     // (i.e. invalid when `exp <= now`), not one second later.
     if (payload.header.exp <= Math.floor(Date.now() / 1000)) {
+      return undefined;
+    }
+    // Enforce this SDK's absoluteDuration on read. The legacy envelope's own exp reflects the OLD
+    // deployment's window, so a session past `createdAt + absoluteDuration` (calculateMaxAge <= 0)
+    // must be treated as expired here rather than returned for this one request before the
+    // write-back drops the cookie.
+    if (this.calculateMaxAge(payload.header.iat) <= 0) {
       return undefined;
     }
     const sessionData = this.#transformer.transformLegacySession(payload.data);

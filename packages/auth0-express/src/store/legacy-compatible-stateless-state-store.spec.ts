@@ -3,6 +3,7 @@ import { describe, it, expect, vi } from 'vitest';
 import { MigrationStatelessStateStore } from './legacy-compatible-stateless-state-store.js';
 import { ExpressCookieHandler } from './express-cookie-handler.js';
 import { EncryptJWT } from 'jose';
+import { StatelessStateStore } from '@auth0/auth0-server-js';
 import type { StateData } from '@auth0/auth0-server-js';
 
 describe('MigrationStatelessStateStore', () => {
@@ -455,6 +456,126 @@ describe('MigrationStatelessStateStore', () => {
       vi.restoreAllMocks();
     });
 
+    it('propagates a non-jose error from modern decryption instead of masking it as logged out', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+        },
+        cookieHandler
+      );
+
+      // A real modern cookie carries a kid in its JWE header, so it routes to the base decrypt.
+      const modernSession: StateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: undefined,
+        refreshToken: 'r',
+        tokenSets: [],
+        internal: { sid: 's', createdAt: Math.floor(Date.now() / 1000) },
+      };
+      const modernCookie = await (store as any).encrypt(
+        'appSession',
+        modernSession,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      // Force the base (modern) decrypt to throw a non-jose error — a genuine fault such as a
+      // TypeError from a broken Web Crypto runtime. It must propagate, not be swallowed and
+      // surfaced to the caller as a silent "logged out".
+      vi.spyOn(StatelessStateStore.prototype as any, 'decrypt').mockRejectedValueOnce(
+        new TypeError('modern decrypt boom')
+      );
+
+      await expect((store as any).decrypt('appSession', modernCookie)).rejects.toThrow(TypeError);
+
+      vi.restoreAllMocks();
+    });
+
+    it('routes by kid: a legacy (no-kid) cookie skips the base decrypt, a modern (kid) cookie uses it', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+          legacyAudience: 'https://api.test.com',
+        },
+        cookieHandler
+      );
+
+      // spyOn without a mock implementation calls through to the real base decrypt.
+      const baseDecrypt = vi.spyOn(StatelessStateStore.prototype as any, 'decrypt');
+
+      // Legacy cookie (A256GCM, no kid) must be routed straight to the legacy decoder.
+      const legacyEncrypted = await encryptLegacy(
+        { id_token: sampleIdToken, access_token: 'legacy-token' },
+        secret
+      );
+      const legacyResult = await (store as any).decrypt('test-id', legacyEncrypted);
+      expect(legacyResult).toBeDefined();
+      expect(legacyResult.tokenSets[0].accessToken).toBe('legacy-token');
+      expect(baseDecrypt).not.toHaveBeenCalled();
+
+      // Modern cookie (carries a kid) must be routed to the base decrypt.
+      const modernSession: StateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: undefined,
+        refreshToken: 'r',
+        tokenSets: [],
+        internal: { sid: 's', createdAt: Math.floor(Date.now() / 1000) },
+      };
+      const modernCookie = await (store as any).encrypt(
+        'appSession',
+        modernSession,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+      const modernResult = await (store as any).decrypt('appSession', modernCookie);
+      expect(modernResult?.user?.sub).toBe('auth0|123456');
+      expect(baseDecrypt).toHaveBeenCalled();
+
+      vi.restoreAllMocks();
+    });
+
+    it('routes a cookie whose kid is empty or non-string to the legacy decoder, not the base store', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+          legacyAudience: 'https://api.test.com',
+        },
+        cookieHandler
+      );
+
+      // #isModernCookie requires a NON-EMPTY string kid, because auth0-server-js always stamps one
+      // (crypto.randomUUID()). A cookie whose header carries kid: '' — or a non-string kid — is
+      // therefore not a modern cookie and must route to the legacy decoder. A naive gate that only
+      // checked for the presence of a kid would misroute it to the base store, which cannot read an
+      // A256GCM/dir cookie. This pins the `typeof kid === 'string' && kid.length > 0` half of the
+      // gate that the present/absent routing test above does not exercise.
+      const baseDecrypt = vi.spyOn(StatelessStateStore.prototype as any, 'decrypt');
+      const exp = Math.floor(Date.now() / 1000) + 3600;
+
+      const emptyKidCookie = await encryptLegacyWithHeaderKid(
+        { id_token: sampleIdToken, access_token: 'empty-kid-token' },
+        secret,
+        '',
+        exp
+      );
+      const emptyKidResult = await (store as any).decrypt('test-id', emptyKidCookie);
+      expect(baseDecrypt).not.toHaveBeenCalled();
+      expect(emptyKidResult?.tokenSets[0].accessToken).toBe('empty-kid-token');
+
+      const numericKidCookie = await encryptLegacyWithHeaderKid(
+        { id_token: sampleIdToken, access_token: 'numeric-kid-token' },
+        secret,
+        123,
+        exp
+      );
+      const numericKidResult = await (store as any).decrypt('test-id', numericKidCookie);
+      expect(baseDecrypt).not.toHaveBeenCalled();
+      expect(numericKidResult?.tokenSets[0].accessToken).toBe('numeric-kid-token');
+
+      vi.restoreAllMocks();
+    });
+
     it('should decrypt with second secret when key rotation is used', async () => {
       const oldSecret = 'old-secret-that-is-at-least-32-chars-long!';
       const newSecret = 'new-secret-that-is-at-least-32-chars-long!';
@@ -573,6 +694,59 @@ describe('MigrationStatelessStateStore', () => {
       expect(result).toBeUndefined();
     });
 
+    it('should return undefined for a legacy session with a valid exp but no header iat', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+        },
+        cookieHandler
+      );
+
+      const legacySession = {
+        id_token: sampleIdToken,
+        access_token: 'no-iat-access-token',
+      };
+      // The header iat becomes createdAt and gates this SDK's absoluteDuration. A genuine
+      // express-openid-connect cookie always stamps a numeric iat, so a cookie with a valid exp but
+      // no iat is malformed and must be rejected rather than bypassing the absolute-session cap.
+      const noIatEncrypted = await encryptLegacyWithHeaderExpAndIat(
+        legacySession,
+        secret,
+        Math.floor(Date.now() / 1000) + 3600
+      );
+
+      const result = await (store as any).decrypt('test-id', noIatEncrypted);
+      expect(result).toBeUndefined();
+    });
+
+    it('should return undefined for a legacy session whose header iat is not a number', async () => {
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+        },
+        cookieHandler
+      );
+
+      const legacySession = {
+        id_token: sampleIdToken,
+        access_token: 'string-iat-access-token',
+      };
+      // A non-numeric iat cannot serve as createdAt. Before this fix it was coerced to undefined and
+      // took the identical bypass as a missing iat: createdAt was left at the read-time default and
+      // the absolute-duration cap was skipped entirely. Reject it exactly as a missing iat.
+      const badIatEncrypted = await encryptLegacyWithHeaderExpAndIat(
+        legacySession,
+        secret,
+        Math.floor(Date.now() / 1000) + 3600,
+        'not-a-number'
+      );
+
+      const result = await (store as any).decrypt('test-id', badIatEncrypted);
+      expect(result).toBeUndefined();
+    });
+
     it('uses the JWE header iat as internal.createdAt', async () => {
       const store = new MigrationStatelessStateStore(
         {
@@ -583,7 +757,9 @@ describe('MigrationStatelessStateStore', () => {
         cookieHandler
       );
 
-      const headerIat = 1700000000;
+      // A recent iat (within the default absoluteDuration) so the store returns the session; this
+      // test pins the iat -> createdAt mapping, not the cap enforcement covered elsewhere.
+      const headerIat = Math.floor(Date.now() / 1000) - 3600;
       const legacySession = {
         id_token: sampleIdToken,
         access_token: 'iat-token',
@@ -599,6 +775,143 @@ describe('MigrationStatelessStateStore', () => {
 
       expect(decrypted).toBeDefined();
       expect(decrypted.internal.createdAt).toBe(headerIat);
+    });
+  });
+
+  describe('get/set - absoluteDuration and the migrated session age', () => {
+    // Mirrors the MigrationStatefulStateStore coverage for the cookie-only (stateless) path.
+    // A migrated session keeps its original express-openid-connect `iat` as `createdAt`, and the
+    // base store expires it at `createdAt + absoluteDuration`. express-openid-connect defaults
+    // absoluteDuration to 7 days, this SDK to 3. If the app does not raise absoluteDuration to at
+    // least the old value, a legacy session already older than 3 days decrypts successfully but the
+    // re-encrypting write emits a maxAge<=0 cookie the browser immediately drops — a silent logout.
+    // Unlike the stateful store (which writes back eagerly on read), the stateless store computes
+    // maxAge on `set`, so the flow here is get() to load the aged session, then set() it back.
+    const FOUR_DAYS = 4 * 24 * 60 * 60;
+    const cookieName = 'appSession';
+
+    const agedLegacyCookie = async () => {
+      const now = Math.floor(Date.now() / 1000);
+      // Issued 4 days ago, but still valid under express-openid-connect (header exp in the future).
+      return await encryptLegacyWithHeaderIat(
+        { id_token: sampleIdToken, access_token: 'aged-token' },
+        secret,
+        now - FOUR_DAYS,
+        now + 3600
+      );
+    };
+
+    const mockHandlerWithCookie = (cookieValue: string) => {
+      const cookies: Record<string, string> = { [`${cookieName}.0`]: cookieValue };
+      return {
+        getCookie: (name: string) => cookies[name],
+        getCookies: () => cookies,
+        setCookie: vi.fn(),
+        deleteCookie: vi.fn(),
+      };
+    };
+
+    it('returns no session for a >3-day-old legacy session under the default (3-day) absoluteDuration', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const handler = mockHandlerWithCookie(await agedLegacyCookie());
+      const store = new MigrationStatelessStateStore(
+        { secret, legacySecret: secret, sessionConfiguration: { cookie: { name: cookieName } } },
+        handler
+      );
+
+      // The cookie decrypts (it was valid under express-openid-connect), but it is already past this
+      // SDK's absoluteDuration. A migrated cookie still carries eoc's own Max-Age, so the browser
+      // keeps sending it — the store must enforce the cap on read and return no session rather than
+      // honoring it until some later write.
+      const result = await store.get(cookieName, {});
+      expect(result).toBeUndefined();
+
+      warn.mockRestore();
+    });
+
+    it('keeps a >3-day-old legacy session alive when absoluteDuration matches express-openid-connect', async () => {
+      const handler = mockHandlerWithCookie(await agedLegacyCookie());
+      const store = new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+          sessionConfiguration: { cookie: { name: cookieName }, absoluteDuration: 604800 },
+        },
+        handler
+      );
+
+      const result = await store.get(cookieName, {});
+      expect(result).toBeDefined();
+
+      await store.set(cookieName, result!, false, {});
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = handler.setCookie.mock.calls[0]![2]!.maxAge;
+      // Raising the absolute cap to 7 days keeps `createdAt + absoluteDuration` in the future, so
+      // the rolling inactivity window (1 day) governs and the cookie survives instead of expiring.
+      expect(emittedMaxAge).toBeGreaterThan(0);
+    });
+
+    it('read-rejection and write-drop agree on the same aged createdAt', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+      const handler = mockHandlerWithCookie(await agedLegacyCookie());
+      const store = new MigrationStatelessStateStore(
+        { secret, legacySecret: secret, sessionConfiguration: { cookie: { name: cookieName } } },
+        handler
+      );
+
+      // Read rejects the aged session...
+      const result = await store.get(cookieName, {});
+      expect(result).toBeUndefined();
+
+      // ...and a write of state carrying that same aged createdAt would emit a Max-Age<=0 cookie the
+      // browser drops. So there is no state the write path keeps alive while the read path logs out:
+      // both are driven by calculateMaxAge(createdAt) and agree in the safe (expired) direction.
+      const agedCreatedAt = Math.floor(Date.now() / 1000) - FOUR_DAYS;
+      const agedStateData: StateData = {
+        user: { sub: 'auth0|123456' },
+        idToken: sampleIdToken,
+        refreshToken: undefined,
+        tokenSets: [],
+        internal: { sid: 'aged-sid', createdAt: agedCreatedAt },
+      };
+
+      await store.set(cookieName, agedStateData, false, {});
+      expect(handler.setCookie).toHaveBeenCalled();
+      const emittedMaxAge = handler.setCookie.mock.calls[0]![2]!.maxAge;
+      expect(emittedMaxAge).toBe(0);
+
+      warn.mockRestore();
+    });
+
+    it('warns once at construction when absoluteDuration is left unset', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      new MigrationStatelessStateStore(
+        { secret, legacySecret: secret, sessionConfiguration: { cookie: { name: cookieName } } },
+        mockHandlerWithCookie('')
+      );
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      expect(warn).toHaveBeenCalledWith(expect.stringContaining('without sessionConfiguration.absoluteDuration'));
+
+      warn.mockRestore();
+    });
+
+    it('does not warn at construction when absoluteDuration is set explicitly', () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => {});
+
+      new MigrationStatelessStateStore(
+        {
+          secret,
+          legacySecret: secret,
+          sessionConfiguration: { cookie: { name: cookieName }, absoluteDuration: 604800 },
+        },
+        mockHandlerWithCookie('')
+      );
+
+      expect(warn).not.toHaveBeenCalled();
+
+      warn.mockRestore();
     });
   });
 });
@@ -698,6 +1011,85 @@ async function encryptLegacyWithHeaderIat(
   return await new EncryptJWT(payload)
     .setProtectedHeader({ enc: 'A256GCM', alg: 'dir', iat, exp } as any)
     .encrypt(encryptionKey);
+}
+
+/**
+ * Encrypts data as a legacy A256GCM cookie whose protected header ALSO carries a `kid`, to exercise
+ * the modern-cookie gate in #isModernCookie. auth0-server-js always stamps a non-empty string kid,
+ * so a cookie with an empty (kid: '') or non-string kid must fail that gate and route to the legacy
+ * decoder. The cookie is otherwise a valid A256GCM/dir legacy cookie (numeric header iat + exp), so
+ * the legacy path decrypts it, proving the routing landed there.
+ */
+async function encryptLegacyWithHeaderKid(
+  payload: Record<string, unknown>,
+  secret: string,
+  kid: unknown,
+  exp: number
+): Promise<string> {
+  const BYTE_LENGTH = 32;
+  const ENCRYPTION_INFO = 'JWE CEK';
+  const DIGEST = 'SHA-256';
+
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, ['deriveBits']);
+
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'HKDF',
+      hash: DIGEST,
+      info: encoder.encode(ENCRYPTION_INFO),
+      salt: new Uint8Array(0),
+    },
+    keyMaterial,
+    BYTE_LENGTH * 8
+  );
+
+  const encryptionKey = new Uint8Array(derivedBits);
+  const now = Math.floor(Date.now() / 1000);
+
+  return await new EncryptJWT(payload)
+    .setProtectedHeader({ enc: 'A256GCM', alg: 'dir', iat: now, exp, kid } as any)
+    .encrypt(encryptionKey);
+}
+
+/**
+ * Encrypts data with a valid header-level exp and an OPTIONAL iat, to exercise the store's rejection
+ * of a cookie missing (or carrying a non-numeric) header iat — the value that becomes createdAt and
+ * gates absoluteDuration. Omit `iat` for the no-iat case, or pass a non-number to simulate a
+ * malformed header. A genuine express-openid-connect cookie always stamps a numeric iat.
+ */
+async function encryptLegacyWithHeaderExpAndIat(
+  payload: Record<string, unknown>,
+  secret: string,
+  exp: number,
+  iat?: unknown
+): Promise<string> {
+  const BYTE_LENGTH = 32;
+  const ENCRYPTION_INFO = 'JWE CEK';
+  const DIGEST = 'SHA-256';
+
+  const encoder = new TextEncoder();
+  const keyMaterial = await crypto.subtle.importKey('raw', encoder.encode(secret), 'HKDF', false, ['deriveBits']);
+
+  const derivedBits = await crypto.subtle.deriveBits(
+    {
+      name: 'HKDF',
+      hash: DIGEST,
+      info: encoder.encode(ENCRYPTION_INFO),
+      salt: new Uint8Array(0),
+    },
+    keyMaterial,
+    BYTE_LENGTH * 8
+  );
+
+  const encryptionKey = new Uint8Array(derivedBits);
+
+  const header: Record<string, unknown> = { enc: 'A256GCM', alg: 'dir', exp };
+  if (iat !== undefined) {
+    header.iat = iat;
+  }
+
+  return await new EncryptJWT(payload).setProtectedHeader(header as any).encrypt(encryptionKey);
 }
 
 /**

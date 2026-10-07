@@ -53,6 +53,17 @@ export class LegacySessionTransformer {
       typeof legacy.expires_at === 'string' ? parseInt(legacy.expires_at, 10) : legacy.expires_at ?? 0;
     const expiresAt = Number.isNaN(parsedExpiresAt) ? 0 : parsedExpiresAt;
 
+    // Resolve the session id, tolerating malformed legacy data. Only accept an actual string:
+    // internal.sid is used verbatim as a store index key and in backchannel-logout resolution,
+    // both of which assume a string, so a non-string value (number, object, array from a corrupt
+    // or tampered cookie) must not be cast blindly. Prefer the session-level sid, fall back to the
+    // ID token's sid claim, and finally to '' when neither is a usable string. A session with an
+    // empty sid cannot be targeted by backchannel logout (which resolves sessions by sid), so
+    // stores that index by sid should skip indexing an empty value rather than collapsing every
+    // sid-less session onto one shared key.
+    const sessionSid = typeof legacy.sid === 'string' ? legacy.sid : undefined;
+    const userSid = user && typeof user.sid === 'string' ? user.sid : undefined;
+
     // Build the transformed session data
     const transformed: StateData = {
       user,
@@ -69,12 +80,17 @@ export class LegacySessionTransformer {
           ]
         : [],
       internal: {
-        sid: (legacy.sid as string | undefined) ?? (user?.sid as string | undefined) ?? '',
+        sid: sessionSid ?? userSid ?? '',
         createdAt: Math.floor(Date.now() / 1000),
       },
     };
 
-    // Preserve any additional custom properties, excluding the transformed ones
+    // Preserve any additional custom properties, skipping the ones already mapped above and the
+    // prototype-chain keys. `legacy` is parsed from a cookie/store payload that could be crafted to
+    // carry a `__proto__` own property (JSON.parse keeps `__proto__` as an own key, unlike an object
+    // literal), and `transformed[key] = value` would then trip the `__proto__` setter and reparent
+    // the object's prototype. `constructor` and `prototype` are excluded for the same
+    // defense-in-depth reason. Genuine custom claims still pass through.
     const excludedKeys = new Set([
       'id_token',
       'access_token',
@@ -87,6 +103,9 @@ export class LegacySessionTransformer {
       'refreshToken',
       'tokenSets',
       'internal',
+      '__proto__',
+      'constructor',
+      'prototype',
     ]);
 
     for (const [key, value] of Object.entries(legacy)) {
@@ -118,4 +137,38 @@ export class LegacySessionTransformer {
       return undefined;
     }
   }
+}
+
+/**
+ * Emits a one-time startup warning when a migration store is constructed without an explicit
+ * `sessionConfiguration.absoluteDuration`. A migrated session keeps its original
+ * express-openid-connect creation time, and this SDK expires a session at
+ * `createdAt + absoluteDuration`. This SDK defaults `absoluteDuration` to 3 days while
+ * express-openid-connect defaults it to 7 — so relying on the default *can* cut short a
+ * carried-over session already older than 3 days. Warning once at construction (rather than per
+ * read) surfaces the potential misconfiguration before any user is affected, without log spam or
+ * per-session bookkeeping.
+ *
+ * This is a heuristic for the most common mistake ("forgot to raise it"), not a precise check: it
+ * only knows whether the value was *set*, not whether it is large enough for the sessions being
+ * migrated. It cannot see the old deployment's `absoluteDuration`, so it may warn when the old
+ * value was actually lower (the default is then fine), and it stays silent when an explicit value
+ * is still too low. It only fires when the value is left unset — an app that chose a value made a
+ * deliberate decision and is not warned.
+ *
+ * @param sessionConfiguration The store's session configuration, if any.
+ */
+export function warnIfAbsoluteDurationUnset(sessionConfiguration?: { absoluteDuration?: number }): void {
+  if (sessionConfiguration?.absoluteDuration !== undefined) {
+    return;
+  }
+
+  console.warn(
+    `[auth0-express] Migration store created without sessionConfiguration.absoluteDuration. This ` +
+      `SDK defaults it to 3 days, but express-openid-connect defaults to 7 — so if your previous ` +
+      `deployment used a longer absoluteDuration, migrated sessions already older than 3 days may ` +
+      `be logged out on their first write. Set sessionConfiguration.absoluteDuration to at least ` +
+      `your express-openid-connect deployment's value (default 7 days / 604800) to keep in-flight ` +
+      `sessions alive across the migration.`
+  );
 }

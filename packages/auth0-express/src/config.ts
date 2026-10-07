@@ -74,6 +74,24 @@ function enforceSecureCookies(config: Auth0Options): void {
       secure: true,
     },
   };
+
+  if (typeof config.anonymousSessions === 'object') {
+    const explicitAnonSecure = config.anonymousSessions.cookie?.secure;
+    if (explicitAnonSecure === false) {
+      throw new InvalidConfigurationError(
+        'Secure cookies are required when relying on dynamic base URLs in production. ' +
+          'Remove the explicit `anonymousSessions.cookie.secure = false` or set a static APP_BASE_URL.'
+      );
+    }
+
+    config.anonymousSessions = {
+      ...config.anonymousSessions,
+      cookie: {
+        ...config.anonymousSessions.cookie,
+        secure: true,
+      },
+    };
+  }
 }
 
 /**
@@ -128,6 +146,13 @@ export function getConfig(config: Partial<Auth0Options> = {}): Auth0Options {
   }
 
   enforceSecureCookies(mergedConfig);
+
+  if (mergedConfig.enterpriseConnect && !mergedConfig.onCallback) {
+    throw new InvalidConfigurationError(
+      '`onCallback` is required when `enterpriseConnect: true`. ' +
+        'Write your own session inside the hook and call res.redirect().'
+    );
+  }
 
   return mergedConfig;
 }

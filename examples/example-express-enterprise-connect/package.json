@@ -1,28 +1,25 @@
 {
-    "name": "example-express-dynamic-app-base-url",
+    "name": "example-express-enterprise-connect",
     "version": "1.0.0",
     "description": "",
     "type": "module",
+    "engines": { "node": ">=20" },
     "scripts": {
         "start": "tsx src/index.ts --project tsconfig.json",
-        "build": "tsc --project tsconfig.json",
-        "test": "vitest run",
-        "test:ci": "vitest run"
+        "build": "tsc --project tsconfig.json"
     },
     "devDependencies": {
+        "@types/cookie-parser": "^1.4.9",
         "@types/ejs": "^3.1.5",
         "@types/express": "^5.0.6",
         "@types/express-ejs-layouts": "^2.5.4",
-        "@types/supertest": "^7.2.1",
-        "msw": "^2.12.14",
-        "supertest": "^7.2.2",
         "tsx": "^4.21.0",
-        "typescript": "~7.0.2",
-        "vitest": "^5.0.0"
+        "typescript": "~7.0.2"
     },
     "dependencies": {
         "@auth0/auth0-express": "*",
-        "dotenv": "^18.0.3",
+        "cookie-parser": "^1.4.7",
+        "dotenv": "^17.2.3",
         "ejs": "^6.0.1",
         "express": "^5.2.1",
         "express-ejs-layouts": "^2.5.1"
