@@ -72,23 +72,27 @@ The application has these routes:
 ```ts
 import { isFederatedDomain } from '@auth0/auth0-express';
 
-app.post('/login', async (req, res) => {
-  const email = req.body.email;
-  const emailDomain = email?.split('@')[1];
+app.post('/login', async (req, res, next) => {
+  try {
+    const email = req.body.email;
+    const emailDomain = email?.split('@')[1];
 
-  // (1) Home Realm Discovery — resolve the email domain via WebFinger.
-  const federated = emailDomain
-    ? await isFederatedDomain(process.env.AUTH0_DOMAIN, emailDomain)
-    : false;
+    // (1) Home Realm Discovery — resolve the email domain via WebFinger.
+    const federated = emailDomain
+      ? await isFederatedDomain(process.env.AUTH0_DOMAIN, emailDomain)
+      : false;
 
-  if (!federated) {
-    // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
-    res.redirect('/login?mode=password');
-    return;
+    if (!federated) {
+      // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
+      res.redirect('/login?mode=password');
+      return;
+    }
+
+    // (2) Start the login, forwarding the email as login_hint.
+    res.redirect(`/auth/login?login_hint=${encodeURIComponent(email)}`);
+  } catch (err) {
+    next(err);
   }
-
-  // (2) Start the login, forwarding the email as login_hint.
-  res.redirect(`/auth/login?login_hint=${encodeURIComponent(email)}`);
 });
 ```
 
