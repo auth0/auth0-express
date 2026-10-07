@@ -1,12 +1,85 @@
 import type {
+  AnonymousCookieOptions,
+  AnonymousStore,
   DiscoveryCacheOptions,
   DomainResolver,
   SessionConfiguration,
   SessionStore,
+  UserClaims,
 } from '@auth0/auth0-server-js';
 import type { Request, Response } from 'express';
 
-export type { DomainResolver, DiscoveryCacheOptions } from '@auth0/auth0-server-js';
+export type {
+  AnonymousCookieOptions,
+  AnonymousSessionData,
+  AnonymousStateData,
+  AnonymousStore,
+  AnonymousTokenSet,
+  CreateAnonymousSessionOptions,
+  DiscoveryCacheOptions,
+  DomainResolver,
+  GetAnonymousAccessTokenOptions,
+  UserClaims,
+} from '@auth0/auth0-server-js';
+
+/**
+ * Options for anonymous sessions. All anonymous session configuration is nested here.
+ */
+export interface AnonymousSessionsOptions {
+  /**
+   * Custom anonymous session store (e.g. Redis-backed).
+   * When provided, the built-in `StatelessAnonymousStore` is not created.
+   */
+  store?: AnonymousStore<StoreOptions>;
+  /**
+   * Cookie name (and store key) for the anonymous session.
+   * @default '__a0_anon'
+   */
+  identifier?: string;
+  /**
+   * Whether to discard the anonymous session once the visitor logs in.
+   * Set to `false` if you need to read the anonymous identity at login time
+   * (e.g. to merge a guest cart) — in that case call `client.anonymous.logout()`
+   * yourself after merging.
+   * @default true
+   */
+  clearOnLogin?: boolean;
+  /**
+   * Lifetime of the anonymous session in seconds. Should match
+   * `sessions.anonymous.lifetime_in_minutes * 60` on your Auth0 tenant.
+   * Only applies when using the built-in store (i.e. `store` is not set).
+   * @default 2592000 (30 days)
+   */
+  sessionTokenLifetime?: number;
+  /**
+   * Cookie attributes for the anonymous session cookie.
+   * Only applies when using the built-in store (i.e. `store` is not set).
+   *
+   * **`path` warning:** keep the default `/`. Setting a subpath (e.g. `/app`) scopes the cookie
+   * away from the auth routes (`/auth/login`, `/auth/callback`), so the browser will not send it
+   * there. This silently disables anonymous-to-authenticated linking at login and the
+   * `clearOnLogin` behaviour at callback. Only use a subpath if your auth routes are also
+   * mounted under that same path.
+   */
+  cookie?: AnonymousCookieOptions;
+}
+
+/**
+ * Hook called after the OAuth callback completes in Enterprise Connect mode.
+ * Auth0 writes no session cookie; the app must write its own here and call
+ * res.redirect() (or equivalent) before the promise resolves.
+ *
+ * Required when `enterpriseConnect: true`.
+ */
+export type EnterpriseConnectCallbackHook = (
+  req: Request,
+  res: Response,
+  result: {
+    idTokenClaims?: Record<string, unknown>;
+    user?: UserClaims;
+    appState?: unknown;
+  }
+) => Promise<void>;
 
 /**
  * Options passed to custom session store implementations.
@@ -102,6 +175,53 @@ export interface Auth0Options {
   sessionStore?: SessionStore<StoreOptions>;
   /** Advanced session configuration (cookie settings, timeouts, etc.) */
   sessionConfiguration?: SessionConfiguration;
+
+  /**
+   * Legacy compatibility options for migrating from express-openid-connect.
+   * When set, the SDK will automatically detect and decrypt sessions from
+   * express-openid-connect, allowing seamless migration without forcing users to re-authenticate.
+   */
+  legacyCompatibility?: {
+    /**
+     * The secret(s) that were used by express-openid-connect for session encryption.
+     * Supports key rotation: provide an array to try multiple secrets in order.
+     * If not provided, uses the same secret as the current sessionSecret.
+     */
+    legacySecret?: string | string[];
+
+    /**
+     * The audience to assign to access tokens migrated from express-openid-connect sessions.
+     *
+     * Token sets are looked up by audience, so this must equal the `audience` your app requests
+     * (e.g. via `getAccessToken`) or the migrated access token will not be found. The default
+     * `'default'` only matches callers that request no audience.
+     *
+     * @default 'default'
+     */
+    legacyAudience?: string;
+
+    /**
+     * The scope to assign to access tokens migrated from express-openid-connect sessions.
+     * @default 'openid profile email offline_access'
+     */
+    legacyScope?: string;
+
+    /**
+     * Mirror of express-openid-connect's `requireSignedSessionStoreCookie`. Only applies when a
+     * server-side `sessionStore` is configured (stateful sessions); ignored for cookie-based
+     * (stateless) sessions, whose payload is already encrypted and authenticated.
+     *
+     * When `true`, a legacy session-store cookie is only honored if it carries a valid JWS
+     * signature (verified against one of {@link legacySecret}); an unsigned cookie or one whose
+     * signature does not verify resolves to no session instead of being used verbatim as the
+     * store key. Set this when migrating a deployment that ran express-openid-connect with
+     * `requireSignedSessionStoreCookie: true`, so the signature remains the required integrity
+     * control over the store key.
+     *
+     * @default false
+     */
+    requireSignedLegacyCookie?: boolean;
+  };
   /**
    * Whether to mount the default routes for login, logout, callback and backchannel logout.
    * Routes: /auth/login, /auth/callback, /auth/logout, /auth/backchannel-logout
@@ -121,6 +241,53 @@ export interface Auth0Options {
    * `ServerClient` defaults (TTL 600s, max 100 entries) when omitted.
    */
   discoveryCache?: DiscoveryCacheOptions;
+
+  /**
+   * Enable anonymous sessions. Set to `true` to use all defaults, or provide an options
+   * object to configure the store, cookie lifetime, cookie attributes, identifier, and
+   * login behaviour.
+   *
+   * When set, `req.auth0.client.anonymous` becomes available for creating and managing
+   * anonymous sessions. The store is encrypted with the same `sessionSecret` used for
+   * user sessions (when using the built-in store).
+   *
+   * @example
+   * ```typescript
+   * // Default settings — built-in JWE cookie store, 30-day lifetime
+   * app.use(createAuth0({ sessionSecret: '...', anonymousSessions: true }));
+   *
+   * // Custom lifetime
+   * app.use(createAuth0({
+   *   sessionSecret: '...',
+   *   anonymousSessions: { sessionTokenLifetime: 7 * 24 * 60 * 60 },
+   * }));
+   *
+   * // Custom store + identifier
+   * app.use(createAuth0({
+   *   sessionSecret: '...',
+   *   anonymousSessions: { store: new RedisAnonymousStore(), identifier: '__a0_anon' },
+   * }));
+   *
+   * // Keep anonymous session after login (e.g. to merge a guest cart)
+   * app.use(createAuth0({
+   *   sessionSecret: '...',
+   *   anonymousSessions: { clearOnLogin: false },
+   * }));
+   * ```
+   */
+  anonymousSessions?: true | AnonymousSessionsOptions;
+
+  /**
+   * Put the SDK in Enterprise Connect mode. Auth0 acts as a pure SSO relay;
+   * no Auth0 session is written. `onCallback` is required in this mode.
+   */
+  enterpriseConnect?: boolean;
+
+  /**
+   * Required when `enterpriseConnect: true`. Called after code exchange with
+   * the ID token claims. Write your own session here and call res.redirect().
+   */
+  onCallback?: EnterpriseConnectCallbackHook;
 
   /** Custom paths for authentication routes (only used if mountRoutes is true) */
   routes?: {

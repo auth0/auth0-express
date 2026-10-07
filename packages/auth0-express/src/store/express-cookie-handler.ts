@@ -30,8 +30,8 @@ export class ExpressCookieHandler implements CookieHandler<StoreOptions> {
     return request.cookies as Record<string, string>;
   }
 
-  deleteCookie(name: string, storeOptions?: StoreOptions): void {
+  deleteCookie(name: string, storeOptions?: StoreOptions, options?: CookieSerializeOptions): void {
     const { response } = storeOptions ?? getRequestContext();
-    response.clearCookie(name);
+    response.clearCookie(name, options ? { path: options.path, domain: options.domain } : undefined);
   }
 }

@@ -44,22 +44,24 @@ describe('inferBaseUrlFromRequest', () => {
   });
 
   test('returns null for a host containing embedded credentials (@)', () => {
-    // "user:pass@evil.com" in the Host header; the URL constructor would parse
-    // this as origin "https://evil.com", leaking the origin check — verify the
-    // function produces a URL that is actually safe to use.
+    // A Host header like "legitimate.com@evil.com" would be parsed by the URL
+    // constructor as userinfo "legitimate.com" with origin "https://evil.com".
+    // We reject any host containing "@" so an attacker cannot smuggle an
+    // attacker-controlled origin past the origin checks that consume this value.
     const req = makeRequest({
       headers: { host: 'legitimate.com@evil.com' },
       protocol: 'https',
     });
-    // The constructed candidate "https://legitimate.com@evil.com" has origin
-    // "https://evil.com", which isUrl accepts. We document and test the current
-    // behaviour: a non-null value is returned whose origin is evil.com, not
-    // legitimate.com. This test exists to make the behaviour explicit so that
-    // any future hardening is covered by a regression test.
-    const result = inferBaseUrlFromRequest(req);
-    if (result !== null) {
-      expect(new URL(result).origin).not.toBe('https://legitimate.com');
-    }
+    expect(inferBaseUrlFromRequest(req)).toBeNull();
+  });
+
+  test('returns null for an x-forwarded-host containing credentials (@) when trusted', () => {
+    const req = makeRequest({
+      headers: { 'x-forwarded-host': 'legitimate.com@evil.com' },
+      protocol: 'https',
+      trustProxy: true,
+    });
+    expect(inferBaseUrlFromRequest(req)).toBeNull();
   });
 
   test('returns null for a host with only whitespace', () => {
