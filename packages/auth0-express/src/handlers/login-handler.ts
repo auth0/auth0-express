@@ -1,6 +1,7 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { createRouteUrl, toSafeRedirect } from '../utils.js';
 import { resolveAppBaseUrl } from '../app-base-url.js';
+import { sanitizeHandlerError } from '../errors.js';
 import { Auth0Options } from '../index.js';
 
 // Block both Object.prototype own-property names and commonly abused
@@ -64,7 +65,7 @@ function filterAuthorizationParams(
   return Object.keys(filtered).length > 0 ? filtered : undefined;
 }
 
-export async function handleLogin(req: Request, res: Response, options: Auth0Options): Promise<void> {
+export async function handleLogin(req: Request, res: Response, options: Auth0Options, next: NextFunction): Promise<void> {
   try {
     const appBaseUrl = resolveAppBaseUrl(options.appBaseUrl, req);
     const callbackPath = options.routes?.callback ?? '/auth/callback';
@@ -85,9 +86,6 @@ export async function handleLogin(req: Request, res: Response, options: Auth0Opt
 
     res.redirect(authorizationUrl.href);
   } catch (error) {
-    res.status(500).json({
-      error: (error as Error).name,
-      message: (error as Error).message,
-    });
+    next(sanitizeHandlerError(error));
   }
 }

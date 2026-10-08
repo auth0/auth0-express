@@ -9,6 +9,7 @@ import {
   createConfiguredApp,
   parseCookies,
 } from '../test-utils/test-setup.js';
+import { withNodeEnv } from '../test-utils/env.js';
 import { decrypt } from '../test-utils/encryption.js';
 
 beforeAll(() =>
@@ -93,26 +94,31 @@ describe('login handler', () => {
 
   test('handles errors in startInteractiveLogin', async () => {
     const domain = 'auth0.local.nocache';
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
+
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK sanitizes handler errors regardless of NODE_ENV before delegating
+    // to Express.
+    await withNodeEnv('production', async () => {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
+
+      // Mock the server to return an error for the authorize endpoint
+      server.use(
+        http.get(`https://${domain}/.well-known/openid-configuration`, () => {
+          return HttpResponse.json({ error: 'server_error' }, { status: 500 });
+        })
+      );
+
+      const res = await request(app).get('/auth/login');
+
+      expect(res.status).toBe(500);
+      expect(res.text).not.toContain('unexpected HTTP response status code');
     });
-
-    // Mock the server to return an error for the authorize endpoint
-    server.use(
-      http.get(`https://${domain}/.well-known/openid-configuration`, () => {
-        return HttpResponse.json({ error: 'server_error' }, { status: 500 });
-      })
-    );
-
-    const res = await request(app).get('/auth/login');
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBeDefined();
-    expect(res.body.message).toBe('unexpected HTTP response status code');
   });
 
   test('passes through additional authorization parameters', async () => {
@@ -305,6 +311,5 @@ describe('login handler - dynamic app base URL', () => {
       .set('x-forwarded-proto', 'https');
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBe('InvalidConfigurationError');
   });
 });

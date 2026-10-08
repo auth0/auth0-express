@@ -107,7 +107,6 @@ describe('logout handler', () => {
       .set('x-forwarded-proto', 'https');
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBe('InvalidConfigurationError');
   });
 
   test('forwards ?federated param as federated in non-EC mode', async () => {
