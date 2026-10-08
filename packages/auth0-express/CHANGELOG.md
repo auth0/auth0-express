@@ -1,19 +1,40 @@
 # Change Log
 
-## [v1.0.0](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0) (2026-10-08)
-[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.5...auth0-express-v1.0.0)
+## [v1.0.0](https://github.com/auth0/auth0-express/releases/tag/auth0-express-v1.0.0) (2026-10-08)
 
-This is the first stable release of `@auth0/auth0-express`. It takes the library out of beta, so `npm i @auth0/auth0-express` now installs a stable version. The API is the same as `v1.0.0-beta.5`, with one behavior change to be aware of: errors from the `login`, `callback` and `logout` routes are now passed to your Express error handler with a generic message and no internal detail. See [\#26](https://github.com/auth0/auth0-express/pull/26) and the `Error Handling` section of the README.
+The `@auth0/auth0-express` library enables user authentication in Express applications.
 
-If you are upgrading from `v1.0.0-beta.1` (the previous `latest` tag), note that the package has been ESM-only since `v1.0.0-beta.2`.
+The following features are included in v1.0.0:
 
-**Fixed**
-- fix(example): enforce sub+sid keying for backchannel logout session index [\#53](https://github.com/auth0/auth0-express/pull/53) ([@frederikprijck](https://github.com/frederikprijck))
-- fix(example): set Redis TTL on session keys using absoluteDuration [\#54](https://github.com/auth0/auth0-express/pull/54) ([@frederikprijck](https://github.com/frederikprijck))
-- fix(example): HTML-escape interpolated values in the before/ migration app [\#67](https://github.com/auth0/auth0-express/pull/67) ([@nandan-bhat](https://github.com/nandan-bhat))
+- We mount the following 4 routes automatically for you to use:
+  - `GET /auth/login`
+  - `GET /auth/callback`
+  - `GET /auth/logout`
+  - `POST /auth/backchannel-logout`
+- Routes are customizable via the `routes` configuration option, or can be disabled entirely with `mountRoutes: false`.
+- The SDK uses stateless token storage by default, but supports stateful storage through the `sessionStore` configuration option.
+- In stateless storage mode, the SDK will use cookie-chunking to store the token in the browser's cookies.
+- Session secrets can be rotated without logging users out: pass an array to `sessionSecret`, where the first secret encrypts new cookies and all secrets are tried when decrypting.
+- The SDK provides the following middleware for protecting routes and checking claims:
+  - `requiresAuth()` requires authentication, redirecting to login for HTML requests or returning `401` for API requests.
+  - `claimEquals(claim, value)` checks if a claim equals a specific value.
+  - `claimIncludes(claim, ...values)` checks if an array claim contains the required values.
+  - `claimCheck(fn)` runs your own authorization logic via a validation function.
+- Configuration via environment variables (`AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, `AUTH0_CLIENT_SECRET`, `AUTH0_SESSION_SECRET`, `APP_BASE_URL`, `AUTH0_AUDIENCE`) as an alternative to explicit options. The `express-openid-connect` names (`ISSUER_BASE_URL`, `CLIENT_ID`, `CLIENT_SECRET`, `BASE_URL`, `SECRET`) are also accepted to ease migration.
+- Support for Pushed Authorization Requests (PAR) via the `pushedAuthorizationRequests` configuration option.
+- Support for client assertion authentication via `clientAssertionSigningKey` and `clientAssertionSigningAlg` as an alternative to `clientSecret`.
+- Dynamic application base URLs: omit `appBaseUrl` to infer it from each request, or pass an allow-list of permitted base URLs.
+- Support for Multiple Custom Domains (MCD): pass a resolver function to `domain` to choose the Auth0 domain per request.
+- Zero-downtime migration from `express-openid-connect`: set `legacyCompatibility` and existing cookie (stateless) and server-side store (stateful) sessions are read and upgraded, so users stay logged in.
+- Enterprise Connect support via `enterpriseConnect` and the `onCallback` hook, to use Auth0 as a pure SSO relay while your app owns the session.
+- Anonymous sessions via `anonymousSessions`, to give unauthenticated visitors a persistent identity before login.
+- Experiment Center support (Early Access): pass `experiment_id` and `variation_id` on the login URL to force a variation.
+- Custom `fetch` support via `customFetch`, and control over OIDC discovery caching via `discoveryCache`.
+- The underlying `ServerClient` instance (from `@auth0/auth0-server-js`) is available as `req.auth0.client` for advanced use cases.
+- Errors from the `login`, `callback` and `logout` routes are passed to your Express error handler with a generic message, so no internal detail is written to the response. See the `Error Handling` section of the README.
+- The package is ESM-only (since `v1.0.0-beta.2`) and requires Node.js 22 LTS or a newer LTS version.
 
-**Security**
-- fix(auth0-express): stop leaking internal error detail from handlers [\#26](https://github.com/auth0/auth0-express/pull/26) ([@frederikprijck](https://github.com/frederikprijck))
+For more information on how to configure the SDK and use its features, please refer to the [README](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express/README.md) or the [EXAMPLES](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express/EXAMPLES.md). If you are moving from `express-openid-connect`, see the [MIGRATION](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express/MIGRATION.md) guide.
 
 
 ## [v1.0.0-beta.5](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0-beta.5) (2026-10-06)
