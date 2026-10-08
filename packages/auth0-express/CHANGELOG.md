@@ -1,5 +1,21 @@
 # Change Log
 
+## [v1.0.0](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0) (2026-10-08)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.5...auth0-express-v1.0.0)
+
+This is the first stable release of `@auth0/auth0-express`. It takes the library out of beta, so `npm i @auth0/auth0-express` now installs a stable version. The API is the same as `v1.0.0-beta.5`, with one behavior change to be aware of: errors from the `login`, `callback` and `logout` routes are now passed to your Express error handler with a generic message and no internal detail. See [\#26](https://github.com/auth0/auth0-express/pull/26) and the `Error Handling` section of the README.
+
+If you are upgrading from `v1.0.0-beta.1` (the previous `latest` tag), note that the package has been ESM-only since `v1.0.0-beta.2`.
+
+**Fixed**
+- fix(example): enforce sub+sid keying for backchannel logout session index [\#53](https://github.com/auth0/auth0-express/pull/53) ([@frederikprijck](https://github.com/frederikprijck))
+- fix(example): set Redis TTL on session keys using absoluteDuration [\#54](https://github.com/auth0/auth0-express/pull/54) ([@frederikprijck](https://github.com/frederikprijck))
+- fix(example): HTML-escape interpolated values in the before/ migration app [\#67](https://github.com/auth0/auth0-express/pull/67) ([@nandan-bhat](https://github.com/nandan-bhat))
+
+**Security**
+- fix(auth0-express): stop leaking internal error detail from handlers [\#26](https://github.com/auth0/auth0-express/pull/26) ([@frederikprijck](https://github.com/frederikprijck))
+
+
 ## [v1.0.0-beta.5](https://github.com/auth0/auth0-express/tree/auth0-express-v1.0.0-beta.5) (2026-10-06)
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-v1.0.0-beta.4...auth0-express-v1.0.0-beta.5)
 
