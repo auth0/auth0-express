@@ -31,6 +31,22 @@ app.use(
   })
 );
 
+// Minimal HTML escaping for values interpolated into the demo pages below. Those pages render
+// user-controlled data (ID token claims such as the display name, and the raw claim object), and
+// res.send(string) is served as text/html, so an unescaped value like a name containing
+// "<script>" would execute in the visitor's browser. Escape the five significant HTML characters,
+// ampersand first so the others are not double-escaped. A production app should use a templating
+// engine with automatic escaping; this keeps the example dependency-free while modelling the safe
+// pattern.
+function escapeHtml(value: unknown): string {
+  return String(value)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
 app.get('/', (req, res) => {
   const user = req.oidc.user;
   if (!user) {
@@ -43,7 +59,7 @@ app.get('/', (req, res) => {
   const accessToken = req.oidc.accessToken;
   const expiresAt = accessToken?.expires_in ? new Date((Math.floor(Date.now() / 1000) + accessToken.expires_in) * 1000).toISOString() : '(unknown)';
   res.send(
-    `<h1>express-openid-connect</h1><p>Logged in as ${user.name ?? user.sub}</p>` +
+    `<h1>express-openid-connect</h1><p>Logged in as ${escapeHtml(user.name ?? user.sub)}</p>` +
       `<h2>Session facts</h2>` +
       `<ul>` +
       `<li>Access token present: <b>${accessToken?.access_token ? 'yes' : 'no'}</b> (audience: ${process.env.AUDIENCE ?? 'none'})</li>` +
@@ -52,12 +68,12 @@ app.get('/', (req, res) => {
       `<li>Refresh token present: <b>${req.oidc.refreshToken ? 'yes' : 'no'}</b></li>` +
       `<li>ID token present: <b>${req.oidc.idToken ? 'yes' : 'no'}</b></li>` +
       `</ul>` +
-      `<h2>User</h2><pre>${JSON.stringify(user, null, 2)}</pre><a href="/logout">Logout</a>`
+      `<h2>User</h2><pre>${escapeHtml(JSON.stringify(user, null, 2))}</pre><a href="/logout">Logout</a>`
   );
 });
 
 app.get('/private', requiresAuth(), (req, res) => {
-  res.send(`<h1>Private</h1><pre>${JSON.stringify(req.oidc.user, null, 2)}</pre>`);
+  res.send(`<h1>Private</h1><pre>${escapeHtml(JSON.stringify(req.oidc.user, null, 2))}</pre>`);
 });
 
 app.listen(3000, () => {
