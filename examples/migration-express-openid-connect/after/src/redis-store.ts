@@ -15,8 +15,15 @@ import type { StateData, SessionStore, LogoutTokenClaims } from '@auth0/auth0-se
  * sub cross-check at delete time. MigrationStatefulStateStore writes the transformed StateData
  * back on the first get() of a legacy session (not just on the caller's next write), so this
  * index exists as soon as a migrated session is read, not only after some later action re-writes it.
+ *
+ * Both the session key and its index are written with a Redis TTL of createdAt + absoluteDuration
+ * (seconds), matching the SDK's absolute session cap, so keys expire instead of lingering after the
+ * SDK already considers the session expired.
  */
-export async function createRedisSessionStore(url: string): Promise<SessionStore<unknown>> {
+export async function createRedisSessionStore(
+  url: string,
+  absoluteDuration: number = 60 * 60 * 24 * 3
+): Promise<SessionStore<unknown>> {
   const client = createClient({ url });
   client.on('error', (err) => console.error('Redis error', err));
   await client.connect();
@@ -30,11 +37,12 @@ export async function createRedisSessionStore(url: string): Promise<SessionStore
     },
 
     async set(id: string, stateData: StateData): Promise<void> {
-      await client.set(id, JSON.stringify(stateData));
+      const ttl = Math.max(1, stateData.internal?.createdAt + absoluteDuration - Math.floor(Date.now() / 1000));
+      await client.set(id, JSON.stringify(stateData), { EX: ttl });
       const sid = stateData.internal?.sid;
       const sub = stateData.user?.sub;
       if (sid && sub) {
-        await client.set(sidKey(sid, sub), id);
+        await client.set(sidKey(sid, sub), id, { EX: ttl });
       }
     },
 
