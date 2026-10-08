@@ -7,6 +7,7 @@ import cookieParser from 'cookie-parser';
 import request from 'supertest';
 import { createAuth0 } from './index.js';
 import { decrypt, encrypt } from './test-utils/encryption.js';
+import { withNodeEnv } from './test-utils/env.js';
 import { claimCheck } from './middleware/claim-check.js';
 import { claimEquals } from './middleware/claim-equals.js';
 import { claimIncludes } from './middleware/claim-includes.js';
@@ -480,24 +481,31 @@ test('auth/login preserves returnTo with prompt=none', async () => {
 });
 
 test('auth/callback handles login_required error from prompt=none', async () => {
-  const app = createConfiguredApp({
-    domain: domain,
-    clientId: '<client_id>',
-    clientSecret: '<client_secret>',
-    appBaseUrl: 'http://localhost:3000',
-    sessionSecret: '<secret>',
+  // Assert the response an app sees in a real deployment (NODE_ENV=production).
+  // The SDK sanitizes handler errors regardless of NODE_ENV before delegating
+  // to Express.
+  await withNodeEnv('production', async () => {
+    const app = createConfiguredApp({
+      domain: domain,
+      clientId: '<client_id>',
+      clientSecret: '<client_secret>',
+      appBaseUrl: 'http://localhost:3000',
+      sessionSecret: '<secret>',
+    });
+
+    const cookieName = '__a0_tx';
+    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+    const res = await request(app)
+      .get('/auth/callback')
+      .query({ error: 'login_required', error_description: 'Login required' })
+      .set('cookie', `${cookieName}=${cookieValue}`);
+
+    expect(res.status).toBe(500);
+    // Error detail is NOT leaked to the client; Express default
+    // handler responds without the internal error_description/name.
+    expect(res.text).not.toContain('Login required');
+    expect(res.text).not.toContain('login_required');
   });
-
-  const cookieName = '__a0_tx';
-  const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
-  const res = await request(app)
-    .get('/auth/callback')
-    .query({ error: 'login_required', error_description: 'Login required' })
-    .set('cookie', `${cookieName}=${cookieValue}`);
-
-  expect(res.status).toBe(500);
-  expect(res.body.error).toBe('login_required');
-  expect(res.body.message).toBe('Login required');
 });
 
 test('getUser and getSession methods are available after authentication', async () => {

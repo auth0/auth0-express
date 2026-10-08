@@ -243,6 +243,20 @@ const accessTokenResult = await req.auth0.client.getAccessToken();
 console.log(accessTokenResult.accessToken);
 ```
 
+## Error Handling
+
+The browser-facing auth routes (login, callback, and logout) forward failures to Express via `next(error)` rather than writing error detail to the response themselves. Before doing so, the SDK replaces the underlying error with a sanitized one that carries only a generic message and a fixed `500` status. This has two effects:
+
+- No internal detail (an OAuth `error_description`, a token-endpoint failure reason, stack traces, file paths) reaches the client, regardless of `NODE_ENV`. The original error is preserved on `error.cause`, so your own logging can still inspect it.
+- The failure status is a stable `500` instead of mirroring whatever status an upstream call happened to return (for example a `400` from the token endpoint).
+
+Express still produces the final response. Its built-in error handler writes the (now generic) error stack into the response body unless `NODE_ENV` is set to `production`. For full control over what clients see, you can:
+
+- Run your app with `NODE_ENV=production` in any deployed environment, and/or
+- Mount your own [Express error-handling middleware](https://expressjs.com/en/guide/error-handling.html) after the Auth0 router. Read `error.cause` there if you want to log the original failure.
+
+The back-channel logout route is different: it is called server-to-server by Auth0, not by a browser, so the SDK owns its response directly and always replies with the status codes required by the [OpenID Connect Back-Channel Logout](https://openid.net/specs/openid-connect-backchannel-1_0.html) spec (a success status, which the SDK returns as `204` and the spec also allows as `200`, or `400` on failure) without internal detail in the body. It does **not** flow through your error-handling middleware. If you need to log or customize back-channel logout failures, mount your own route and call `req.auth0.client.handleBackchannelLogout(logoutToken)` directly.
+
 ## Feedback
 
 ### Contributing

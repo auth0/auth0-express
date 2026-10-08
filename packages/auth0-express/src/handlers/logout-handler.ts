@@ -1,8 +1,9 @@
-import { Request, Response } from 'express';
+import { Request, Response, NextFunction } from 'express';
 import { resolveAppBaseUrl } from '../app-base-url.js';
+import { sanitizeHandlerError } from '../errors.js';
 import { Auth0Options } from '../types.js';
 
-export async function handleLogout(req: Request, res: Response, options: Auth0Options): Promise<void> {
+export async function handleLogout(req: Request, res: Response, options: Auth0Options, next: NextFunction): Promise<void> {
   try {
     const returnTo = resolveAppBaseUrl(options.appBaseUrl, req);
     // In Enterprise Connect mode the mounted route always forces a federated
@@ -18,9 +19,6 @@ export async function handleLogout(req: Request, res: Response, options: Auth0Op
 
     res.redirect(logoutUrl.href);
   } catch (error) {
-    res.status(500).json({
-      error: (error as Error).name,
-      message: (error as Error).message,
-    });
+    next(sanitizeHandlerError(error));
   }
 }

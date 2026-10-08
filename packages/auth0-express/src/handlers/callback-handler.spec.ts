@@ -13,6 +13,7 @@ import {
   createConfiguredApp,
   parseCookies,
 } from '../test-utils/test-setup.js';
+import { withNodeEnv } from '../test-utils/env.js';
 import { createAuth0 } from '../index.js';
 
 beforeAll(() =>
@@ -46,125 +47,190 @@ describe('callback handler', () => {
     const res = await request(app).get('/auth/callback').query({ code: '123' });
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBeDefined();
-    expect(res.body.message).toBeDefined();
   });
 
   test('handles login_required error with 500 status', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
+
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ error: 'login_required', error_description: 'Login required' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
+
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client; Express default
+      // handler responds without the internal error_description/name.
+      expect(res.text).not.toContain('Login required');
+      expect(res.text).not.toContain('login_required');
     });
-
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
-
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ error: 'login_required', error_description: 'Login required' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe('login_required');
-    expect(res.body.message).toBe('Login required');
   });
 
   test('handles consent_required error with 500 status', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
+
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ error: 'consent_required', error_description: 'Consent required' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
+
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client; Express default
+      // handler responds without the internal error_description/name.
+      expect(res.text).not.toContain('Consent required');
+      expect(res.text).not.toContain('consent_required');
     });
-
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
-
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ error: 'consent_required', error_description: 'Consent required' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe('consent_required');
-    expect(res.body.message).toBe('Consent required');
   });
 
   test('handles interaction_required error with 500 status', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
+
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ error: 'interaction_required', error_description: 'Interaction required' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
+
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client; Express default
+      // handler responds without the internal error_description/name.
+      expect(res.text).not.toContain('Interaction required');
+      expect(res.text).not.toContain('interaction_required');
     });
-
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
-
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ error: 'interaction_required', error_description: 'Interaction required' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe('interaction_required');
-    expect(res.body.message).toBe('Interaction required');
   });
 
   test('handles other errors with 500 status', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
+
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ error: 'server_error', error_description: 'Something went wrong' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
+
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client; Express default
+      // handler responds without the internal error_description/name.
+      expect(res.text).not.toContain('Something went wrong');
+      expect(res.text).not.toContain('server_error');
     });
-
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
-
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ error: 'server_error', error_description: 'Something went wrong' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
-
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBe('server_error');
-    expect(res.body.message).toBe('Something went wrong');
   });
 
-  test('returns error name when cause.error is not available', async () => {
-    const app = createConfiguredApp({
-      domain: domain,
-      clientId: '<client_id>',
-      clientSecret: '<client_secret>',
-      appBaseUrl: 'http://localhost:3000',
-      sessionSecret: '<secret>',
+  test('does not leak error detail when the token exchange fails', async () => {
+    // Assert the response an app sees in a real deployment (NODE_ENV=production).
+    // The SDK now sanitizes handler errors regardless of NODE_ENV; the dedicated
+    // development-mode test below proves detail is not leaked in that mode either.
+    await withNodeEnv('production', async () => {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
+
+      // Mock token endpoint to fail the code exchange
+      server.use(
+        http.post(mockOpenIdConfiguration.token_endpoint, () => {
+          return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
+        })
+      );
+
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ code: '123' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
+
+      expect(res.status).toBe(500);
+      // Error detail is NOT leaked to the client; Express default
+      // handler responds without the internal error name/message.
+      expect(res.text).not.toContain('invalid_grant');
     });
+  });
 
-    // Mock token endpoint to throw an error without cause
-    server.use(
-      http.post(mockOpenIdConfiguration.token_endpoint, () => {
-        return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
-      })
-    );
+  test('does not leak error detail outside production (development env)', async () => {
+    // The production tests above pin NODE_ENV=production. This one proves the
+    // sanitized-error contract holds even when the app runs in development,
+    // where Express's default handler would otherwise write the error stack
+    // (including the token-endpoint failure reason) into the response body.
+    await withNodeEnv('development', async () => {
+      const app = createConfiguredApp({
+        domain: domain,
+        clientId: '<client_id>',
+        clientSecret: '<client_secret>',
+        appBaseUrl: 'http://localhost:3000',
+        sessionSecret: '<secret>',
+      });
 
-    const cookieName = '__a0_tx';
-    const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
+      server.use(
+        http.post(mockOpenIdConfiguration.token_endpoint, () => {
+          return HttpResponse.json({ error: 'invalid_grant' }, { status: 400 });
+        })
+      );
 
-    const res = await request(app)
-      .get('/auth/callback')
-      .query({ code: '123' })
-      .set('cookie', `${cookieName}=${cookieValue}`);
+      const cookieName = '__a0_tx';
+      const cookieValue = await encrypt({}, '<secret>', cookieName, Date.now() + 1000);
 
-    expect(res.status).toBe(500);
-    expect(res.body.error).toBeDefined();
-    expect(res.body.message).toBeDefined();
+      const res = await request(app)
+        .get('/auth/callback')
+        .query({ code: '123' })
+        .set('cookie', `${cookieName}=${cookieValue}`);
+
+      expect(res.status).toBe(500);
+      expect(res.text).not.toContain('invalid_grant');
+    });
   });
 
   test('redirects to returnTo from appState after successful login', async () => {
@@ -260,7 +326,6 @@ describe('callback handler', () => {
       .set('cookie', `${cookieName}=${cookieValue}`);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBe('InvalidConfigurationError');
   });
 
   test('redirects to appState.returnTo from a different allowed origin (no re-validation at callback time)', async () => {
@@ -431,6 +496,9 @@ describe('callback handler - Enterprise Connect mode', () => {
       .set('cookie', `${cookieName}=${cookieValue}`);
 
     expect(res.status).toBe(500);
-    expect(res.body.error).toBeDefined();
+    // The handler delegates to Express via next() with a sanitized error, so the
+    // response carries no internal detail. This app runs in a non-production env,
+    // showing the sanitization does not depend on NODE_ENV=production.
+    expect(res.text).not.toContain('invalid_grant');
   });
 });
