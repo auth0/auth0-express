@@ -37,7 +37,7 @@ export async function createRedisSessionStore(
     },
 
     async set(id: string, stateData: StateData): Promise<void> {
-      const ttl = Math.max(1, stateData.internal.createdAt + absoluteDuration - Math.floor(Date.now() / 1000));
+      const ttl = Math.max(1, stateData.internal?.createdAt + absoluteDuration - Math.floor(Date.now() / 1000));
       await client.set(id, JSON.stringify(stateData), { EX: ttl });
       const sid = stateData.internal?.sid;
       const sub = stateData.user?.sub;
