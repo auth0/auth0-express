@@ -17,6 +17,8 @@ import type { StartEnterpriseLoginOptions } from '@auth0/auth0-server-js';
  * @returns `true` when the domain is federated and the response was redirected
  * to Auth0; `false` when the domain is not federated, so the caller can fall
  * back to its own non-enterprise login.
+ *
+ * @category Enterprise Connect
  */
 export async function startEnterpriseLogin(
   req: Request,

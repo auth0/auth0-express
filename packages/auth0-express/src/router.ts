@@ -38,6 +38,8 @@ import './types/express.js';
  *   sessionSecret: process.env.SESSION_SECRET
  * }));
  * ```
+ *
+ * @category Getting Started
  */
 export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   const options = getConfig(opts);
