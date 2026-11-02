@@ -9,6 +9,7 @@ The Auth0 Express SDK is a library for implementing user authentication in Expre
 ## Documentation
 
 - [Examples](https://github.com/auth0/auth0-express/blob/main/packages/auth0-express/EXAMPLES.md) - examples for your different use cases.
+- [API Reference](https://auth0.github.io/auth0-express/modules/_auth0_auth0-express.html) - full reference for every export.
 - [Docs Site](https://auth0.com/docs) - explore our docs site and learn more about Auth0.
 
 ## Features

@@ -19,6 +19,7 @@
         "entryPoints": ["src/index.ts"],
         "tsconfig": "tsconfig.build.json",
         "excludeTags": ["@category"],
-        "includeVersion": true
+        "includeVersion": true,
+        "gitRevision": "main"
     }
 }

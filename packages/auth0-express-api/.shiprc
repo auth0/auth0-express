@@ -3,5 +3,6 @@
   "packageLabel": "auth0-express-api",
   "files": {
     ".version": []
-  }
+  },
+  "postbump": "npm install --prefix=../.. && npm run docs --prefix=../.."
 }
