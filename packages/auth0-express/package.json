@@ -12,7 +12,6 @@
     "build": "tsc --project tsconfig.build.json",
     "build:watch": "tsc --project tsconfig.build.json --watch",
     "clean": "rm -rf ./dist",
-    "docs": "typedoc --options typedoc.cjs",
     "lint": "eslint \"./**/*.ts*\"",
     "test": "vitest run",
     "test:express4": "vitest run --config vitest.express4.config.ts",
