@@ -6,6 +6,8 @@ import type { Request } from 'express';
  * @param req - The Express request, for authorization logic that depends on the
  *   request (e.g. route params, query, headers).
  * @param claims - The authenticated user's claims.
+ *
+ * @category Claim Checks
  */
 export type ClaimCheckFunction = (
   req: Request,
@@ -14,6 +16,8 @@ export type ClaimCheckFunction = (
 
 /**
  * Options for claim-based authorization middleware.
+ *
+ * @category Claim Checks
  */
 export interface ClaimAuthOptions {
   /**

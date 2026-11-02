@@ -23,6 +23,8 @@ import { ClaimAuthOptions, JSONPrimitive } from './claim-auth.js';
  *   res.send('Organization page');
  * });
  * ```
+ *
+ * @category Claim Checks
  */
 export function claimEquals(claim: string, value: JSONPrimitive, options?: ClaimAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {

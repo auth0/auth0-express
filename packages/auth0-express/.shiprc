@@ -4,5 +4,5 @@
   "files": {
     ".version": []
   },
-  "postbump": "npm run docs --prefix=../.."
+  "postbump": "npm run docs --prefix=../.. && npm run docs"
 }
