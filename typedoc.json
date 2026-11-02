@@ -17,6 +17,8 @@
     "categorizeByGroup": false,
     "packageOptions": {
         "entryPoints": ["src/index.ts"],
+        "tsconfig": "tsconfig.build.json",
+        "excludeTags": ["@category"],
         "includeVersion": true
     }
 }
