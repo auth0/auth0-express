@@ -4,7 +4,4 @@ coverage
 .turbo
 .env
 
-#temporary
-docs
-
 package-lock.json
