@@ -1,0 +1,893 @@
+# Examples
+
+- [Configuration](#configuration)
+  - [Basic configuration](#basic-configuration)
+  - [Using environment variables](#using-environment-variables)
+  - [Configuring the mounted routes](#configuring-the-mounted-routes)
+  - [Configuring a customFetch implementation](#configuring-a-customfetch-implementation)
+  - [Dynamic Application Base URLs](#dynamic-application-base-urls)
+  - [Discovery Cache](#discovery-cache)
+- [The `ServerClient` instance](#the-serverclient-instance)
+- [Protecting Routes](#protecting-routes)
+  - [Using requiresAuth middleware](#using-requiresauth-middleware)
+  - [Using custom middleware](#using-custom-middleware)
+- [Authorization with Claims](#authorization-with-claims)
+  - [Using claimEquals](#using-claimequals)
+  - [Using claimIncludes](#using-claimincludes)
+  - [Using claimCheck for custom logic](#using-claimcheck-for-custom-logic)
+- [Requesting an Access Token to call an API](#requesting-an-access-token-to-call-an-api)
+- [Enterprise Connect](#enterprise-connect)
+  - [Starting an Enterprise Connect login](#starting-an-enterprise-connect-login)
+  - [Checking Home Realm Discovery yourself](#checking-home-realm-discovery-yourself)
+  - [Logging out](#logging-out)
+- [Experiment Center](#experiment-center)
+  - [Testing](#testing)
+  - [Production usage](#production-usage)
+- [Anonymous Sessions](#anonymous-sessions)
+  - [Enabling anonymous sessions](#enabling-anonymous-sessions)
+  - [Creating and reading a session](#creating-and-reading-a-session)
+  - [Getting an access token](#getting-an-access-token)
+  - [Ending the anonymous session](#ending-the-anonymous-session)
+  - [Error handling](#error-handling)
+  - [Merging what the visitor did before they logged in](#merging-what-the-visitor-did-before-they-logged-in)
+  - [Custom store](#custom-store)
+- [Multiple Custom Domains (MCD)](#multiple-custom-domains-mcd)
+
+## Configuration
+
+### Basic configuration
+
+Register the Auth0 Express router with your Express instance.
+
+```ts
+import express from 'express';
+import { createAuth0 } from '@auth0/auth0-express';
+
+const app = express();
+
+app.use(createAuth0({
+  domain: '<AUTH0_DOMAIN>',
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  appBaseUrl: '<APP_BASE_URL>',
+  sessionSecret: '<SESSION_SECRET>',
+}));
+```
+
+The `AUTH0_DOMAIN`, `AUTH0_CLIENT_ID`, and `AUTH0_CLIENT_SECRET` can be obtained from the [Auth0 Dashboard](https://manage.auth0.com) once you've created an application. **This application must be a `Regular Web Application`**.
+The `SESSION_SECRET` is the key used to encrypt the session and transaction cookies. You can generate a secret using `openssl`:
+
+```shell
+openssl rand -hex 64
+```
+
+The `APP_BASE_URL` is the URL that your application is running on. When developing locally, this is most commonly `http://localhost:3000`.
+
+> [!IMPORTANT]
+> You will need to register the following URLs in your Auth0 Application via the [Auth0 Dashboard](https://manage.auth0.com):
+>
+> - Add `http://localhost:3000/auth/callback` to the list of **Allowed Callback URLs**
+> - Add `http://localhost:3000` to the list of **Allowed Logout URLs**
+
+### Using environment variables
+
+The SDK automatically reads configuration from environment variables, making it easy to configure without hardcoding values:
+
+```ts
+import express from 'express';
+import { createAuth0 } from '@auth0/auth0-express';
+import 'dotenv/config'; // Optional: load from .env file
+
+const app = express();
+
+// Configuration is automatically read from environment variables
+app.use(createAuth0());
+```
+
+Supported environment variables:
+- `AUTH0_DOMAIN` - Your Auth0 domain
+- `AUTH0_CLIENT_ID` - Your Auth0 application client ID
+- `AUTH0_CLIENT_SECRET` - Your Auth0 application client secret (optional)
+- `APP_BASE_URL` - Your application base URL
+- `AUTH0_SESSION_SECRET` - Secret for session encryption
+- `AUTH0_AUDIENCE` - API audience (optional)
+
+Example `.env` file:
+
+```env
+AUTH0_DOMAIN=your-tenant.auth0.com
+AUTH0_CLIENT_ID=your_client_id
+AUTH0_CLIENT_SECRET=your_client_secret
+APP_BASE_URL=http://localhost:3000
+AUTH0_SESSION_SECRET=your_long_random_secret_here
+AUTH0_AUDIENCE=https://api.example.com
+```
+
+You can also override specific values while using environment variables for others:
+
+```ts
+app.use(createAuth0({
+  audience: 'https://api.example.com' // Override while using env vars for other config
+}));
+```
+
+> [!NOTE]
+> For migration from `express-openid-connect`, alternative environment variable names are supported: `ISSUER_BASE_URL` (for domain), `CLIENT_ID`, `CLIENT_SECRET`, `BASE_URL` and `SECRET` (for session secret). These are provided for compatibility but `AUTH0_*` prefixed names are recommended.
+
+### Configuring the mounted routes
+
+By default, the SDK mounts the following routes:
+
+- `auth/login`
+- `auth/callback`
+- `auth/logout`
+- `auth/backchannel-logout`
+
+The SDK can also be configured not to register these routes by setting the `mountRoutes` option to `false`:
+
+```ts
+import express from 'express';
+import { createAuth0 } from '@auth0/auth0-express';
+
+const app = express();
+
+app.use(createAuth0({
+  /* ... */
+  mountRoutes: false,
+}));
+```
+
+### Configuring a `customFetch` implementation
+
+The SDK allows to override the fetch implementation, used for making HTTP requests, by providing a custom implementation when registering the router:
+
+```ts
+import express from 'express';
+import { createAuth0 } from '@auth0/auth0-express';
+
+const app = express();
+
+app.use(createAuth0({
+  /* ... */
+  customFetch: async (input, init) => {
+    // Custom fetch implementation
+  },
+}));
+```
+
+### Dynamic Application Base URLs
+
+By default the SDK uses a static `appBaseUrl` (or `APP_BASE_URL` / `BASE_URL`). For preview/deploy environments where the host is not known at startup, you can either omit it (host inference) or provide an allow-list.
+
+#### Host inference (omit `appBaseUrl`)
+
+```ts
+import { createAuth0 } from '@auth0/auth0-express';
+
+// APP_BASE_URL omitted; the base URL is inferred from each request's host.
+app.use(createAuth0());
+```
+
+The SDK builds the base URL per request from the request protocol and host. When your app runs behind a reverse proxy (most preview platforms such as Vercel and Netlify do), enable Express's [`trust proxy`](https://expressjs.com/en/guide/behind-proxies.html) setting so the forwarded `x-forwarded-proto` / `x-forwarded-host` headers are honored:
+
+```ts
+const app = express();
+app.set('trust proxy', true); // or a more specific value (e.g. number of hops, subnet)
+
+app.use(createAuth0());
+```
+
+When `trust proxy` is not enabled, the SDK ignores the `x-forwarded-*` headers and uses the connection protocol and the `Host` header — matching how `req.protocol`, `req.secure`, and the rest of Express behave. This works the same on Express 4 and 5.
+
+#### Allow-list (recommended for production)
+
+Provide an array of permitted base URLs. The SDK matches the incoming request origin against the list and rejects anything else:
+
+```ts
+app.use(createAuth0({
+  appBaseUrl: ['https://app.example.com', 'https://myapp.vercel.app'],
+}));
+```
+
+Via environment variable, use a comma-separated value:
+
+```env
+APP_BASE_URL=https://app.example.com,https://myapp.vercel.app
+```
+
+> [!IMPORTANT]
+> The host comes from the request and is ultimately untrusted input. Enabling `trust proxy` only when you are genuinely behind a trusted proxy, and using the allow-list above, are your first line of defense. Auth0's **Allowed Callback URLs** are the primary safeguard: if the resolved host is not registered in your Auth0 application, Auth0 rejects the authorize request. Register every dynamic/preview host you expect.
+
+> [!NOTE]
+> When relying on dynamic base URLs (omitted `appBaseUrl`) in production (`NODE_ENV=production`), the SDK enforces a secure session cookie. Explicitly setting `sessionConfiguration.cookie.secure = false` throws `InvalidConfigurationError`.
+
+### Discovery Cache
+
+By default the SDK caches OIDC discovery metadata and JWKS in memory (TTL 600s, max 100 entries), delegated to `@auth0/auth0-server-js`. Cache entries are scoped per resolved Auth0 domain, so each domain keeps its own discovery/JWKS data.
+
+```ts
+app.use(createAuth0({
+  // other options...
+  discoveryCache: { ttl: 800, maxEntries: 200 },
+}));
+```
+
+Most apps can keep the defaults. Adjust them when:
+
+- **`maxEntries`** — raise it if one process serves more than ~100 distinct Auth0 domains within the TTL window (common in larger MCD deployments).
+- **`ttl`** — raise it to reduce repeated discovery/JWKS fetches; lower it to pick up metadata/signing-key changes sooner; set `0` to effectively disable the cache.
+
+## The `ServerClient` instance
+
+Once the router is registered, an instance of the Auth0 `ServerClient` is available via `req.auth0.client` on the request object. This instance can be used to call any of the methods available on the `ServerClient`, such as `getUser()`, `getSession()`, and `getAccessToken()`.
+
+For the complete list of available methods, please refer to the [@auth0/auth0-server-js SDK documentation](https://github.com/auth0/auth0-auth-js/blob/main/packages/auth0-server-js/README.md).
+
+## Protecting Routes
+
+### Using requiresAuth middleware
+
+The SDK provides a `requiresAuth` middleware that automatically protects routes and handles authentication redirects:
+
+```ts
+import { requiresAuth } from '@auth0/auth0-express';
+
+// Protect a route - redirects to login if not authenticated
+app.get('/profile', requiresAuth(), async (req, res) => {
+  const user = await req.auth0.client.getUser();
+  res.render('profile.ejs', { name: user!.name });
+});
+
+// For API routes - returns 401 instead of redirecting
+app.get('/api/me', requiresAuth(), async (req, res) => {
+  const user = await req.auth0.client.getUser();
+  res.json({ user });
+});
+
+// Custom return URL after login
+app.get('/admin', requiresAuth({ returnTo: '/admin/dashboard' }), (req, res) => {
+  res.send('Admin page');
+});
+```
+
+The `requiresAuth` middleware automatically:
+- Redirects HTML requests to `/auth/login` with a `returnTo` parameter
+- Returns `401 Unauthorized` for API requests (those that accept JSON but not HTML)
+- Preserves the original URL for post-login redirect
+
+### Using custom middleware
+
+You can also create custom middleware using the SDK's `getUser()` method:
+
+```ts
+async function hasUserMiddleware(req, res, next) {
+  const user = await req.auth0.client.getUser();
+
+  if (!user) {
+    return res.redirect('/auth/login');
+  }
+
+  next();
+}
+
+app.get('/profile', hasUserMiddleware, async (req, res) => {
+  const user = await req.auth0.client.getUser();
+  res.render('profile.ejs', { name: user!.name });
+});
+```
+
+> [!IMPORTANT]
+> The above is to protect server-side rendering routes by the means of a session, and not API routes using a bearer token.
+
+## Authorization with Claims
+
+The SDK provides middleware for claim-based authorization, useful for implementing role-based access control (RBAC) and permissions.
+
+### Using claimEquals
+
+Check if a specific claim equals an expected value:
+
+```ts
+import { claimEquals, requiresAuth } from '@auth0/auth0-express';
+
+// Only allow users with role 'admin'
+app.get('/admin',
+  requiresAuth(),
+  claimEquals('role', 'admin'),
+  (req, res) => {
+    res.send('Admin dashboard');
+  }
+);
+
+// Check a namespace claim
+app.get('/internal',
+  requiresAuth(),
+  claimEquals('https://myapp.com/department', 'engineering'),
+  (req, res) => {
+    res.send('Engineering portal');
+  }
+);
+```
+
+By default, `claimEquals` checks the ID token claims. You can specify to check access token claims instead:
+
+```ts
+app.get('/admin',
+  requiresAuth(),
+  claimEquals('role', 'admin', { tokenType: 'access' }),
+  (req, res) => {
+    res.send('Admin dashboard');
+  }
+);
+```
+
+### Using claimIncludes
+
+Check if a claim array includes a specific value, useful for permissions:
+
+```ts
+import { claimIncludes, requiresAuth } from '@auth0/auth0-express';
+
+// Check if user has 'delete:users' permission
+app.delete('/users/:id',
+  requiresAuth(),
+  claimIncludes('permissions', 'delete:users'),
+  async (req, res) => {
+    // Delete user logic
+    res.json({ success: true });
+  }
+);
+
+// Check for multiple permissions (user needs at least one)
+app.get('/admin/users',
+  requiresAuth(),
+  claimIncludes('permissions', ['read:users', 'admin:all']),
+  (req, res) => {
+    res.render('users-list');
+  }
+);
+```
+
+### Using claimCheck for custom logic
+
+For complex authorization rules, use `claimCheck` with a custom validation function:
+
+```ts
+import { claimCheck, requiresAuth } from '@auth0/auth0-express';
+
+// Check multiple conditions
+app.get('/premium',
+  requiresAuth(),
+  claimCheck((req, claims) => {
+    return claims.subscription === 'premium' && claims.email_verified === true;
+  }),
+  (req, res) => {
+    res.render('premium-content');
+  }
+);
+
+// Check if user is in specific organization with required role
+app.get('/org/:orgId/settings',
+  requiresAuth(),
+  claimCheck((req, claims) => {
+    const orgId = req.params.orgId;
+    return claims.org_id === orgId && claims.org_role === 'owner';
+  }),
+  (req, res) => {
+    res.render('org-settings');
+  }
+);
+
+// Check access token claims
+app.post('/api/admin',
+  requiresAuth(),
+  claimCheck((req, claims) => {
+    return claims.scope?.includes('admin:write');
+  }, { tokenType: 'access' }),
+  (req, res) => {
+    res.json({ success: true });
+  }
+);
+```
+
+All claim middleware returns:
+- `403 Forbidden` for HTML requests when authorization fails
+- `403 Forbidden` with JSON error for API requests
+
+## Requesting an Access Token to call an API
+
+If you need to call an API on behalf of the user, you want to specify the `audience` parameter when registering the router. This will make the SDK request an access token for the specified audience when the user logs in.
+
+```ts
+app.use(createAuth0({
+  domain: '<AUTH0_DOMAIN>',
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  audience: '<AUTH0_AUDIENCE>',
+  appBaseUrl: '<APP_BASE_URL>',
+  sessionSecret: '<SESSION_SECRET>',
+}));
+```
+The `AUTH0_AUDIENCE` is the identifier of the API you want to call. You can find this in the API section of the Auth0 dashboard.
+
+Retrieving the token can be achieved by using `getAccessToken`:
+
+```ts
+const accessTokenResult = await req.auth0.client.getAccessToken({ request: req, response: res });
+console.log(accessTokenResult.accessToken);
+```
+
+## Enterprise Connect
+
+> [!NOTE]
+> Enterprise Connect is in **Early Access**. To enable it for your tenant, contact Auth0 support.
+
+Enterprise Connect (EC) uses Auth0 as a pure SSO relay: Auth0 federates the login to an enterprise identity provider but writes **no Auth0 session**. Your application owns the session — you establish it yourself in the `onCallback` hook after the login completes.
+
+Enable it with `enterpriseConnect: true` and provide the required `onCallback` hook:
+
+```ts
+import { createAuth0 } from '@auth0/auth0-express';
+
+// HMAC helpers — sign and verify the app session cookie so it can't be forged.
+const enc = new TextEncoder();
+const key = () =>
+  crypto.subtle.importKey(
+    'raw',
+    enc.encode(process.env.AUTH0_SESSION_SECRET!),
+    { name: 'HMAC', hash: 'SHA-256' },
+    false,
+    ['sign', 'verify']
+  );
+
+app.use(createAuth0({
+  domain: '<AUTH0_DOMAIN>',
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  appBaseUrl: '<APP_BASE_URL>',
+  sessionSecret: '<SESSION_SECRET>',
+  enterpriseConnect: true,
+  async onCallback(_req, res, { user, appState }) {
+    if (!user) { return res.redirect('/login?error=no-session'); }
+
+    // Optional: validate orgId against your approved-org list before continuing.
+    const orgId = (user['org_id'] as string) ?? '';
+
+    // session.user holds the OIDC claims; keep only the fields you need.
+    const appSession = { sub: user.sub, email: user.email };
+
+    // Sign the payload so the cookie can't be forged: "<body>.<signature>".
+    const body = Buffer.from(JSON.stringify(appSession)).toString('base64url');
+    const signature = Buffer.from(
+      await crypto.subtle.sign('HMAC', await key(), enc.encode(body))
+    ).toString('base64url');
+
+    res.cookie('app_session', `${body}.${signature}`, {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+    res.redirect((appState as { returnTo?: string } | undefined)?.returnTo ?? '/dashboard');
+  },
+}));
+```
+
+`onCallback` receives `{ user?, appState? }` and must write your session and end the response (for example with `res.redirect()`) before the promise resolves.
+
+> Do **not** include `offline_access` in `scope` — EC clients receive no refresh token and the access token expires (default 24 h) with no renewal path. Use EC to establish identity only; issue your own tokens for downstream API authorization.
+
+> [!IMPORTANT]
+> Because no Auth0 session is written in EC mode, the session-backed `ServerClient` methods (`getUser`, `getSession`, `getAccessToken`, `getAccessTokenForConnection`, …) and the `requiresAuth()` middleware are unavailable — they throw `EnterpriseConnectNotSupportedError`. Guard protected routes with your own session check instead.
+
+### Starting an Enterprise Connect login
+
+Use the exported `startEnterpriseLogin` handler. It runs email-domain Home Realm Discovery (WebFinger) and, if the domain is federated, redirects the browser to Auth0 and returns `true`. For a non-federated domain it does nothing and returns `false`, so you can fall back. It throws on an unexpected error (e.g. misconfiguration), so forward that to your error handler:
+
+```ts
+import { startEnterpriseLogin } from '@auth0/auth0-express';
+
+app.post('/login', async (req, res, next) => {
+  try {
+    const federated = await startEnterpriseLogin(req, res, {
+      email: req.body.email,
+      returnTo: '/dashboard', // surfaced to onCallback as appState.returnTo
+    });
+
+    if (!federated) {
+      // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
+      res.redirect('/login?mode=password');
+    }
+  } catch (err) {
+    next(err);
+  }
+});
+```
+
+### Checking Home Realm Discovery yourself
+
+`startEnterpriseLogin` composes two steps: the discovery check and starting the login. If you need to run logic between them, the SDK also re-exports the standalone `isFederatedDomain` function; start the login yourself by redirecting to the mounted `/auth/login` route with the email as `login_hint`:
+
+```ts
+import { isFederatedDomain } from '@auth0/auth0-express';
+
+app.post('/login', async (req, res, next) => {
+  try {
+    const email = req.body.email as string;
+    const emailDomain = email?.split('@')[1];
+    if (!emailDomain) { throw new Error('Email domain is missing or invalid'); }
+
+    const federated = await isFederatedDomain('<AUTH0_DOMAIN>', emailDomain);
+    if (!federated) {
+      // Domain is not federated, handle with your own login - replace '/login?mode=password' with your existing login route
+      res.redirect('/login?mode=password');
+      return;
+    }
+
+    res.redirect(`/auth/login?login_hint=${encodeURIComponent(email)}`);
+  } catch (err) {
+    next(err);
+  }
+});
+```
+
+> [!NOTE]
+> `isFederatedDomain` is a routing hint, not a security control. Optionally validate `org_id` from the returned ID token in `onCallback` against your own records regardless of what discovery returned.
+
+Prefer `startEnterpriseLogin` unless you specifically need to intervene between the two steps.
+
+### Logging out
+
+Enterprise Connect logout is always **federated**: it ends the upstream enterprise IdP session as well as the Auth0 session. There are two ways to handle this:
+
+**Option 1 — custom `/logout` route (recommended).** Gives you full control: clear your app session cookie and build the Auth0 logout URL in one place.
+
+```ts
+app.get('/logout', async (req, res, next) => {
+  try {
+    res.clearCookie('app_session', {
+      httpOnly: true,
+      secure: process.env.NODE_ENV === 'production',
+      sameSite: 'lax',
+      path: '/',
+    });
+    const logoutUrl = await req.auth0.client.logout({
+      returnTo: '<APP_BASE_URL>/login',
+      federated: true,
+    });
+    res.redirect(logoutUrl.href);
+  } catch (err) {
+    next(err);
+  }
+});
+```
+
+**Option 2 — redirect to the mounted `/auth/logout`.** The SDK automatically forces federated logout in EC mode. Clear your app session cookie first, then redirect:
+
+```ts
+app.get('/logout', (req, res) => {
+  res.clearCookie('app_session', {
+    httpOnly: true,
+    secure: process.env.NODE_ENV === 'production',
+    sameSite: 'lax',
+    path: '/',
+  });
+  res.redirect('/auth/logout');
+});
+```
+
+> [!IMPORTANT]
+> Register your post-logout URL in the Auth0 application's **Allowed Logout URLs**.
+
+A complete runnable example is available under [`examples/example-express-enterprise-connect`](https://github.com/auth0/auth0-express/tree/main/examples/example-express-enterprise-connect).
+
+## Experiment Center
+
+> [!NOTE]
+> Experiment Center is in **Early Access**. To enable it for your tenant, contact Auth0 support.
+
+Experiment Center is Auth0's A/B testing platform for login flows. Pass `experiment_id` and `variation_id` as query parameters on the login URL to force a specific variation for that request, bypassing the server-side deterministic assignment. Both IDs are obtained from your Auth0 Dashboard or the Management API.
+
+```ts
+<a href="/auth/login?experiment_id=<EXPERIMENT_ID>&variation_id=<VARIATION_ID>">Log in</a>
+```
+
+When the experiment uses segment targeting, also pass `segment_id`:
+
+```ts
+<a href="/auth/login?experiment_id=<EXPERIMENT_ID>&variation_id=<VARIATION_ID>&segment_id=<SEGMENT_ID>">Log in</a>
+```
+
+> [!IMPORTANT]
+> Pass these parameters on the specific login link where you want the override, not in a global middleware that appends them to every `/auth/login` request. Adding them everywhere pins all logins to the same variation, which cancels out the A/B test.
+>
+> Do not include these parameters when triggering a silent authentication check (`prompt=none`). Experiment Center does not run during silent checks; the parameters will have no effect.
+
+### Testing
+
+When writing integration tests (Cypress, Playwright), read the IDs from environment variables and construct the login URL:
+
+```ts
+// Playwright example
+await page.goto(
+  `/auth/login?experiment_id=${process.env.EXPERIMENT_ID}&variation_id=${process.env.VARIATION_ID}`
+);
+```
+
+Avoid hardcoding variation IDs in production code — use your Auth0 Dashboard or CI environment variables instead.
+
+### Production usage
+
+In production, obtain variant decisions from a feature-flag service (e.g. LaunchDarkly) that determines the variation per request, then construct the login URL:
+
+```ts
+app.get('/login', async (req, res) => {
+  const variation = await featureFlagService.getVariation(req);
+  const params = new URLSearchParams({
+    experiment_id: variation.experimentId,
+    variation_id: variation.variationId,
+  });
+  res.redirect(`/auth/login?${params}`);
+});
+```
+
+If you have disabled the built-in routes (`mountRoutes: false`) and call `startInteractiveLogin` directly, pass the params via `authorizationParams` instead:
+
+```ts
+const url = await req.auth0.client.startInteractiveLogin({
+  authorizationParams: {
+    experiment_id: '<EXPERIMENT_ID>',
+    variation_id: '<VARIATION_ID>',
+  },
+});
+res.redirect(url.href);
+```
+
+## Multiple Custom Domains (MCD)
+
+Multiple Custom Domains (MCD) lets you resolve the Auth0 domain per request while using a single `createAuth0` instance. This is useful when one application serves multiple customer domains (for example, `brand-1.my-app.com` and `brand-2.my-app.com`), each mapped to a different Auth0 custom domain.
+
+MCD is enabled by passing a **domain resolver function** to `domain` instead of a static string. The resolver receives the Express request context (`{ request, response }`) and returns the Auth0 custom domain for that request.
+
+> Resolver mode is intended for the custom domains of a **single** Auth0 tenant. It is not a supported way to connect multiple Auth0 tenants to one application.
+
+### Host-based resolver with a default fallback
+
+```ts
+import { createAuth0, DomainResolver, StoreOptions } from '@auth0/auth0-express';
+
+const defaultAuth0Domain = 'auth.custom-domain.com';
+const domainsByHost: Record<string, string> = {
+  'brand-1.my-app.com': 'auth.custom-domain-1.com',
+  'brand-2.my-app.com': 'auth.custom-domain-2.com',
+};
+
+const domainResolver: DomainResolver<StoreOptions> = (storeOptions) => {
+  const host = storeOptions?.request?.headers.host;
+  return (host && domainsByHost[host]) || defaultAuth0Domain;
+};
+
+app.use(createAuth0({
+  domain: domainResolver,
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  sessionSecret: '<SESSION_SECRET>',
+  appBaseUrl: '<APP_BASE_URL>',
+}));
+```
+
+### Header-to-domain map (trusted app routing context)
+
+```ts
+import { DomainResolver, StoreOptions } from '@auth0/auth0-express';
+
+const headerValueToAuth0Domain: Record<string, string> = {
+  workspace_a: 'workspace-a.custom-domain.com',
+  workspace_b: 'workspace-b.custom-domain.com',
+};
+
+const domainResolver: DomainResolver<StoreOptions> = (storeOptions) => {
+  // App-specific routing key, not Auth0 tenant metadata.
+  const routingKey = storeOptions?.request?.headers['x-tenant-id'] as string | undefined;
+  return (routingKey && headerValueToAuth0Domain[routingKey]) || 'auth.custom-domain.com';
+};
+```
+
+### `appBaseUrl` in resolver mode
+
+`appBaseUrl` behaves exactly as documented in [Dynamic Application Base URLs](#dynamic-application-base-urls):
+
+- provide a static string or allow-list, **or**
+- omit it to infer the base URL from the request host (enable Express `trust proxy` when behind a proxy).
+
+If you omit `appBaseUrl`, register every inferred origin in Auth0 as an **Allowed Callback URL** and **Allowed Logout URL**.
+
+### Backchannel logout requests
+
+The backchannel logout route (mounted by default) is called **server-to-server by Auth0**, not by the end-user's browser. Such requests do not carry the tenant's `Host` (or any app-specific routing header), so a host- or header-based resolver will not find a match for them. Make sure your resolver returns a sensible default in that case — the fallback in the examples above (`|| defaultAuth0Domain`) handles this. If you have no meaningful default, detect the backchannel logout path and return the appropriate domain explicitly.
+
+### Security requirements
+
+When resolving tenant custom domains via a resolver, you are responsible for ensuring all resolved domains are trusted. Mis-configuring the resolver is a critical security risk that can lead to authentication bypass on the relying party (RP) or Server-Side Request Forgery (SSRF).
+
+- **Single-tenant only:** resolvers are for multiple custom domains of one Auth0 tenant, not for connecting multiple tenants.
+- **Secure proxy:** when inferring the host from request headers, deploy behind a trusted edge/reverse proxy (Cloudflare, Nginx, AWS ALB) that sanitizes and overwrites `Host` / `X-Forwarded-Host` before they reach the app. Without that, an attacker can influence domain resolution and produce malicious redirects during login/logout. See the `trust proxy` and allow-list guidance under [Dynamic Application Base URLs](#dynamic-application-base-urls).
+## Anonymous Sessions
+
+Anonymous Sessions give unauthenticated visitors a persistent identity before they log in. Use it to carry guest-cart contents, pre-login personalisation data, or Post-Login Action correlation into the authenticated session.
+
+> [!NOTE]
+> The Auth0 tenant must have the anonymous sessions feature enabled and the client ID must be configured for anonymous sessions via the Management API.
+
+### Enabling anonymous sessions
+
+Add `anonymousSessions: true` to your `createAuth0` configuration. The SDK creates a JWE-encrypted `__a0_anon` cookie using the same `sessionSecret` as your user session.
+
+```ts
+import express from 'express';
+import { createAuth0 } from '@auth0/auth0-express';
+
+const app = express();
+
+app.use(createAuth0({
+  domain: '<AUTH0_DOMAIN>',
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  appBaseUrl: '<APP_BASE_URL>',
+  sessionSecret: '<SESSION_SECRET>',
+  anonymousSessions: true,
+}));
+```
+
+To customise the cookie lifetime (default 30 days, should match your tenant's `sessions.anonymous.lifetime_in_minutes * 60` — `sessionTokenLifetime` is in seconds):
+
+```ts
+app.use(createAuth0({
+  // ...
+  anonymousSessions: {
+    sessionTokenLifetime: 7 * 24 * 60 * 60, // 7 days in seconds
+    cookie: { sameSite: 'lax', secure: true },
+  },
+}));
+```
+
+> **`cookie.path` warning:** keep the default `/`. Setting a subpath (e.g. `cookie: { path: '/app' }`) scopes the cookie away from the auth routes (`/auth/login`, `/auth/callback`), so the browser will not send it there. This silently disables anonymous-to-authenticated linking at login and the `clearOnLogin` behaviour at callback. Only use a subpath if your auth routes are also mounted under that same path.
+
+### Creating and reading a session
+
+`req.auth0.client.anonymous` is the anonymous sub-client. Call `createSession()` on the visitor's first request to establish their anonymous identity.
+
+```ts
+app.post('/api/session/start', async (req, res) => {
+  await req.auth0.client.anonymous.createSession({
+    metadata: { source: 'landing-page', cart: req.body.cartId },
+  });
+  const session = await req.auth0.client.anonymous.getSession();
+  res.status(201).json({ sub: session?.sub });
+});
+
+app.get('/api/session', async (req, res) => {
+  const session = await req.auth0.client.anonymous.getSession();
+  if (!session) {
+    return res.status(404).json({ error: 'no anonymous session' });
+  }
+  res.json({ sub: session.sub, metadata: session.metadata });
+});
+```
+
+### Getting an access token
+
+`getAccessToken()` returns a cached token if it is still valid, or re-mints one from the session token otherwise. Pass the API `audience` that the token should be scoped to.
+
+```ts
+app.get('/api/data', async (req, res) => {
+  const { accessToken } = await req.auth0.client.anonymous.getAccessToken({
+    audience: 'https://api.example.com',
+  });
+  // forward accessToken to your upstream API
+  res.json({ token: accessToken });
+});
+```
+
+### Ending the anonymous session
+
+`logout()` removes the `__a0_anon` cookie. The anonymous session is also cleared automatically when the visitor logs in (controlled by `anonymousSessions.clearOnLogin`, which defaults to `true`).
+
+```ts
+app.post('/api/session/end', async (req, res) => {
+  await req.auth0.client.anonymous.logout();
+  res.sendStatus(204);
+});
+```
+
+### Error handling
+
+`createSession` throws `AnonymousSessionError` when Auth0 rejects the request. Common codes:
+- `feature_not_enabled` — anonymous sessions are not enabled on the tenant
+- `unauthorized_client` — the client is not configured for anonymous sessions
+- `invalid_request` — metadata exceeds 1 024 bytes or contains non-string values
+- `invalid_target` — the requested audience does not allow anonymous access
+
+```ts
+import {
+  AnonymousSessionError,
+  AnonymousSessionExpiredError,
+  MissingAnonymousSessionError,
+} from '@auth0/auth0-express';
+
+app.post('/api/session/start', async (req, res) => {
+  try {
+    await req.auth0.client.anonymous.createSession();
+    res.sendStatus(201);
+  } catch (e) {
+    if (e instanceof AnonymousSessionError) {
+      // Auth0 rejected the request — check e.code for the reason
+      return res.status(403).json({ error: e.code });
+    }
+    throw e;
+  }
+});
+```
+
+`getAccessToken` throws when the session is missing or has expired on Auth0's side:
+
+```ts
+app.get('/api/token', async (req, res) => {
+  try {
+    const { accessToken } = await req.auth0.client.anonymous.getAccessToken();
+    res.json({ accessToken });
+  } catch (e) {
+    if (e instanceof MissingAnonymousSessionError) {
+      // No anonymous session exists — visitor must call createSession first
+      return res.status(401).json({ error: 'no_session' });
+    }
+    if (e instanceof AnonymousSessionExpiredError) {
+      // The session token expired on Auth0's side — start a fresh anonymous session
+      await req.auth0.client.anonymous.createSession();
+      const { accessToken } = await req.auth0.client.anonymous.getAccessToken();
+      return res.json({ accessToken });
+    }
+    throw e;
+  }
+});
+```
+
+### Merging what the visitor did before they logged in
+
+Set `anonymousSessions.clearOnLogin: false` to keep the anonymous session alive through the login flow. You can read it on the first authenticated request after login, then clean it up yourself.
+
+```ts
+app.use(createAuth0({
+  // ...
+  anonymousSessions: { clearOnLogin: false },
+}));
+
+app.use(requiresAuth(), async (req, res, next) => {
+  const anonSession = await req.auth0.client.anonymous.getSession();
+  if (anonSession?.sub) {
+    await mergeGuestCart(anonSession.sub, req);
+    await req.auth0.client.anonymous.logout();
+  }
+  next();
+});
+```
+
+### Custom store
+
+For advanced use cases (e.g. a Redis-backed store), implement the `AnonymousStore` interface and pass it via `anonymousSessions.store`.
+
+```ts
+import type { AnonymousStore, StoreOptions } from '@auth0/auth0-express';
+
+class RedisAnonymousStore implements AnonymousStore<StoreOptions> {
+  // implement get(), set(), delete()
+}
+
+app.use(createAuth0({
+  // ...
+  anonymousSessions: {
+    store: new RedisAnonymousStore(),
+    identifier: '__a0_anon', // optional, defaults to '__a0_anon'
+  },
+}));
+```
