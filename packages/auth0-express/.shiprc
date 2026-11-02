@@ -3,6 +3,5 @@
   "packageLabel": "auth0-express",
   "files": {
     ".version": []
-  },
-  "postbump": "npm run docs"
+  }
 }
