@@ -223,4 +223,18 @@ describe('getConfig', () => {
     expect(config.clientAssertionSigningKey).toBe('-----BEGIN PRIVATE KEY-----\ntest_key\n-----END PRIVATE KEY-----');
     expect(config.clientAssertionSigningAlg).toBe('RS256');
   });
+
+  it('should preserve poppy when provided', () => {
+    const poppy = { verifySession: true };
+
+    const config = getConfig({ domain: 'test.auth0.com', audience: 'https://api.example.com', poppy });
+
+    expect(config.poppy).toBe(poppy);
+  });
+
+  it('should leave poppy undefined when not provided', () => {
+    const config = getConfig({ domain: 'test.auth0.com', audience: 'https://api.example.com' });
+
+    expect(config.poppy).toBeUndefined();
+  });
 });

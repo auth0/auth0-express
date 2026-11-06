@@ -1,4 +1,4 @@
-import type { ApiClient } from '@auth0/auth0-api-js';
+import type { ApiClient, PoppySession } from '@auth0/auth0-api-js';
 import type { Token } from '../types.js';
 
 declare global {
@@ -11,8 +11,8 @@ declare global {
          */
         user?: Token;
         /**
-         * The raw access token string, exactly as it arrived in the
-         * `Authorization` header.
+         * The raw access token from the `Authorization` header, without its
+         * scheme (`Bearer` or `DPoP`).
          *
          * Set by `requiresAuth()` at the same point as {@link user}, so it is
          * only ever present on a request whose token this API has verified.
@@ -24,6 +24,23 @@ declare global {
          * logs, error reports and responses.
          */
         token?: string;
+        /**
+         * The verified Poppy Session of the request: the Personal Agent that
+         * sent it, and the pseudonymous ID of the user it acts for. Key the
+         * state of a Session, such as a cart, by `poppy.key`, never by
+         * `poppy.sessionId` alone.
+         *
+         * Set by `requiresAuth()` on a router created with the `poppy` option,
+         * when the request has a verified Session, either from the
+         * `Poppy-Session` header or from the access token of a web app. It is
+         * `undefined` on a request without one, and on any other router. A
+         * route that cannot do without it sets `poppy: { requireSession: true }`
+         * on `requiresAuth()`, so that a request without a Session never
+         * reaches the route.
+         *
+         * @beta
+         */
+        poppy?: PoppySession;
         /**
          * The `ApiClient` instance built from the router configuration.
          *
