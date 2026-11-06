@@ -1,7 +1,61 @@
-import type { ActClaim } from '@auth0/auth0-api-js';
+import type { ActClaim, PoppyConfig, PoppyOptions } from '@auth0/auth0-api-js';
 
+/**
+ * Options for {@link requiresAuth}.
+ */
 export interface RequiresAuthOptions {
+  /**
+   * The scopes the access token must have, as one scope or a list. A request whose token lacks one is refused with
+   * `403` and `insufficient_scope`.
+   *
+   * On a router created with the `poppy` option, a string is split on spaces, so `'orders:read orders:write'` stands
+   * for two scopes, and an empty entry is ignored. `''` and `[]` mean that the route needs no scope. A value that is
+   * not empty but holds no scope, such as `' '` or `['']`, ends in a `500` error passed to `next()` for every request,
+   * so a scope list that came out blank cannot open a route. On any other router a string is one scope, and `['']` is
+   * one scope that no token has, so a request is refused with `403`.
+   *
+   * A scope must not contain a double quote (`"`), as no scope token of RFC 6749 does: on a router created with the
+   * `poppy` option, a request that has a Session and no access token then ends in the same `500` error.
+   */
   scopes?: string | string[];
+  /**
+   * Options for a route of an API that serves Personal Agents, as the Poppy (Personal Agent Protocol) 0.3 specification
+   * describes them: software that acts for a user and proves who it is with a signed `Poppy-Session` header. They apply
+   * only to a router created with the `poppy` option of {@link createAuth0Api}. On any other router `requiresAuth()`
+   * passes an error to `next()` on every request, so the mistake shows at once.
+   *
+   * On a router created with the `poppy` option, `requiresAuth()` answers a request as follows:
+   * - A valid access token that has the `scopes` of the route: the route runs, with the claims of the token as
+   *   `req.auth0.user`, and the Session as `req.auth0.poppy` when the request has one.
+   * - A valid Session and no access token, as from a Personal Agent whose user has not signed in: `401`, like a request
+   *   with no credentials, and the route does not run. When the route has `scopes`, the `WWW-Authenticate` challenges
+   *   name them, so the agent knows what to sign in for. `requireSession` lets such a request through, on a route
+   *   without `scopes`.
+   * - A bad Session or a bad access token: the error response the specification asks for, such as `400` with
+   *   `{"error": "invalid_session"}`. The route does not run.
+   *
+   * @see {@link https://personalagentprotocol.org/docs/0.3/spec Poppy 0.3 specification}
+   * @beta
+   */
+  poppy?: {
+    /**
+     * Whether the route needs a Session, the signed `Poppy-Session` header of a Personal Agent. Set it on a route that
+     * reads `req.auth0.poppy`, such as one that serves an agent before its user has signed in (a product list, or a
+     * cart).
+     *
+     * When `true`, a request without a verified Session is refused with `400` and `{"error": "invalid_session"}`, and
+     * the header is checked even when `verifySession` is off in the `poppy` option of {@link createAuth0Api}. A request
+     * with a valid Session and no access token then runs the route, with the Session as `req.auth0.poppy` and no
+     * `req.auth0.user`. A route with `scopes` still needs an access token, so such a request gets `401` there.
+     *
+     * When `false`, a request without an access token gets `401` and does not run the route, whatever its (valid)
+     * Session.
+     *
+     * @defaultValue `false`
+     * @beta
+     */
+    requireSession?: boolean;
+  };
 }
 
 export interface Token {
@@ -57,4 +111,78 @@ export interface Auth0ApiOptions {
    * Optional, custom Fetch implementation to use.
    */
   customFetch?: typeof fetch;
+  /**
+   * Support for Personal Agents (Poppy 0.3): software that acts for a user and signs its requests with a
+   * `Poppy-Session` header. Set it when your API should serve them, with `verifySession: true`: otherwise a plain route
+   * does not check the `Poppy-Session` header. `poppy: {}` reads `auth0-poppy.json` from `process.cwd()` and leaves
+   * every other setting at its default, `verifySession` included. See {@link Auth0ApiPoppyOptions} for the settings.
+   *
+   * `createAuth0Api()` reads the config file once, when it runs. It throws `InvalidConfigurationError` (from
+   * `@auth0/auth0-api-js`) when the file cannot be read or an option is invalid. There is no environment variable for
+   * this option.
+   *
+   * With this option, {@link requiresAuth} checks each request before your route runs, with `verifyPoppyRequest()` of
+   * the `ApiClient` from `@auth0/auth0-api-js`, which verifies the `Poppy-Session` header and the access token. A
+   * request that fails a check gets the error response the specification asks for, and your route does not run. A
+   * request that passes reaches your route with `req.auth0.user` set to the claims of its access token, when it has
+   * one, and `req.auth0.poppy` set to its Session, when it has one. A Personal Agent whose user has not signed in sends
+   * a Session and no access token. It gets `401`, unless the route sets `poppy: { requireSession: true }` and has no
+   * `scopes`: it then reaches the route with `req.auth0.poppy` set and no `req.auth0.user` (see
+   * {@link RequiresAuthOptions}). A route that does not use `requiresAuth()` is not checked.
+   *
+   * Set `verifySession: true`. It is `false` by default, as in `@auth0/auth0-api-js`, and then a route that does not
+   * set `requireSession` ignores the `Poppy-Session` header: it is not checked, so a forged one is not refused,
+   * `req.auth0.poppy` is not set from it, and the access token of a registered agent is accepted without it.
+   *
+   * @defaultValue `undefined`. Personal Agent support is off, and requests are handled exactly as before.
+   * @see {@link https://personalagentprotocol.org/docs/0.3/spec Poppy 0.3 specification}
+   * @beta
+   */
+  poppy?: Auth0ApiPoppyOptions;
+}
+
+/**
+ * Options for serving Personal Agents, as the Poppy (Personal Agent Protocol) 0.3 specification describes. Set them as
+ * the `poppy` option of {@link Auth0ApiOptions}.
+ *
+ * A Personal Agent is software that acts for one user. It signs a `Poppy-Session` header on every request to your API,
+ * naming the agent and a pseudonymous ID for the user. Once the user has signed in, its requests also carry an access
+ * token.
+ *
+ * `auth0-poppy.json` is the config file that holds your Auth0 issuer, your APIs with their public origins, and your
+ * registered agents. The Auth0 CLI can write it, and you can write it by hand. The two options added here say where
+ * to get it. Every other option is a `PoppyOptions` option from `@auth0/auth0-api-js`, such as `verifySession`,
+ * `agents` and `sessionStore`, and each keeps its default when you leave it out.
+ *
+ * @example
+ * ```ts
+ * // Reads ./auth0-poppy.json from the folder the app starts in. Set verifySession: true, or a route that does not set
+ * // requireSession does not check the Poppy-Session header.
+ * createAuth0Api({ poppy: { verifySession: true } });
+ *
+ * // Reads the file from another place.
+ * createAuth0Api({ poppy: { verifySession: true, configPath: '/etc/my-api/auth0-poppy.json' } });
+ * ```
+ *
+ * @see {@link https://personalagentprotocol.org/docs/0.3/spec Poppy 0.3 specification}
+ * @beta
+ */
+export interface Auth0ApiPoppyOptions extends PoppyOptions {
+  /**
+   * The parsed `auth0-poppy.json`. Use it when you load the file yourself or build the object in code. When set, no
+   * file is read and `configPath` is ignored.
+   *
+   * @defaultValue the parsed file at `configPath`
+   */
+  config?: PoppyConfig;
+  /**
+   * Where `auth0-poppy.json` is, when `config` is not set. Either a path, absolute or relative to `process.cwd()`, or a
+   * `file:` `URL` object such as `new URL('./auth0-poppy.json', import.meta.url)`.
+   *
+   * `createAuth0Api()` reads the file once, when it runs. It throws `InvalidConfigurationError` (from
+   * `@auth0/auth0-api-js`) when the file cannot be read or is not valid JSON.
+   *
+   * @defaultValue `auth0-poppy.json` in `process.cwd()`
+   */
+  configPath?: string | URL;
 }

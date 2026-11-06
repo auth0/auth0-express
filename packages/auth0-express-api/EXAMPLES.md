@@ -26,6 +26,15 @@
   - [Exchanging an external token for an Auth0 token](#exchanging-an-external-token-for-an-auth0-token)
     - [Prerequisites for Custom Token Exchange](#prerequisites-for-custom-token-exchange)
     - [Handling a failed profile exchange](#handling-a-failed-profile-exchange)
+- [Personal Agents (Poppy)](#personal-agents-poppy)
+  - [What changes when you turn it on](#what-changes-when-you-turn-it-on)
+  - [Configure the router](#configure-the-router)
+  - [Protect routes for agents](#protect-routes-for-agents)
+  - [Error responses](#error-responses)
+  - [Session records](#session-records)
+  - [Registered agents](#registered-agents)
+  - [Test your routes](#test-your-routes)
+  - [Production notes](#production-notes)
 
 ## Configuration
 
@@ -630,3 +639,551 @@ Same shape as [Handling a failed exchange](#handling-a-failed-exchange), and eas
 `OrganizationValidationError` is the one class here you cannot catch by type. `@auth0/auth0-auth-js` exports it, but `@auth0/auth0-api-js` does not pass it through, so it does not reach this package either. That is an upstream gap being tracked, not a decision, which is why this package ships no guard for it: check `error.code === 'organization_validation_error'` for now and switch to `instanceof` once the re-export lands. Contrast `isConnectionExchangeError()`, which exists because the class it narrows to is being renamed upstream, so no amount of waiting produces a stable one to catch.
 
 Read `error.cause?.error_description` into your logs and keep it out of the response. It describes your tenant setup, and this route is reachable by whoever holds the external token.
+
+## Personal Agents (Poppy)
+
+A Personal Agent is software that acts for a user. It signs a `Poppy-Session` header on every request to your API, and once its user has signed in, it also sends an access token. This section shows how to serve such agents with this SDK, as the [Poppy (Personal Agent Protocol) 0.3 specification](https://personalagentprotocol.org/docs/0.3/spec) describes. The support is a beta, so the SDK's API can change before it is final. The [Express API example with Personal Agents](../../examples/example-express-api-poppy) puts it all in a small shop API, with tests that need no Auth0 tenant.
+
+### What changes when you turn it on
+
+| With `verifySession: true` | `requiresAuth()` | `requiresAuth({ scopes })` | `requiresAuth({ poppy: { requireSession: true } })` |
+| --- | --- | --- | --- |
+| No credentials | 401 | 401 | 400 `invalid_session` |
+| Session only (signed out) | 401 | 401 with the sign-in challenge | passes, `poppy` set |
+| Access token only | passes | passes, or 403 | 400 `invalid_session`, unless the token carries a Session |
+| Session and access token | passes, `poppy` set | passes or 403, `poppy` set | passes, `poppy` set |
+
+A Poppy Session, or Session for short, is the `Poppy-Session` header after the SDK has verified it. An agent whose user has not signed in sends a Session only. Once the user has signed in, the agent sends an access token too. In the table, "passes" means that your route runs, and "`poppy` set" means that `req.auth0.poppy` holds the verified Session. `req.auth0.user` holds the claims of the access token whenever there is one. The sign-in challenge is a 401 whose `WWW-Authenticate` headers name the `scopes` of the route, so that the agent knows what to sign its user in for.
+
+A Session alone never opens a route that does not set `requireSession`, so turning on `verifySession` does not open the routes you already have. A route with both `scopes` and `requireSession` gives a Session alone the sign-in challenge.
+
+> [!IMPORTANT]
+> Set `verifySession: true`. It is `false` by default, and then a route that does not set `requireSession` ignores the `Poppy-Session` header. The SDK does not verify it, so a forged header is not caught.
+
+Turning on `poppy` also changes how your existing `requiresAuth()` routes answer errors, so check any client that reads them. Without `poppy`, a bad token gets one `Bearer` challenge and a JSON body, and an `Authorization: Basic` header gets the bare 401. On every `requiresAuth()` route of the router:
+
+- DPoP-bound tokens work.
+- Access-token errors are `WWW-Authenticate` challenges for both schemes, `Bearer` and `DPoP`, with no JSON body, except the 403 for a missing scope.
+- An `Authorization` header that is not one `Bearer` or `DPoP` credential, such as `Basic`, is refused with challenges for both schemes.
+- A `Poppy-Session` header that fails verification gets 400 `invalid_session`, even with a good token.
+- A request with no credentials gets the same 401 as without `poppy`, except on a `requireSession` route, where it gets 400 `invalid_session`.
+
+[Error responses](#error-responses) lists every answer.
+
+What the SDK does not do:
+
+- It does no rate limiting (see [Production notes](#production-notes)).
+- It keeps no store of used Session JWT `jti`s, so it cannot refuse a reused one, as [spec 5.3](https://personalagentprotocol.org/docs/0.3/spec#session-verification) allows. Within the `iatWindow` option (60 seconds by default), a copied header works again for the same method and URL, so make a route that changes something safe to repeat.
+- It keeps no Session records unless you pass a store (see [Session records](#session-records)).
+- It checks no Sessions on routes without `requiresAuth()`.
+- `scopesInclude()` and the claim middlewares still read only `req.auth0.user` (see [Protect routes for agents](#protect-routes-for-agents)).
+
+### Configure the router
+
+Configure the router once, where you call `createAuth0Api()`. The SDK needs your Auth0 issuer, the public address of your API and, ideally, the agents you accept. All three come from one file.
+
+**The file.** `auth0-poppy.json` is the config file that the Auth0 CLI writes for your API. You can also write it by hand. The SDK reads these fields and ignores the rest:
+
+```json
+{
+  "issuer": "https://your-tenant.auth0.com/",
+  "apis": [{ "identifier": "https://api.example.com", "public_origin": "https://api.example.com" }],
+  "agents": ["https://agent.example/agent.json"]
+}
+```
+
+- `issuer` is the issuer of your Auth0 `domain`, with the trailing slash.
+- `apis[].identifier` must equal the `audience` of the router.
+- `apis[].public_origin` is the `https` address that agents call, with no path. It is required unless you set `baseUrl`.
+- `agents` lists the agents you accept. It is optional (see [Registered agents](#registered-agents)).
+
+**Where and when it is read.** `createAuth0Api()` takes the config from `poppy.config` if you pass one, then from the file at `poppy.configPath`, then from `auth0-poppy.json` in `process.cwd()`. It reads the file once, when it runs, so a change to the file needs a restart. `configPath` is a path, absolute or relative to `process.cwd()`, or a `URL` object:
+
+```ts
+import { createAuth0Api } from '@auth0/auth0-express-api';
+
+app.use(
+  createAuth0Api({
+    domain: 'your-tenant.auth0.com',
+    audience: 'https://api.example.com',
+    // The file that sits next to this module, whatever folder the app starts in.
+    poppy: { verifySession: true, configPath: new URL('./auth0-poppy.json', import.meta.url) },
+  })
+);
+```
+
+To load the file yourself, or to build the object in code, pass `config` instead. Then no file is read:
+
+```ts
+import { createAuth0Api } from '@auth0/auth0-express-api';
+import type { PoppyConfig } from '@auth0/auth0-express-api';
+
+const config: PoppyConfig = {
+  issuer: 'https://your-tenant.auth0.com/',
+  apis: [{ identifier: 'https://api.example.com', public_origin: 'https://api.example.com' }],
+  agents: ['https://agent.example/agent.json'],
+};
+
+app.use(
+  createAuth0Api({
+    domain: 'your-tenant.auth0.com',
+    audience: 'https://api.example.com',
+    poppy: { verifySession: true, config },
+  })
+);
+```
+
+**Startup errors.** `createAuth0Api()` throws when the file cannot be read, is not valid JSON, or holds a value that does not fit, such as an `issuer` that is not the one of your `domain`. The app does not start, so a wrong file never serves a request. The error is an `InvalidConfigurationError` of `@auth0/auth0-api-js`, a class that this package does not export, and its message starts with `Invalid poppy configuration:`. For example, when the `audience` is not the `identifier` of any entry in `apis`:
+
+```text
+Invalid poppy configuration: "config.apis" has no entry with the identifier "https://api.example.com", the audience of this client. The identifier must equal the audience exactly. The entries have the identifiers "https://other.example".
+```
+
+A read or JSON failure names the path of the file in its message, and its `cause` holds the underlying error, which for a JSON error can include a short fragment of the file (about 20 characters), so do not log `cause` where the content of the file is sensitive.
+
+**Options.** All of them are optional. `Auth0ApiPoppyOptions` is the type of the `poppy` option.
+
+| Option | Default | What it does |
+| --- | --- | --- |
+| `config` | the parsed file at `configPath` | The parsed `auth0-poppy.json`. When set, no file is read. |
+| `configPath` | `auth0-poppy.json` in `process.cwd()` | Where the file is: a path, or a `URL` object. Ignored when `config` is set. |
+| `verifySession` | `false` (use `true`) | Verifies the `Poppy-Session` header on every `requiresAuth()` route. When `false`, a route ignores the header unless it sets `requireSession`. |
+| `sessionStore` | none (use one) | A `PoppySessionStore`. With one, the SDK checks known Sessions and saves new ones. Without one, it keeps no records (see [Session records](#session-records)). |
+| `agents` | the `agents` of the file, or no list | The agents you accept, as the URL of each one's client metadata (see [Registered agents](#registered-agents)). |
+| `baseUrl` | the `public_origin` for your `audience` | The public origin of your API, such as `https://api.example.com`. It takes the place of the one in the file. |
+| `iatWindow` | `60` | How far the `iat` of a Session JWT may be from now, in seconds, in both directions. |
+| `agentClientIdClaims` | `['client_id', 'azp']` | The claims of the access token that name the agent it was issued to. The first one that is a string is used. |
+| `agentMetadata.fetch` | the `customFetch` of the router, then the global `fetch` | The `fetch` for the requests to agent hosts. A `customFetch` that adds credentials or rewrites hosts sees the agent URLs too, so set this if yours does. |
+| `agentMetadata.timeoutMs` | `5000` | The time limit for each of those requests, in milliseconds. |
+| `agentMetadata.maxBytes` | `65536` | The size limit for each response body, in bytes. |
+| `agentMetadata.cache` | `{ ttl: 600, maxEntries: 100 }` | How long (`ttl`, in seconds) and for how many agents good metadata and keys are kept. |
+| `agentMetadata.allowPrivateAddresses` | `false` | Accepts agents on `localhost` and on private addresses. For local development only. |
+
+**Proxies.** An agent signs the public address of your API, but behind a proxy or a gateway your server sees another one. So the SDK compares the `htu` of a Session JWT, and of a DPoP proof, which is the URL that the agent signed, with `public_origin` (or `baseUrl`) plus the path of `req.originalUrl`. The query is ignored, and the path includes the place where you mount the router. `Host`, `X-Forwarded-*` and `trust proxy` do not matter. A gateway that strips a path prefix breaks every Session: the agent signs `/api/orders`, Express sees `/orders`, and the check fails. Make the gateway keep the prefix.
+
+### Protect routes for agents
+
+Mark each route that an agent can call, so that the agent gets the right answer before and after its user has signed in.
+
+```ts
+import { createAuth0Api, requiresAuth } from '@auth0/auth0-express-api';
+import type { PoppySessionStore } from '@auth0/auth0-express-api';
+
+// Your store of Session records. See "Session records" below.
+declare const sessionStore: PoppySessionStore;
+
+app.use(
+  createAuth0Api({
+    domain: 'your-tenant.auth0.com',
+    audience: 'https://api.example.com',
+    poppy: { verifySession: true, sessionStore },
+  })
+);
+
+// Carts live in memory here. A real app keeps them in its database.
+const carts = new Map<string, string[]>();
+
+// A Session alone is enough, so this works for an agent whose user has not signed in.
+app.get('/cart', requiresAuth({ poppy: { requireSession: true } }), (req, res) => {
+  res.json({ items: carts.get(req.auth0.poppy!.key) ?? [] });
+});
+
+// This route needs the account. A signed-out agent gets the sign-in challenge, which names `orders:write`.
+app.post('/orders', requiresAuth({ scopes: 'orders:write', poppy: { requireSession: true } }), (req, res) => {
+  const key = req.auth0.poppy!.key;
+  const items = carts.get(key) ?? [];
+  carts.delete(key);
+  res.status(201).json({ account: req.auth0.user!.sub, items });
+});
+
+// This route does not use a Session. It needs an access token, as it did before.
+app.get('/profile', requiresAuth(), (req, res) => {
+  res.json({ account: req.auth0.user!.sub });
+});
+```
+
+Put `requiresAuth()` on each route, as above. A `requiresAuth()` that you put on a router in front of `requireSession` routes answers a signed-out agent with 401 first, so the agent never reaches those routes.
+
+The router passes a `sessionStore` because the carts are keyed by `poppy.key`. Without a store, the SDK keeps no record of a Session, so it cannot see that a known Session ID came back with another User ID ([spec 5.3, step 4](https://personalagentprotocol.org/docs/0.3/spec#session-verification)), and the new user would read the cart of the old one. See [Session records](#session-records).
+
+Which one to use:
+
+- A route that reads `req.auth0.poppy` sets `requireSession`. [Spec 5.3](https://personalagentprotocol.org/docs/0.3/spec#session-verification) requires an API to reject a request without the Session header when handling it depends on Session claims. A request without a verified Session never reaches such a route, and a Session alone is enough, so it also works for an agent whose user has not signed in.
+- A route that needs the account of the user names its `scopes`. A signed-out agent then gets the sign-in challenge, which names them. The agent signs its user in for those scopes and sends the request again. On a router with `poppy`, a `scopes` string is split on spaces (`'a b'` means two scopes), but on a router without `poppy` it is still matched as one whole string. On a router with `poppy`, a `scopes` value that is not empty but names no scope, such as `' '` or `['']`, is refused with the 500 of the last row of [Error responses](#error-responses), and never treated as "no scope". `''` and `[]` do mean no scope.
+- A route with neither needs an access token, as before.
+
+`req.auth0.poppy` is a `PoppySession`:
+
+- `key` is an opaque key that is unique for each agent and Session ID. Key your Session data by it.
+- `sessionId` is the Session ID (`sid`) that the agent chose. Two agents can pick the same one.
+- `userId` is the User ID that the agent gave its user for your API. It is pseudonymous, and it is not the account. The account is `req.auth0.user.sub`.
+- `agent.cimdUrl` is the URL of the client metadata of the agent, which is its `client_id`.
+- `agent.poppyAgentId` is the Agent ID, when the agent sent one.
+- `state` is `'signed_in'` when the request has a verified access token, and `'signed_out'` when it has none.
+- `source` is where the Session came from: `'header'` for the `Poppy-Session` header, and `'token'` for the `act` claim of a web app's access token, whose `poppy_*` members are beta claims that Auth0 issues.
+
+`req.auth0.user` is set only when the request has a verified access token. A token is always there on a route that has `scopes` or does not set `requireSession`. On a `requireSession` route without `scopes`, a Session alone passes, so check `req.auth0.user` before you use it.
+
+**Keys.** Key your data by `req.auth0.poppy.key`, never by `sessionId` alone, because two agents can pick the same Session ID. The key stays the same when the user signs in, so a cart that an agent filled while signed out is still there afterwards. Pass a `sessionStore` as well, or two users of one Session ID share the data under one key.
+
+**Limits.** `scopesInclude()` and the claim middlewares read only `req.auth0.user`, which exists only with an access token. After a `requireSession` route, a signed-out agent gets 403 `insufficient_scope` from `scopesInclude()`, and 401 `invalid_token` from the claim middlewares. So put the scopes of an agent route in `requiresAuth({ scopes })`, where a signed-out agent gets the sign-in challenge.
+
+### Error responses
+
+`requiresAuth()` answers a failed check itself, and your route does not run. [Spec section 7](https://personalagentprotocol.org/docs/0.3/spec#apis) defines most of these answers. In the default DPoP mode, which this SDK uses, a request may use `Bearer` or `DPoP`, so a row with two `WWW-Authenticate` headers has one for each scheme. This is what an agent sees:
+
+| Case | Status | Headers and body |
+| --- | --- | --- |
+| No credentials | 401, or 400 `invalid_session` on a `requireSession` route | For the 401: `WWW-Authenticate: Bearer`, no body. For the 400, see the `invalid_session` row. |
+| The sign-in challenge: a Session and no access token, on a route with `scopes` | 401 | Two `WWW-Authenticate` headers that name the scopes: `Bearer realm="api", scope="orders:write"` and `DPoP scope="orders:write", algs="ES256"`. No error code, no body. |
+| A missing scope | 403 | `WWW-Authenticate: Bearer error="insufficient_scope", error_description="Insufficient scopes", scope="orders:write"`, and the JSON body `{"error":"insufficient_scope","error_description":"Insufficient scopes"}`. It names only the `Bearer` scheme, also for a DPoP-bound token. |
+| An invalid token, such as an expired one or a DPoP-bound token sent as `Bearer` | 401 | Two `WWW-Authenticate` headers, one for `Bearer` and one for `DPoP`. The `error="invalid_token"` is on the header of the scheme the agent used: the `Bearer` one for a token sent as `Bearer`, and the `DPoP` one for a token sent as `DPoP`. No body. |
+| A token that the SDK cannot verify because it cannot fetch the discovery document or the keys of your tenant | 401 | The same as for an invalid token: for a token sent as `Bearer`, the `Bearer` header has `error="invalid_token"`. No body. |
+| An `Authorization` header with a scheme other than `Bearer` or `DPoP` (such as `Basic`), or with a token and no scheme | 400 | Two `WWW-Authenticate` headers, with no error code. No body. |
+| An `Authorization` header with a comma in its value, such as `Bearer a, Bearer b` | 400 | Two `WWW-Authenticate` headers. The `Bearer` one has `error="invalid_request"`. No body. |
+| `Bearer` or `DPoP` with no token | 401 | Two `WWW-Authenticate` headers, with no error code. No body. |
+| A bad DPoP proof | 400 | Two `WWW-Authenticate` headers. The `DPoP` one has `error="invalid_dpop_proof"`. No body. |
+| `invalid_session` | 400 | The JSON body `{"error":"invalid_session","error_description":"..."}`. No `WWW-Authenticate`. |
+| `session_ended` | 400 | The JSON body `{"error":"session_ended","error_description":"..."}`. |
+| `temporarily_unavailable` | 503 | `Retry-After: 30`, and the JSON body `{"error":"temporarily_unavailable","error_description":"..."}`. |
+| Anything else | 500 | The SDK sends nothing. It calls `next(error)` with the message `The request could not be verified.`, a `status` of 500, and the original error as `cause`. Your error handler answers. |
+
+- `invalid_session` means that a Session check failed. The `error_description` says which one, for you, so do not match on its text. A new Session does not fix it, so the agent stops sending the request until it fixes the cause.
+- `session_ended` means that the Session ended, or that your code refused an account change in it. The agent starts a new Session and sends the request again, once.
+- `temporarily_unavailable` means that the SDK cannot fetch the metadata or the keys of the agent right now. The request is never accepted, and the agent tries again later. The [spec](https://personalagentprotocol.org/docs/0.3/spec#apis) defines no answer for this case, so the 503 is the choice of the SDK. While the SDK remembers the failure, `Retry-After` counts down from 30.
+- For anything else, such as a Session store that throws, or a `scopes` option that is not empty but names no scope, log the `cause` and keep it out of the response.
+
+**Errors your handlers throw.** Some Session errors come from your own code (see [Session records](#session-records)). Register an error handler after your routes to answer them. `toHttpErrorResponse()` gives an `HttpErrorResponse`, the status, the headers and the body, for an error of this SDK, and `undefined` for any other error, which goes on to `next(error)`:
+
+```ts
+import type { ErrorRequestHandler } from 'express';
+import { toHttpErrorResponse } from '@auth0/auth0-express-api';
+
+export const poppyErrorHandler: ErrorRequestHandler = (error, _req, res, next) => {
+  const failure = toHttpErrorResponse(error);
+  if (!failure) {
+    next(error); // Not an error of this SDK: let Express answer 500.
+    return;
+  }
+
+  res.status(failure.status).set(failure.headers);
+  if (failure.body) {
+    res.json(failure.body);
+  } else {
+    res.end();
+  }
+};
+
+// Register it after your routes.
+app.use(poppyErrorHandler);
+```
+
+### Session records
+
+A Session is more than a verified header. [Spec 5.3](https://personalagentprotocol.org/docs/0.3/spec#session-verification), step 4, says that an unknown Session ID starts a signed-out Session, and that a known one must come with the same User ID and Agent ID as before. [Spec 5.5](https://personalagentprotocol.org/docs/0.3/spec#ending-sessions) lets you remember ended Sessions and answer them with `session_ended`. Both need a record of each Session. Without records, the SDK verifies the header and returns the Session, and nothing more: it cannot tell that the user of a Session changed, or that the Session ended. Keep the records in a store that the SDK calls, or run the two checks yourself.
+
+**The store contract.** Extend `PoppySessionStore` on top of your own storage, and pass an instance as the `sessionStore` option of `poppy`. The SDK has no built-in store, no expiry and no clean-up. The class has two methods:
+
+- `get(key)` resolves to the record stored under `key`, or to `undefined` (or `null`) when the key is unknown.
+- `set(key, record)` inserts only if absent, and resolves to the record that is stored afterwards: the new one, or the one that was already there. It never overwrites. Two first requests of one Session can arrive together, and the second one must compare itself with the record of the first.
+
+A record is `{ userId, poppyAgentId?, ended? }`, and any truthy `ended` ends the Session. The agent chooses `userId` and `poppyAgentId`, and the SDK limits them only by the 16,384 characters of the whole Session JWT, so use columns that fit that. If `get` or `set` throws, the request fails with a 500 and no Session is accepted (see the last row of [Error responses](#error-responses)).
+
+**A store backed by a `Map`.** This one is complete, but it is a sample: a `Map` lives in one process, never forgets a Session, and so grows without limit and never expires. Use it for tests and demos. A real app keeps the records in its database, as the SQL store below does, and shares them between its servers. [The example app](../../examples/example-express-api-poppy/src/memory-store.ts) has the same store, with tests.
+
+Call `store.end(req.auth0.poppy!.key)` when a Session is over, for example when a checkout completes: later requests with that Session ID get `session_ended`, and the agent starts a new Session. If the `end` of your store is async, as in the SQL store below, `await` it: `await store.end(req.auth0.poppy!.key)`. Otherwise the next request can arrive before the Session is ended.
+
+```ts
+// memory-store.ts
+import { PoppySessionStore } from '@auth0/auth0-express-api';
+import type { PoppySessionRecord } from '@auth0/auth0-express-api';
+
+/**
+ * Keeps Session records in memory, for a sample. `set` follows the two rules of the store contract: it inserts only if
+ * the key is absent, and it resolves to the record that is stored afterwards. A `Map` never forgets a Session, so it
+ * grows without limit. A real app keeps the records in its database.
+ */
+export class MemoryPoppySessionStore extends PoppySessionStore {
+  readonly #records = new Map<string, PoppySessionRecord>();
+
+  async get(key: string): Promise<PoppySessionRecord | undefined> {
+    return this.#records.get(key);
+  }
+
+  // There is no await between the check and the write, so two requests of a new Session that set one key together
+  // store one record.
+  async set(key: string, record: PoppySessionRecord): Promise<PoppySessionRecord> {
+    const existing = this.#records.get(key);
+    if (existing) {
+      return existing;
+    }
+    this.#records.set(key, record);
+    return record;
+  }
+
+  // Ends a Session: later requests with its Session ID are refused with `session_ended`.
+  end(key: string): void {
+    const record = this.#records.get(key);
+    if (record) {
+      this.#records.set(key, { ...record, ended: true });
+    }
+  }
+}
+```
+
+To see it work, run this next to the file. A second `set` for a key returns the first record, and `end` marks it as ended:
+
+```ts
+import { MemoryPoppySessionStore } from './memory-store.js';
+
+const store = new MemoryPoppySessionStore();
+
+const first = await store.set('key_1', { userId: 'usr_1' });
+const second = await store.set('key_1', { userId: 'usr_2' });
+console.log(second === first); // true: the first record is kept
+
+store.end('key_1');
+console.log(await store.get('key_1'));
+```
+
+It prints:
+
+```text
+true
+{ userId: 'usr_1', ended: true }
+```
+
+**A store backed by SQL.** `set` is the part to get right: insert if absent, then read the row back, so that two first requests of one Session compare with the same record. The insert must be one statement: with a SELECT followed by an INSERT, two first requests can both find no row, and then the second insert fails on the duplicate key, or the two requests keep different records, depending on your schema. Run `get` and the read-back on the primary database, or with another consistent read: a replica that lags can miss the row, and then `set` must throw, because a made-up record would let the SDK accept the Session without comparing it with the stored one. `Query` stands for your database client, so no library is assumed. The `$1` placeholders are PostgreSQL style. SQLite drivers use `?`. `ON CONFLICT ... DO NOTHING` is the form that PostgreSQL and SQLite use. Use the insert-if-absent statement of your own database.
+
+```sql
+CREATE TABLE poppy_sessions (
+  key      TEXT PRIMARY KEY,
+  user_id  TEXT NOT NULL,
+  agent_id TEXT,
+  ended    BOOLEAN NOT NULL DEFAULT FALSE
+);
+```
+
+```ts
+import { PoppySessionStore } from '@auth0/auth0-express-api';
+import type { PoppySessionRecord } from '@auth0/auth0-express-api';
+
+// Your database client: runs `sql` with `params` and returns the rows.
+type Query = <Row>(sql: string, params: unknown[]) => Promise<Row[]>;
+
+interface SessionRow {
+  user_id: string;
+  agent_id: string | null;
+  ended: boolean | number;
+}
+
+const SELECT = 'SELECT user_id, agent_id, ended FROM poppy_sessions WHERE key = $1';
+
+function toRecord(row: SessionRow): PoppySessionRecord {
+  return { userId: row.user_id, poppyAgentId: row.agent_id ?? undefined, ended: Boolean(row.ended) };
+}
+
+export class SqlPoppySessionStore extends PoppySessionStore {
+  constructor(private readonly query: Query) {
+    super();
+  }
+
+  async get(key: string): Promise<PoppySessionRecord | undefined> {
+    const [row] = await this.query<SessionRow>(SELECT, [key]);
+    return row && toRecord(row);
+  }
+
+  async set(key: string, record: PoppySessionRecord): Promise<PoppySessionRecord> {
+    // Insert only if absent. Two first requests of a Session can arrive together.
+    await this.query(
+      'INSERT INTO poppy_sessions (key, user_id, agent_id) VALUES ($1, $2, $3) ON CONFLICT (key) DO NOTHING',
+      [key, record.userId, record.poppyAgentId ?? null]
+    );
+    // Read back what is stored: the first request wins, and both requests compare with its row.
+    const [row] = await this.query<SessionRow>(SELECT, [key]);
+    if (!row) {
+      // Never answer with `record` here. The request fails, and the SDK accepts no Session.
+      throw new Error('The Session record was not found after the insert.');
+    }
+    return toRecord(row);
+  }
+
+  // Ends a Session: later requests with its Session ID are refused with `session_ended`.
+  // It is async, so call it as `await store.end(key)`.
+  async end(key: string): Promise<void> {
+    await this.query('UPDATE poppy_sessions SET ended = TRUE WHERE key = $1', [key]);
+  }
+}
+```
+
+**Without a store.** If your Sessions already live in your own database, run the two checks yourself, right after `requiresAuth()` on a route that sets `requireSession`. They are the checks that a store runs, with the same errors. Throw `new InvalidSessionError('session_mismatch')` or `new SessionEndedError()` from the middleware or the route, and the error handler from [Error responses](#error-responses) answers it with 400 `invalid_session` or 400 `session_ended`.
+
+```ts
+import type { RequestHandler } from 'express';
+import { InvalidSessionError, SessionEndedError, requiresAuth } from '@auth0/auth0-express-api';
+import type { PoppySessionRecord } from '@auth0/auth0-express-api';
+
+// Your own table of Sessions, keyed by `poppy.key`. A Map keeps the sample short, but it never forgets a Session:
+// use your database, and make the insert atomic.
+const sessions = new Map<string, PoppySessionRecord>();
+
+export const checkSession: RequestHandler = (req, _res, next) => {
+  const poppy = req.auth0.poppy!;
+  const known = sessions.get(poppy.key);
+
+  if (!known) {
+    // A new Session ID starts a signed-out Session.
+    sessions.set(poppy.key, { userId: poppy.userId, poppyAgentId: poppy.agent.poppyAgentId });
+  } else if (known.ended) {
+    throw new SessionEndedError();
+  } else if (known.userId !== poppy.userId || known.poppyAgentId !== poppy.agent.poppyAgentId) {
+    // A known Session ID continues its Session, and must come with the same User ID and Agent ID.
+    throw new InvalidSessionError('session_mismatch');
+  }
+
+  next();
+};
+
+app.get('/cart', requiresAuth({ poppy: { requireSession: true } }), checkSession, (req, res) => {
+  res.json({ state: req.auth0.poppy!.state });
+});
+```
+
+In an `async` handler, an error that you throw reaches your error handler on Express 5 only. On Express 4, catch it and call `next(error)`, as [Handling a failed exchange](#handling-a-failed-exchange) explains.
+
+**Account changes.** [Spec 5.4](https://personalagentprotocol.org/docs/0.3/spec#sign-in) lets you refuse a request whose access token is for another account than the one its Session used before. The SDK does not track accounts. Keep the account that a Session first used in your own table, and throw `SessionEndedError` when it changes. The agent then starts a new Session for the other account.
+
+```ts
+import type { RequestHandler } from 'express';
+import { SessionEndedError } from '@auth0/auth0-express-api';
+
+// The account each Session first used, in your own table, keyed by `poppy.key`. A Map keeps the sample short: use
+// your database.
+const accountOfSession = new Map<string, string>();
+
+// Put it after `requiresAuth()`.
+export const refuseAccountChange: RequestHandler = (req, _res, next) => {
+  const account = req.auth0.user?.sub;
+  const poppy = req.auth0.poppy;
+  if (!account || !poppy) {
+    next(); // Signed out, or no Session: there is nothing to compare.
+    return;
+  }
+
+  const first = accountOfSession.get(poppy.key);
+  if (first === undefined) {
+    accountOfSession.set(poppy.key, account);
+  } else if (first !== account) {
+    // The agent starts a new Session and sends the request again, once.
+    throw new SessionEndedError('This Session was used with another account. Start a new Session.');
+  }
+
+  next();
+};
+```
+
+### Registered agents
+
+Say which agents you accept, so that your API fetches the metadata only of agents you know. Set `agents`, or use the `agents` of `auth0-poppy.json`. Each agent is the URL of its client metadata, which is its `client_id`. The `agents` option takes the place of the list in the file.
+
+```ts
+import { createAuth0Api } from '@auth0/auth0-express-api';
+
+app.use(
+  createAuth0Api({
+    domain: 'your-tenant.auth0.com',
+    audience: 'https://api.example.com',
+    poppy: {
+      verifySession: true,
+      // The client metadata URL (the `client_id`) of each agent you accept.
+      agents: ['https://agent.example/agent.json', 'https://assistant.example/client.json'],
+    },
+  })
+);
+```
+
+With a list:
+
+- A Session from an agent that is not on the list gets 400 `invalid_session`, before the SDK fetches anything from that agent.
+- While Session checks are on, the access token of a listed agent gets 400 `invalid_session` when it comes without the `Poppy-Session` header, because a registered agent sends the header on every request ([spec 5.2](https://personalagentprotocol.org/docs/0.3/spec#session-header)). The agent of a token is named by its `client_id` or `azp` claim (`agentClientIdClaims`).
+- `agents` does not filter a Session that comes from the `act` claim of a web app's access token (`source: 'token'`). If you need that, check `req.auth0.poppy.agent.cimdUrl` yourself.
+
+Use a list in production. Without one, any public HTTPS agent URL in a Session JWT makes your API fetch that agent's metadata.
+
+### Test your routes
+
+`createTestAgent()` is a fake Personal Agent for tests. It makes its own keys, signs real `Poppy-Session` headers, and serves its own metadata through `agent.fetch`, with no network. Pass that function as `agentMetadata.fetch`, and your routes verify its requests the way they verify a real agent's. Import it from `@auth0/auth0-express-api/testing`, in tests only.
+
+> [!NOTE]
+> `@auth0/auth0-express-api/testing` is an entry of the `exports` map of the package, and `package.json` has a `typesVersions` entry for it. So TypeScript finds its types when `moduleResolution` is `node10` (the classic `node` setting), `node16`, `nodenext` or `bundler`.
+
+The test below uses vitest and supertest. It sends one signed-out request, which passes, and one with `defect: 'expired_delegation'`, which gets 400 `invalid_session`. Create the agent and the router together in each test, because the router caches the keys of an agent by its URL, and every agent makes new keys.
+
+```ts
+import { describe, expect, test } from 'vitest';
+import express from 'express';
+import request from 'supertest';
+import { createAuth0Api, requiresAuth } from '@auth0/auth0-express-api';
+import { createTestAgent } from '@auth0/auth0-express-api/testing';
+
+const ISSUER = 'https://your-tenant.auth0.com/';
+const ORIGIN = 'https://api.example.com';
+const config = { issuer: ISSUER, apis: [{ identifier: ORIGIN, public_origin: ORIGIN }] };
+
+async function setup() {
+  const agent = await createTestAgent();
+
+  const app = express();
+  app.use(
+    createAuth0Api({
+      domain: 'your-tenant.auth0.com',
+      audience: ORIGIN,
+      poppy: { config, verifySession: true, agentMetadata: { fetch: agent.fetch } },
+    })
+  );
+  app.get('/cart', requiresAuth({ poppy: { requireSession: true } }), (req, res) => {
+    res.json({ state: req.auth0.poppy!.state });
+  });
+
+  return { agent, app };
+}
+
+describe('GET /cart, signed out', () => {
+  test('accepts a valid Session', async () => {
+    const { agent, app } = await setup();
+    const sessionJwt = await agent.createSessionJwt({ aud: ISSUER, htm: 'GET', htu: `${ORIGIN}/cart` });
+
+    const res = await request(app).get('/cart').set('Poppy-Session', sessionJwt);
+
+    expect(res.status).toBe(200);
+    expect(res.body).toEqual({ state: 'signed_out' });
+  });
+
+  test('refuses an expired delegation with invalid_session', async () => {
+    const { agent, app } = await setup();
+    const sessionJwt = await agent.createSessionJwt({
+      aud: ISSUER,
+      htm: 'GET',
+      htu: `${ORIGIN}/cart`,
+      defect: 'expired_delegation',
+    });
+
+    const res = await request(app).get('/cart').set('Poppy-Session', sessionJwt);
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('invalid_session');
+  });
+});
+```
+
+A signed-out request never calls Auth0, so these tests need no Auth0 mocks. A signed-in test also sends an access token, and the router verifies it against the discovery document and the keys of your tenant, so mock those two requests. Pass the token as `accessToken` to `createSessionJwt()`, so that the Session vouches for it. [The tests of the example app](../../examples/example-express-api-poppy/src/app.spec.ts) show how. The `TestSessionJwtDefect` type lists the other defects that `createSessionJwt()` can add.
+
+### Production notes
+
+- **Keep Session records** in a store that all instances share, and make `set` atomic in the database: pass a `sessionStore`, or run the two checks yourself (see [Session records](#session-records)). Two requests of a new Session can reach two instances at the same time. Without records, the SDK cannot see that a known Session ID came back with another User ID.
+- **Rate limit**, because the SDK does not. Limit by client IP before `requiresAuth()`, and per agent after it, keyed by the verified `req.auth0.poppy.agent.cimdUrl`. Answer a request over the limit with 429 and a `Retry-After` header ([spec 5.6](https://personalagentprotocol.org/docs/0.3/spec#sending-requests)).
+- **`trust proxy`** matters only for `req.ip`, which your IP limit reads. The Session checks never use `Host` or `X-Forwarded-*`.
+- **Refuse a request with two `Authorization` lines.** Node keeps the first `Authorization` line of a request and drops the others, so the SDK sees only one. Use `http.createServer({ joinDuplicateHeaders: true }, app).listen(port)` instead of `app.listen(port)`: Node then joins the lines with a comma, and the SDK refuses the request with a 400 (see [Error responses](#error-responses)).
+- **Keep an `agents` list** (see [Registered agents](#registered-agents)).
+- **Deploy `auth0-poppy.json` with the app**, or set `configPath` or `config`. Without one of them the app does not start, and a change to the file needs a restart.
+- **Never import `@auth0/auth0-express-api/testing` in production code.** It is for tests only.

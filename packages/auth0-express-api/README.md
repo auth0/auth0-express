@@ -29,6 +29,7 @@ Jump straight to the capability you need.
 | [Authorization with claims](#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Custom token / user type](#custom-types) | Type your custom claims via module augmentation |
 | [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
+| [Personal Agents (Poppy, beta)](#personal-agents-poppy-beta) | Verify Personal Agent Protocol 0.3 Sessions with `requiresAuth` |
 
 ## Getting Started
 
@@ -138,6 +139,38 @@ app.get(
 
 > [!IMPORTANT]
 > The above is to protect API routes by the means of a bearer token, and not server-side rendering routes using a session. 
+
+#### Personal Agents (Poppy, beta)
+
+A Personal Agent is software that acts for a user, and it sends a signed `Poppy-Session` header (a Poppy Session) with every request to your API. The `poppy` option turns on support for such agents, as a beta of [Poppy 0.3](https://personalagentprotocol.org/docs/0.3/spec), so the SDK's API can change before it is final. A signed-out agent sends a Poppy Session only, and a signed-in agent sends a Poppy Session and an access token. Without the option, nothing changes.
+
+```ts
+import { createAuth0Api, requiresAuth } from '@auth0/auth0-express-api';
+import type { PoppySessionStore } from '@auth0/auth0-express-api';
+
+// Your store of Session records. See "Session records" in EXAMPLES.md.
+declare const sessionStore: PoppySessionStore;
+
+// Reads auth0-poppy.json from the working directory.
+app.use(
+  createAuth0Api({
+    domain: '<AUTH0_DOMAIN>',
+    audience: '<AUTH0_AUDIENCE>',
+    poppy: { verifySession: true, sessionStore },
+  })
+);
+
+const carts = new Map<string, string[]>();
+
+// A Session alone is enough here, so an agent whose user has not signed in can use this route.
+app.get('/cart', requiresAuth({ poppy: { requireSession: true } }), (req, res) => {
+  res.json({ items: carts.get(req.auth0.poppy!.key) ?? [] });
+});
+```
+
+If `createAuth0Api()` cannot read `auth0-poppy.json`, it throws at startup, and the error names the path it tried ([Configure the router](./EXAMPLES.md#configure-the-router) lists the other places the file can be). Pass a `sessionStore`: without one, the SDK cannot see that a known Session ID came back with another User ID, so a cart keyed by `poppy.key` could be shared ([spec 5.3, step 4](https://personalagentprotocol.org/docs/0.3/spec#session-verification)).
+
+See [Personal Agents (Poppy)](./EXAMPLES.md#personal-agents-poppy) for the config file, the routes, the error responses, Session records, registered agents and testing.
 
 
 ## Feedback

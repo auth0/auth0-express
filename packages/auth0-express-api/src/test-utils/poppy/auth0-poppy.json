@@ -1,0 +1,4 @@
+{
+  "issuer": "https://auth0.local/",
+  "apis": [{ "identifier": "https://api.example.com", "public_origin": "https://api.example.com" }]
+}
