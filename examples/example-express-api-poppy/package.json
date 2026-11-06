@@ -1,0 +1,27 @@
+{
+    "name": "example-express-api-poppy",
+    "version": "1.0.0",
+    "description": "An Express API that serves Personal Agents with Poppy Sessions",
+    "type": "module",
+    "scripts": {
+        "start": "tsx src/index.ts --project tsconfig.json",
+        "build": "tsc --project tsconfig.json",
+        "test": "vitest run",
+        "test:ci": "vitest run"
+    },
+    "devDependencies": {
+        "@types/express": "^5.0.6",
+        "@types/supertest": "^7.2.1",
+        "jose": "^6.2.3",
+        "msw": "^2.12.14",
+        "supertest": "^7.2.2",
+        "tsx": "^4.21.0",
+        "typescript": "~7.0.2",
+        "vitest": "^5.0.0"
+    },
+    "dependencies": {
+        "@auth0/auth0-express-api": "*",
+        "dotenv": "^18.0.3",
+        "express": "^5.2.1"
+    }
+}
