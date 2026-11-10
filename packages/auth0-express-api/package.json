@@ -23,6 +23,18 @@
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js",
       "default": "./dist/index.js"
+    },
+    "./testing": {
+      "types": "./dist/testing.d.ts",
+      "import": "./dist/testing.js",
+      "default": "./dist/testing.js"
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "testing": [
+        "./dist/testing.d.ts"
+      ]
     }
   },
   "devDependencies": {
@@ -38,7 +50,7 @@
     "vitest": "^5.0.0"
   },
   "dependencies": {
-    "@auth0/auth0-api-js": "^1.6.1"
+    "@auth0/auth0-api-js": "file:../../vendor/auth0-api-js-1.7.0-poppy-5cd394a.tgz"
   },
   "peerDependencies": {
     "express": "^4.18.0 || ^5.0.0"
