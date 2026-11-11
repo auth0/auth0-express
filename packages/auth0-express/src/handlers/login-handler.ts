@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { createRouteUrl, toSafeRedirect } from '../utils.js';
 import { resolveAppBaseUrl } from '../app-base-url.js';
-import { sanitizeHandlerError } from '../errors.js';
+import { sanitizeHandlerError, sanitizePoppyHandlerError } from '../errors.js';
 import { Auth0Options } from '../index.js';
 
 // Block both Object.prototype own-property names and commonly abused
@@ -73,19 +73,37 @@ export async function handleLogin(req: Request, res: Response, options: Auth0Opt
 
     const query = req.query as Record<string, unknown>;
     const dangerousReturnTo = query.returnTo as string | undefined;
-    const sanitizedReturnTo = toSafeRedirect(dangerousReturnTo || '/', appBaseUrl);
+    let sanitizedReturnTo = toSafeRedirect(dangerousReturnTo || '/', appBaseUrl);
+    let disallowedParams = ['returnTo'];
+
+    if (options.poppy) {
+      // An agent's browser arrives here with `iss` and `target_link_uri` (OpenID Connect Core 1.0, section 4), and
+      // anyone can send a browser here with any query. This check comes first, before anything writes a cookie: it
+      // throws when `iss` is not the issuer, and it gives `target_link_uri` back as `returnTo` only when it is a page
+      // of this app. Its `authorizationParams` are not used, because they are not filtered like the ones below.
+      // https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin
+      const initiation = req.auth0.client.poppy.parseLoginInitiation(new URL(req.originalUrl, appBaseUrl), {
+        appOrigin: new URL(appBaseUrl).origin,
+      });
+
+      // A `returnTo` in the query that was accepted comes first, then the target, then the value that is used today.
+      const acceptedReturnTo = dangerousReturnTo ? sanitizedReturnTo : undefined;
+      sanitizedReturnTo = acceptedReturnTo ?? initiation.returnTo ?? sanitizedReturnTo;
+      // `iss` and `target_link_uri` are for this route. They never go on to /authorize.
+      disallowedParams = ['returnTo', 'iss', 'target_link_uri'];
+    }
 
     const authorizationUrl = await req.auth0.client.startInteractiveLogin({
       pushedAuthorizationRequests: options.pushedAuthorizationRequests,
       appState: { returnTo: sanitizedReturnTo },
       authorizationParams: {
-        ...filterAuthorizationParams(query, ['returnTo']),
+        ...filterAuthorizationParams(query, disallowedParams),
         redirect_uri: redirectUri.toString(),
       },
     });
 
     res.redirect(authorizationUrl.href);
   } catch (error) {
-    next(sanitizeHandlerError(error));
+    next(options.poppy ? sanitizePoppyHandlerError(error) : sanitizeHandlerError(error));
   }
 }

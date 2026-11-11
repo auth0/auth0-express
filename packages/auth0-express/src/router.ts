@@ -6,6 +6,7 @@ import { handleLogin } from './handlers/login-handler.js';
 import { handleCallback } from './handlers/callback-handler.js';
 import { handleLogout } from './handlers/logout-handler.js';
 import { handleBackchannelLogout } from './handlers/backchannel-logout-handler.js';
+import { handlePoppyDiscovery, POPPY_DISCOVERY_PATHS } from './handlers/poppy-discovery-handler.js';
 import { runWithContext } from './store/request-context.js';
 import { getConfig } from './config.js';
 import './types/express.js';
@@ -15,6 +16,10 @@ import './types/express.js';
  *
  * This is the main entry point for the Auth0 Express SDK. It configures
  * authentication routes and attaches the Auth0 client to the request object.
+ *
+ * With the `poppy` option, it reads `auth0-poppy.json` once, here, and throws `InvalidConfigurationError` when the
+ * file cannot be read or the Poppy config is invalid. The discovery files are served at `/.well-known/...` of the
+ * router's mount point, so with `poppy` set, mount the router at the root of the site.
  *
  * @param opts - Configuration options for Auth0 authentication
  * @returns Express Router configured with Auth0 authentication
@@ -43,6 +48,16 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   const options = getConfig(opts);
   const router = Router();
 
+  // Initialize auth0Client
+  const auth0Client = createServerClientInstance(options);
+
+  const shouldMountRoutes = options.mountRoutes ?? true;
+
+  // Poppy discovery files: served before any cookie or session handling, and only at the root of the site.
+  if (options.poppy && shouldMountRoutes) {
+    router.get(POPPY_DISCOVERY_PATHS, handlePoppyDiscovery(auth0Client));
+  }
+
   // Cookie parsing
   router.use(cookieParser());
 
@@ -50,9 +65,6 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   router.use((request: Request, response: Response, next: NextFunction) => {
     runWithContext({ request, response }, () => next());
   });
-
-  // Initialize auth0Client
-  const auth0Client = createServerClientInstance(options);
 
   // Attach to request
   router.use((req: Request, res: Response, next: NextFunction) => {
@@ -65,8 +77,6 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   });
 
   // Mount routes
-  const shouldMountRoutes = options.mountRoutes ?? true;
-
   if (shouldMountRoutes) {
     const routes = {
       login: options.routes?.login ?? '/auth/login',
