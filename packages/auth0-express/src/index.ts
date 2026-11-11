@@ -9,11 +9,16 @@ export * from './types.js';
 export { InvalidConfigurationError } from './errors/index.js';
 export { resolveAppBaseUrl, isUrl } from './app-base-url.js';
 export {
+  AbstractPoppyGuestStore,
   AnonymousSessionError,
   AnonymousSessionExpiredError,
   isFederatedDomain,
   EnterpriseConnectNotSupportedError,
+  InvalidPoppySessionError,
+  IssuerValidationError,
   MissingAnonymousSessionError,
+  SessionExpiredError,
+  StatelessPoppyGuestStore,
 } from '@auth0/auth0-server-js';
 export type { EnterpriseConnectCallbackHook } from './types.js';
 export { startEnterpriseLogin } from './handlers/start-enterprise-login.js';

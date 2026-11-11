@@ -92,6 +92,24 @@ function enforceSecureCookies(config: Auth0Options): void {
       },
     };
   }
+
+  if (typeof config.poppy === 'object') {
+    const explicitPoppySecure = config.poppy.cookie?.secure;
+    if (explicitPoppySecure === false) {
+      throw new InvalidConfigurationError(
+        'Secure cookies are required when relying on dynamic base URLs in production. ' +
+          'Remove the explicit `poppy.cookie.secure = false` or set a static APP_BASE_URL.'
+      );
+    }
+
+    config.poppy = {
+      ...config.poppy,
+      cookie: {
+        ...config.poppy.cookie,
+        secure: true,
+      },
+    };
+  }
 }
 
 /**

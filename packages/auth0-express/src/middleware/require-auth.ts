@@ -11,6 +11,18 @@ export interface RequiresAuthOptions {
    * Default: false (redirects to login)
    */
   returnTo?: string;
+  /**
+   * Called when the request comes from an agent's browser that joined as a guest, which is a browser with no user
+   * (Poppy, beta). It only applies when the `poppy` option is set.
+   *
+   * A guest is never sent to the login route. A guest cannot sign in on your website: the person the agent acts for
+   * signs in through the agent, and the agent then joins again. Auth0 can keep the anonymous session of the join for
+   * single sign-on, so the login route can bring back the same guest, and a redirect to it would repeat without end.
+   *
+   * Answer the request, or call `next()` to let the route run. Without this handler, the middleware answers a guest
+   * with `403` and a short message, as JSON for an API client.
+   */
+  onGuest?: (req: Request, res: Response, next: NextFunction) => void | Promise<void>;
 }
 
 /**
@@ -19,6 +31,8 @@ export interface RequiresAuthOptions {
  * If the user is not authenticated:
  * - For HTML requests (browser): Redirects to /auth/login with returnTo parameter
  * - For API requests (JSON): Returns 401 Unauthorized
+ * - For a guest, an agent's browser that joined without a user (with the `poppy` option): never redirects. Calls
+ *   `onGuest`, or answers 403.
  *
  * @param options - Optional configuration for the middleware
  * @returns Express middleware function
@@ -54,6 +68,23 @@ export function requiresAuth(options?: RequiresAuthOptions) {
       if (!user) {
         // Check if this is an API request (wants JSON response)
         const acceptsJson = req.accepts('json') && !req.accepts('html');
+
+        // A guest cannot sign in here, and the login route can bring back the same guest. So a guest is not sent to
+        // it: that would be a redirect without end. `getContext()` reads only the guest, and without a user it is the
+        // guest that it finds.
+        if (req.app.locals.auth0ClientOptions?.poppy) {
+          const context = await req.auth0.client.poppy.getContext();
+
+          if (context.kind === 'agent' && context.state === 'signed_out') {
+            if (options?.onGuest) {
+              return await options.onGuest(req, res, next);
+            }
+
+            return acceptsJson
+              ? res.status(403).json({ error: 'forbidden', message: 'A signed-in user is required' })
+              : res.status(403).type('text/plain').send('A signed-in user is required.');
+          }
+        }
 
         if (acceptsJson) {
           return res.status(401).json({
