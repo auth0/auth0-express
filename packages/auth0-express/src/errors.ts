@@ -1,3 +1,5 @@
+import { InvalidPoppySessionError, IssuerValidationError, SessionExpiredError } from '@auth0/auth0-server-js';
+
 /**
  * Normalizes an error thrown by a browser-facing auth handler (login, callback,
  * logout) into a sanitized error before it is handed to Express via `next()`.
@@ -24,5 +26,36 @@
 export function sanitizeHandlerError(cause: unknown): Error {
   const error = new Error('Authentication request could not be completed.', { cause });
   (error as Error & { status?: number }).status = 500;
+  return error;
+}
+
+/**
+ * The same as `sanitizeHandlerError`, for an app that has the `poppy` option. The error handed to `next()` carries a
+ * fixed text and no detail, whatever `NODE_ENV` is, and the original error stays on `cause`.
+ *
+ * Three failures of a Poppy login get a status that tells the browser what went wrong, in place of `500`:
+ *
+ * - `IssuerValidationError`: `400` and "The login request is not valid."
+ * - `InvalidPoppySessionError`: `400` and "The Poppy Session of this login is not valid."
+ * - `SessionExpiredError`: `401` and "The session of this login has already ended."
+ *
+ * Any other error goes to `sanitizeHandlerError` and gets `500`.
+ */
+export function sanitizePoppyHandlerError(cause: unknown): Error {
+  if (cause instanceof IssuerValidationError) {
+    return errorWithStatus('The login request is not valid.', 400, cause);
+  }
+  if (cause instanceof InvalidPoppySessionError) {
+    return errorWithStatus('The Poppy Session of this login is not valid.', 400, cause);
+  }
+  if (cause instanceof SessionExpiredError) {
+    return errorWithStatus('The session of this login has already ended.', 401, cause);
+  }
+  return sanitizeHandlerError(cause);
+}
+
+function errorWithStatus(message: string, status: number, cause: unknown): Error {
+  const error = new Error(message, { cause });
+  (error as Error & { status?: number }).status = status;
   return error;
 }

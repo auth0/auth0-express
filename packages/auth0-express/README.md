@@ -32,6 +32,7 @@ Jump straight to the capability you need.
 | [Multiple Custom Domains (MCD)](./EXAMPLES.md#multiple-custom-domains-mcd) | Resolve the Auth0 domain per request |
 | [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
 | [Anonymous Sessions](./EXAMPLES.md#anonymous-sessions) | Give unauthenticated visitors a persistent identity before login |
+| [Personal Agents (Poppy, beta)](#personal-agents-poppy-beta) | Let a Personal Agent's browser join your site as a guest or a signed-in user |
 | [Discovery cache](./EXAMPLES.md#discovery-cache) | Control caching of OIDC discovery metadata |
 
 ## Getting Started
@@ -239,12 +240,58 @@ const accessTokenResult = await req.auth0.client.getAccessToken();
 console.log(accessTokenResult.accessToken);
 ```
 
+## Personal Agents (Poppy, beta)
+
+A Personal Agent is software that acts for a user, and its browser can join your website as a guest or as a signed-in user. `poppy: true` turns this on, as described in [Poppy (Personal Agent Protocol) 0.3](https://personalagentprotocol.org/docs/0.3/spec#web-browsing). The router then serves the two discovery files that agents read and accepts the join. Without the option, nothing changes.
+
+> [!NOTE]
+> The support in this package is a beta, written against Poppy 0.3. The join has not been proven end to end against a live Auth0 tenant, so test it on your tenant before you rely on it.
+
+```ts
+import express from 'express';
+import { createAuth0 } from '@auth0/auth0-express';
+
+const app = express();
+
+app.use(createAuth0({
+  domain: '<AUTH0_DOMAIN>',
+  clientId: '<AUTH0_CLIENT_ID>',
+  clientSecret: '<AUTH0_CLIENT_SECRET>',
+  appBaseUrl: '<APP_BASE_URL>',
+  sessionSecret: '<SESSION_SECRET>',
+  // Turns on Poppy. Reads auth0-poppy.json from the working directory, once, at startup.
+  poppy: true,
+}));
+
+app.get('/', async (req, res, next) => {
+  try {
+    const visitor = await req.auth0.client.poppy.getVisitor();
+
+    if (visitor.kind === 'guest') {
+      // An agent's browser whose user has not signed in.
+      res.send('An agent is browsing for a user who has not signed in.');
+      return;
+    }
+
+    res.send('Welcome!');
+  } catch (error) {
+    next(error);
+  }
+});
+```
+
+`requiresAuth()` answers a guest with `403` and never sends it to the login route, because a guest cannot sign in there and the redirect could repeat without end. Pass `onGuest` to answer a guest your own way. When the browser also holds a person's own login, a page that has only `requiresAuth()` is open to an agent as that person (see [Guard pages from guests](./EXAMPLES.md#guard-pages-from-guests)).
+
+For the set-up, the discovery files, the kinds of visitor and going to production, see [Personal Agent Protocol (Poppy)](./EXAMPLES.md#personal-agent-protocol-poppy).
+
 ## Error Handling
 
 The browser-facing auth routes (login, callback, and logout) forward failures to Express via `next(error)` rather than writing error detail to the response themselves. Before doing so, the SDK replaces the underlying error with a sanitized one that carries only a generic message and a fixed `500` status. This has two effects:
 
 - No internal detail (an OAuth `error_description`, a token-endpoint failure reason, stack traces, file paths) reaches the client, regardless of `NODE_ENV`. The original error is preserved on `error.cause`, so your own logging can still inspect it.
 - The failure status is a stable `500` instead of mirroring whatever status an upstream call happened to return (for example a `400` from the token endpoint).
+
+With the `poppy` option, three failures get their own status instead: the login route answers `400` for a login request with a wrong `iss`, and the callback answers `400` for a malformed Poppy Session and `401` for a session that has already ended. These errors are sanitized the same way, with the original error on `error.cause` (see [Poppy errors](./EXAMPLES.md#poppy-errors)).
 
 Express still produces the final response. Its built-in error handler writes the (now generic) error stack into the response body unless `NODE_ENV` is set to `production`. For full control over what clients see, you can:
 

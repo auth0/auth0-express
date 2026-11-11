@@ -1,10 +1,11 @@
-import { CookieTransactionStore, ServerClient, StatefulStateStore, StatelessAnonymousStore, StatelessStateStore } from '@auth0/auth0-server-js';
-import type { DomainResolver } from '@auth0/auth0-server-js';
-import { Auth0Options, StoreOptions } from './types.js';
+import { CookieTransactionStore, ServerClient, StatefulStateStore, StatelessAnonymousStore, StatelessPoppyGuestStore, StatelessStateStore } from '@auth0/auth0-server-js';
+import type { DomainResolver, PoppyConfig, PoppyOptions as ServerPoppyOptions } from '@auth0/auth0-server-js';
+import { Auth0Options, PoppyOptions, StoreOptions } from './types.js';
 import { ExpressCookieHandler } from './store/express-cookie-handler.js';
 import { MigrationStatelessStateStore } from './store/legacy-compatible-stateless-state-store.js';
 import { MigrationStatefulStateStore } from './store/legacy-compatible-stateful-state-store.js';
 import { getRequestContext } from './store/request-context.js';
+import { POPPY_CONFIG_FILE_NAME, readPoppyConfigFile } from './poppy/config-file.js';
 
 /**
  * Ensures the value has a trailing slash.
@@ -197,6 +198,27 @@ function getAnonymousStore(options: Auth0Options) {
   return new StatelessAnonymousStore({ secret: options.sessionSecret, sessionTokenLifetime, cookie }, new ExpressCookieHandler());
 }
 
+function getPoppyOptions(options: Auth0Options): ServerPoppyOptions<StoreOptions> | undefined {
+  if (!options.poppy) return undefined;
+  const poppy: PoppyOptions = options.poppy === true ? {} : options.poppy;
+
+  return {
+    // `!== undefined`, not `??`: a `config` of `null` reaches the ServerClient, which refuses it, and no file is read.
+    // The ServerClient checks the shape of the config, whether it came from `config` or from the file.
+    config: (poppy.config !== undefined
+      ? poppy.config
+      : readPoppyConfigFile(poppy.configPath ?? POPPY_CONFIG_FILE_NAME)) as PoppyConfig,
+    guestStore:
+      poppy.guestStore ??
+      new StatelessPoppyGuestStore<StoreOptions>(
+        { secret: options.sessionSecret, cookie: poppy.cookie },
+        new ExpressCookieHandler()
+      ),
+    agentSessionMaxAge: poppy.agentSessionMaxAge,
+    protectedResource: poppy.protectedResource,
+  };
+}
+
 export function createServerClientInstance(options: Auth0Options) {
   const callbackPath = options.routes?.callback ?? '/auth/callback';
   // Only a static string base URL yields a startup redirect_uri. In dynamic
@@ -229,5 +251,6 @@ export function createServerClientInstance(options: Auth0Options) {
     anonymousStore: getAnonymousStore(options),
     anonymousSessionIdentifier: typeof options.anonymousSessions === 'object' ? options.anonymousSessions.identifier : undefined,
     clearAnonymousSessionOnLogin: typeof options.anonymousSessions === 'object' ? options.anonymousSessions.clearOnLogin : undefined,
+    poppy: getPoppyOptions(options),
   });
 }
