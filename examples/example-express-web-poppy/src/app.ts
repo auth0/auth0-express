@@ -50,7 +50,7 @@ const agentRows = (poppy: PoppyAgentContext): Row[] => [
   ['Poppy Session state', poppy.state],
   ['Poppy Session ID', poppy.sessionId],
   ['Poppy user ID', poppy.userId],
-  ['Agent', poppy.agent.cimdUrl],
+  ['Agent', poppy.agent.id],
   ['Cart key', poppy.key],
 ];
 

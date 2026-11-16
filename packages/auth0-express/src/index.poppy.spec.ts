@@ -8,6 +8,7 @@ import {
   APP_BASE_URL,
   CIMD_URL,
   JOIN_ACCESS_TOKEN,
+  POPPY_CLIENT_ID,
   SESSION_ID,
   SESSION_KEY,
   USER_ID,
@@ -60,7 +61,7 @@ const SIGNED_OUT: PoppyAgentContext = {
   state: 'signed_out',
   sessionId: SESSION_ID,
   userId: USER_ID,
-  agent: { cimdUrl: CIMD_URL },
+  agent: { id: CIMD_URL },
   key: SESSION_KEY,
 };
 const SIGNED_IN: PoppyAgentContext = { ...SIGNED_OUT, state: 'signed_in' };
@@ -175,7 +176,7 @@ describe('Guest join', () => {
         state: 'signed_out',
         sessionId: SESSION_ID,
         userId: USER_ID,
-        agent: { cimdUrl: CIMD_URL },
+        agent: { id: CIMD_URL },
         key: SESSION_KEY,
       },
     });
@@ -302,7 +303,7 @@ describe('Guest join', () => {
 
     expect(await visitorOf(agent, jar)).toEqual({
       kind: 'guest',
-      poppy: { ...SIGNED_OUT, agent: { cimdUrl: CIMD_URL, poppyAgentId: AGENT_ID } },
+      poppy: { ...SIGNED_OUT, agent: { id: CIMD_URL, poppyAgentId: AGENT_ID } },
     });
   });
 
@@ -345,7 +346,7 @@ describe('Session changes', () => {
     const { callback } = await join(agent, jar, tenant, guestIdToken());
 
     // A rejoin without an access token ends the sign-in of a Session:
-    // https://personalagentprotocol.org/docs/0.3/spec#web-browsing
+    // https://personalagentprotocol.org/docs/spec#web-browsing
     expect(removes(callback, SESSION_COOKIE)).toBe(true);
     expect(jar.names()).toEqual([GUEST_COOKIE]);
     expect(await visitorOf(agent, jar)).toEqual(GUEST);
@@ -364,7 +365,7 @@ describe('Session changes', () => {
   });
 
   // A join with an access token signs the browser in "in place of any login it had, and an earlier login doesn't come
-  // back": https://personalagentprotocol.org/docs/0.3/spec#web-browsing
+  // back": https://personalagentprotocol.org/docs/spec#web-browsing
   test("a signed-in join over a person's login replaces it, and the login does not come back", async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
@@ -389,7 +390,7 @@ describe('Session changes', () => {
 
 describe("A guest join keeps a person's login", () => {
   // A join without an access token should not end or change the login that the browser has, and the specification says
-  // so: https://personalagentprotocol.org/docs/0.3/spec#web-browsing. The guest comes first in getVisitor(), because an
+  // so: https://personalagentprotocol.org/docs/spec#web-browsing. The guest comes first in getVisitor(), because an
   // agent drives the browser then. The login of the person is not touched, so getUser() and requiresAuth() still see
   // the person. An app that must keep an agent's browser out of the pages of a person checks getVisitor() as well.
   test('getVisitor() says guest, while getUser() and requiresAuth() still see the person', async () => {
@@ -456,7 +457,11 @@ describe('Logout', () => {
     jar.take(logout);
 
     expect(logout.status).toBe(302);
-    expect(logout.headers['location']).toMatch(/^https:\/\/auth\.zepto\.example\/oidc\/logout\?/);
+    // The OIDC logout endpoint fails for a guest, so a guest is sent to `/v2/logout`.
+    const location = new URL(String(logout.headers['location']));
+    expect(location.origin + location.pathname).toBe('https://auth.zepto.example/v2/logout');
+    expect(location.searchParams.get('client_id')).toBe(POPPY_CLIENT_ID);
+    expect(location.searchParams.get('returnTo')).toBe(APP_BASE_URL);
     expect(removes(logout, GUEST_COOKIE)).toBe(true);
     expect(jar.names()).toEqual([]);
     expect(await visitorOf(agent, jar)).toEqual(NONE);
@@ -471,6 +476,8 @@ describe('Logout', () => {
     jar.take(logout);
 
     expect(logout.status).toBe(302);
+    // A signed-in agent has a user record, so it uses the end session endpoint of the tenant.
+    expect(logout.headers['location']).toMatch(/^https:\/\/auth\.zepto\.example\/oidc\/logout\?/);
     expect(removes(logout, SESSION_COOKIE)).toBe(true);
     expect(jar.names()).toEqual([]);
     expect(await visitorOf(agent, jar)).toEqual(NONE);
@@ -486,6 +493,7 @@ describe('Logout', () => {
     const logout = await visit(agent, jar, '/auth/logout');
     jar.take(logout);
 
+    expect(String(logout.headers['location'])).toMatch(/^https:\/\/auth\.zepto\.example\/v2\/logout\?/);
     expect(removes(logout, GUEST_COOKIE)).toBe(true);
     expect(removes(logout, SESSION_COOKIE)).toBe(true);
     expect(jar.names()).toEqual([]);

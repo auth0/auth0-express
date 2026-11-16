@@ -108,7 +108,7 @@ function start() {
       sessionSecret: 'a-session-secret-of-at-least-32-characters-long',
       poppy: {
         config: {
-          protocol_version: '0.3',
+          protocol_version: '1.0',
           organization: { name: 'Zepto', domain: 'zepto.example' },
           issuer: ISSUER,
           web: { browser_session_endpoint: `${ISSUER}poppy/${CLIENT_ID}/browser-session` },
@@ -172,7 +172,7 @@ describe('example-express-web-poppy', () => {
       expect(res.get('Set-Cookie')).toBeUndefined();
     }
     expect(poppy.body).toMatchObject({
-      protocol_version: '0.3',
+      protocol_version: '1.0',
       organization: { name: 'Zepto', domain: 'zepto.example' },
       auth: { issuer: ISSUER },
     });

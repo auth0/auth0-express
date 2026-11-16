@@ -66,10 +66,9 @@ describe('exports', () => {
         poppy_sid: 'sid_1',
         poppy_user_id: 'usr_1',
         poppy_agent_id: 'agent_1',
-        poppy_session_exp: 1_800_000_000,
       } satisfies PoppyActClaim,
       {
-        protocol_version: '0.3',
+        protocol_version: '1.0',
         organization: { name: 'Zepto', domain: 'zepto.example' },
         issuer: 'https://auth.zepto.example/',
         web: { browser_session_endpoint: 'https://auth.zepto.example/poppy/web_app_client/browser-session' },
@@ -82,7 +81,7 @@ describe('exports', () => {
       { sameSite: 'lax', secure: true, path: '/' } satisfies PoppyGuestCookieOptions,
       {
         sub: 'anon_poppy@z4eHq6gTjlgaMSjrplb3j5j3kb3hEDz9hZx8mgdxQLg',
-        poppy: { sessionId: 'sid_1', userId: 'usr_1', agent: { cimdUrl: 'https://agent.example/agent.json' } },
+        poppy: { sessionId: 'sid_1', userId: 'usr_1', agent: { id: 'https://agent.example/agent.json' } },
         tokenSets: [{ audience: 'default', accessToken: 'at_sample', scope: 'orders:read', expiresAt: 1_800_000_000 }],
         createdAt: 1_799_990_000,
         expiresAt: 1_800_000_000,

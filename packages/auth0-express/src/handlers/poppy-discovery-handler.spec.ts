@@ -11,7 +11,7 @@ const PROTECTED_RESOURCE = '/.well-known/oauth-protected-resource';
 
 // The documents of the fixture config, byte for byte.
 const POPPY_JSON_BODY =
-  '{"protocol_version":"0.3","organization":{"name":"Zepto","domain":"zepto.example"},"auth":{"issuer":"https://auth.zepto.example/","scopes":{"orders:read":"See your orders."},"scope_hints":{"orders:read":{"changes":"none","personal_data":true}}},"web":{"browser_session_endpoint":"https://auth.zepto.example/poppy/web_app_client/browser-session"},"apis":[{"type":"openapi","url":"https://zepto.example/api/openapi.json","description":"Orders"}]}';
+  '{"protocol_version":"1.0","organization":{"name":"Zepto","domain":"zepto.example"},"auth":{"issuer":"https://auth.zepto.example/","scopes":{"orders:read":"See your orders."},"scope_hints":{"orders:read":{"changes":"none","personal_data":true}}},"web":{"browser_session_endpoint":"https://auth.zepto.example/poppy/web_app_client/browser-session"},"apis":[{"type":"openapi","url":"https://zepto.example/api/openapi.json","description":"Orders"}]}';
 const PROTECTED_RESOURCE_BODY =
   '{"resource":"https://zepto.example","authorization_servers":["https://auth.zepto.example/"]}';
 
@@ -212,7 +212,7 @@ describe('Poppy discovery routes', () => {
       expect(resource.status).toBe(200);
       expect(resource.text).toBe(PROTECTED_RESOURCE_BODY);
 
-      // Agents ask the root of the domain only (https://personalagentprotocol.org/docs/0.3/spec#discovery).
+      // Agents ask the root of the domain only (https://personalagentprotocol.org/docs/spec#discovery).
       expect((await agent.get(POPPY_JSON)).status).toBe(404);
       expect((await agent.get(PROTECTED_RESOURCE)).status).toBe(404);
     });

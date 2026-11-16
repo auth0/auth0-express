@@ -15,7 +15,7 @@ export const CIMD_URL = 'https://agent.example/agent.json';
 export const SESSION_ID = 'Yx2b7Qd_Kp8mR3vT1nWc4A';
 export const USER_ID = 'usr_Q7c1vK';
 export const AGENT_ID = 'travel_agent';
-export const SESSION_KEY = 'TCKalJy8Oz7hl1YTKAJt86LQcaiaLsYmFX-cLwiaJ4c';
+export const SESSION_KEY = '3X_qiM4THChkGSbMHW5cwViMXCkP6myL_fqSvIz33h0';
 export const GUEST_SUB = 'anon_poppy@z4eHq6gTjlgaMSjrplb3j5j3kb3hEDz9hZx8mgdxQLg';
 export const GUEST_SUB_PROFILE = 'user urn:auth0:anonymous_user';
 export const JOIN_ACCESS_TOKEN = 'at_join';
@@ -24,7 +24,7 @@ const ANONYMOUS_SESSION_TOKEN = 'ANONYMOUS_SESSION_' + 'a'.repeat(64);
 
 // Not annotated on purpose: it has members that `PoppyConfig` does not declare, as a real file can.
 export const poppyConfig = {
-  protocol_version: '0.3',
+  protocol_version: '1.0',
   organization: { name: 'Zepto', domain: 'zepto.example' },
   issuer: 'https://auth.zepto.example/',
   scopes: {
