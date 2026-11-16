@@ -29,7 +29,7 @@ Jump straight to the capability you need.
 | [Authorization with claims](#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Custom token / user type](#custom-types) | Type your custom claims via module augmentation |
 | [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
-| [Personal Agents (Poppy, beta)](#personal-agents-poppy-beta) | Verify Personal Agent Protocol 0.3 Sessions with `requiresAuth` |
+| [Personal Agents (Poppy, beta)](#personal-agents-poppy-beta) | Verify Personal Agent Protocol 1.0 Sessions with `requiresAuth` |
 
 ## Getting Started
 
@@ -142,7 +142,7 @@ app.get(
 
 #### Personal Agents (Poppy, beta)
 
-A Personal Agent is software that acts for a user, and it sends a signed `Poppy-Session` header (a Poppy Session) with every request to your API. The `poppy` option turns on support for such agents, as a beta of [Poppy 0.3](https://personalagentprotocol.org/docs/0.3/spec), so the SDK's API can change before it is final. A signed-out agent sends a Poppy Session only, and a signed-in agent sends a Poppy Session and an access token. Without the option, nothing changes.
+A Personal Agent is software that acts for a user, and it sends a signed `Poppy-Session` header (a Poppy Session) with every request to your API. The `poppy` option turns on support for such agents, as a beta of [Poppy 1.0](https://personalagentprotocol.org/docs/spec), so the SDK's API can change before it is final. A signed-out agent sends a Poppy Session only, and a signed-in agent sends a Poppy Session and an access token. Without the option, nothing changes.
 
 ```ts
 import { createAuth0Api, requiresAuth } from '@auth0/auth0-express-api';
@@ -167,7 +167,7 @@ app.get('/cart', requiresAuth({ poppy: { requireSession: true } }), (req, res) =
 });
 ```
 
-Set `publicOrigin` to the public origin of your API, such as `https://api.example.com`. If a `poppy` option is invalid, `createAuth0Api()` throws at startup ([Configure the router](./EXAMPLES.md#configure-the-router) lists the options). Pass a `sessionStore`: without one, the SDK cannot see that a known Session ID came back with another User ID, so a cart keyed by `poppy.key` could be shared ([spec 5.3, step 4](https://personalagentprotocol.org/docs/0.3/spec#session-verification)).
+Set `publicOrigin` to the public origin of your API, such as `https://api.example.com`. If a `poppy` option is invalid, `createAuth0Api()` throws at startup ([Configure the router](./EXAMPLES.md#configure-the-router) lists the options). Pass a `sessionStore`: without one, the SDK cannot see that a known Session ID came back with another User ID, so a cart keyed by `poppy.key` could be shared ([spec 5.3, step 4](https://personalagentprotocol.org/docs/spec#session-verification)).
 
 See [Personal Agents (Poppy)](./EXAMPLES.md#personal-agents-poppy) for the options, the routes, the error responses, Session records, registered agents and testing.
 

@@ -132,7 +132,7 @@ const poppy: PoppySession = {
   sessionId: 'sid_123',
   key: 'key_123',
   userId: 'pairwise_user_1',
-  agent: { cimdUrl: 'https://agent.example.com/client.json' },
+  agent: { id: 'https://agent.example.com/client.json' },
   state: 'signed_out',
   source: 'header',
 };

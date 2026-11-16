@@ -50,7 +50,7 @@ Jump straight to the capability you need.
 | [Authorization with claims](./packages/auth0-express-api/README.md#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Custom token / user type](./packages/auth0-express-api/README.md#custom-types) | Type your custom claims via module augmentation |
 | [Custom `fetch`](./packages/auth0-express-api/EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
-| [Personal Agents (Poppy, beta)](./packages/auth0-express-api/README.md#personal-agents-poppy-beta) | Verify Personal Agent Protocol 0.3 Sessions with `requiresAuth` |
+| [Personal Agents (Poppy, beta)](./packages/auth0-express-api/README.md#personal-agents-poppy-beta) | Verify Personal Agent Protocol 1.0 Sessions with `requiresAuth` |
 
 ## Running Examples
 

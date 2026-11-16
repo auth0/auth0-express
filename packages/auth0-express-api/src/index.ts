@@ -50,7 +50,7 @@ export type {
   TokenExchangeProfileResult,
 } from '@auth0/auth0-api-js';
 
-// The beta Poppy API (Personal Agent Protocol 0.3), re-exported so an app that
+// The beta Poppy API (Personal Agent Protocol 1.0), re-exported so an app that
 // serves Personal Agents needs no direct dependency on `@auth0/auth0-api-js`.
 // Values, so `instanceof` and `extends` work: `PoppySessionStore` is the class a
 // custom Session store extends, `InvalidSessionError` and `SessionEndedError` are

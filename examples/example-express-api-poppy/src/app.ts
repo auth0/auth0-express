@@ -25,8 +25,8 @@ export function createApp(poppy?: Auth0ApiPoppyOptions): Express {
   // - `publicOrigin` is the https address that agents call. The router passes only the path of each request, so the
   //   origin of the URL that the agent signed comes from here, and `Host` is never used.
   // - `agents` lists the agents the app accepts. Without a list, any public HTTPS agent URL is accepted.
-  // - The Session store keeps a record of each Session, so that the SDK can refuse a Session whose user changed, or
-  //   that has ended. Without it, the carts below, which are keyed by `poppy.key`, could be shared by two users.
+  // - The Session store keeps a record of each Session, so that the SDK can refuse a Session that has ended. Without it,
+  //   the app could not tell that a Session ended, and would keep serving its cart.
   // The domain and the audience come from AUTH0_DOMAIN and AUTH0_AUDIENCE.
   const options: Auth0ApiPoppyOptions = {
     verifySession: true,
@@ -41,9 +41,10 @@ export function createApp(poppy?: Auth0ApiPoppyOptions): Express {
   app.use(createAuth0Api({ poppy: options }));
 
   // Carts live in memory, one for each Session. A real app keeps them in its database.
-  // The key is `req.auth0.poppy.key`. It is not the Session ID alone, because two agents can pick the same one. It is
-  // not the user either, because a signed-out request has none. It does not change when the user signs in, so the cart
-  // survives the sign-in.
+  // The key is `req.auth0.poppy.key`, which Poppy makes from the agent, the Session ID and the User ID. It is not the
+  // Session ID alone, because two agents, or two users of one agent, can pick the same one. The User ID is the
+  // pseudonymous one of the agent, which a signed-out request has too, and not the account. The key does not change when
+  // the user signs in, so the cart survives the sign-in.
   const carts = new Map<string, string[]>();
 
   // `requireSession` lets a request through with a Session and no access token, as from an agent whose user has not

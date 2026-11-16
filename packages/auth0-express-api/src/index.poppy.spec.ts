@@ -14,6 +14,10 @@ import type { TestAgent, TestSessionJwtOptions } from './testing.js';
 import { serve } from './test-utils/serve.js';
 import { generateToken, jwks } from './test-utils/tokens.js';
 
+// A Personal Agent sends `Poppy-Version` with every request that has the `Poppy-Session` header, and the SDK refuses a
+// request without it (spec 3.4).
+const withVersion = (jwt: string) => ({ 'Poppy-Session': jwt, 'Poppy-Version': '1.0' });
+
 // These tests run the whole stack: real Express, a real ApiClient from `@auth0/auth0-api-js`, real keys, and the test
 // agent for the Personal Agent. Only the Auth0 tenant is faked, with msw. Nothing in the middleware is mocked, so a
 // wrong wiring makes a test fail.
@@ -203,7 +207,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp();
       const sessionJwt = await session('GET', apiUrl('/cart'), { sid: 'sid_signed_out' });
 
-      const res = await api.get('/cart').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(200);
       expect(res.body).toEqual({ ok: true });
@@ -211,7 +215,8 @@ describe('Poppy requests through createAuth0Api()', () => {
         sessionId: 'sid_signed_out',
         key: expect.any(String),
         userId: 'usr_test',
-        agent: { cimdUrl: agent.cimdUrl },
+        version: '1.0',
+        agent: { id: agent.cimdUrl },
         state: 'signed_out',
         source: 'header',
       });
@@ -225,7 +230,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp();
       const sessionJwt = await session('POST', apiUrl('/orders'));
 
-      const res = await api.post('/orders').set('Poppy-Session', sessionJwt);
+      const res = await api.post('/orders').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(401);
       expectSignInChallenges(res, 'orders:write');
@@ -237,7 +242,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp();
       const sessionJwt = await session('GET', apiUrl('/cart/scoped'));
 
-      const res = await api.get('/cart/scoped').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart/scoped').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(403);
       expect(res.headers['www-authenticate']).toBe(
@@ -250,12 +255,71 @@ describe('Poppy requests through createAuth0Api()', () => {
 
   // Turning verifySession on must not open a route that has not asked for a Session: a valid Session alone gets a 401
   // there, and the route never runs.
+  describe('Poppy-Version', () => {
+    it('should answer a Session header without Poppy-Version with 400 version_unsupported', async () => {
+      const { api } = await makeApp();
+      const sessionJwt = await session('GET', apiUrl('/cart'));
+
+      const res = await api.get('/cart').set('Poppy-Session', sessionJwt);
+
+      expect(res.status).toBe(400);
+      expect(res.body).toEqual({
+        error: 'version_unsupported',
+        error_description: 'The request has no Poppy-Version header, or its version is not one that this API serves.',
+      });
+      expect(seen.runs).toBe(0);
+      expect(hits).toEqual({ discovery: 0, jwks: 0 });
+    });
+
+    it.each(['2.0', '0.3', 'one', '1'])('should refuse the version %s with 400 version_unsupported', async (version) => {
+      const { api } = await makeApp();
+      const sessionJwt = await session('GET', apiUrl('/cart'));
+
+      const res = await api.get('/cart').set({ 'Poppy-Session': sessionJwt, 'Poppy-Version': version });
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('version_unsupported');
+      expect(seen.runs).toBe(0);
+    });
+
+    it('should accept a later minor version of the same major version, and show the version to the route', async () => {
+      const { api } = await makeApp();
+      const sessionJwt = await session('GET', apiUrl('/cart'));
+
+      const res = await api.get('/cart').set({ 'Poppy-Session': sessionJwt, 'Poppy-Version': '1.1' });
+
+      expect(res.status).toBe(200);
+      expect(seen.auth0?.poppy?.version).toBe('1.1');
+    });
+
+    it('should serve the versions of the versions option', async () => {
+      const { api } = await makeApp({ versions: ['2.0'] });
+      const sessionJwt = await session('GET', apiUrl('/cart'));
+
+      const refused = await api.get('/cart').set(withVersion(sessionJwt));
+      const accepted = await api.get('/cart').set({ 'Poppy-Session': sessionJwt, 'Poppy-Version': '2.0' });
+
+      expect(refused.status).toBe(400);
+      expect(refused.body.error).toBe('version_unsupported');
+      expect(accepted.status).toBe(200);
+    });
+
+    it('should not ask for Poppy-Version on a request that has only an access token', async () => {
+      const { api } = await makeApp();
+      const token = await makeToken({ azp: 'a-web-app' });
+
+      const res = await api.get('/profile').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+    });
+  });
+
   describe('Existing routes stay closed', () => {
     it('should answer a Session alone on a route without the Poppy option with the bare 401', async () => {
       const { api } = await makeApp();
       const sessionJwt = await session('GET', apiUrl('/profile'));
 
-      const res = await api.get('/profile').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/profile').set(withVersion(sessionJwt));
 
       expectBareChallenge(res);
       expect(seen.runs).toBe(0);
@@ -265,7 +329,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp();
       const sessionJwt = await session('GET', apiUrl('/orders'));
 
-      const res = await api.get('/orders').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/orders').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(401);
       expectSignInChallenges(res, 'orders:read');
@@ -288,7 +352,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const token = await makeToken();
       const sessionJwt = await session('POST', apiUrl('/orders'), { accessToken: token });
 
-      const res = await api.post('/orders').set('Authorization', `Bearer ${token}`).set('Poppy-Session', sessionJwt);
+      const res = await api.post('/orders').set('Authorization', `Bearer ${token}`).set(withVersion(sessionJwt));
 
       expect(res.status).toBe(200);
       expect(seen.auth0?.user?.sub).toBe('user_123');
@@ -303,7 +367,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const token = await makeToken({ scope: 'orders:read' });
       const sessionJwt = await session('POST', apiUrl('/orders'), { accessToken: token });
 
-      const res = await api.post('/orders').set('Authorization', `Bearer ${token}`).set('Poppy-Session', sessionJwt);
+      const res = await api.post('/orders').set('Authorization', `Bearer ${token}`).set(withVersion(sessionJwt));
 
       expect(res.status).toBe(403);
       expect(res.headers['www-authenticate']).toContain('scope="orders:write"');
@@ -338,7 +402,7 @@ describe('Poppy requests through createAuth0Api()', () => {
         .post('/orders')
         .set('Authorization', `DPoP ${token}`)
         .set('DPoP', proof)
-        .set('Poppy-Session', sessionJwt);
+        .set(withVersion(sessionJwt));
 
       expect(res.status).toBe(200);
       expectSameToken(seen.token, token);
@@ -357,7 +421,7 @@ describe('Poppy requests through createAuth0Api()', () => {
         .post('/orders')
         .set('Authorization', `DPoP ${token}`)
         .set('DPoP', proof)
-        .set('Poppy-Session', sessionJwt);
+        .set(withVersion(sessionJwt));
 
       expect(res.status).toBe(400);
       expect(rawHeaders(res, 'www-authenticate').join('\n')).toContain('invalid_dpop_proof');
@@ -370,7 +434,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const token = await makeToken({ cnf: { jkt: key.thumbprint } });
       const sessionJwt = await session('POST', apiUrl('/orders'), { accessToken: token });
 
-      const res = await api.post('/orders').set('Authorization', `Bearer ${token}`).set('Poppy-Session', sessionJwt);
+      const res = await api.post('/orders').set('Authorization', `Bearer ${token}`).set(withVersion(sessionJwt));
 
       expect(res.status).toBe(401);
       expect(rawHeaders(res, 'www-authenticate').join('\n')).toContain('invalid_token');
@@ -392,7 +456,7 @@ describe('Poppy requests through createAuth0Api()', () => {
     });
   });
 
-  // A bad Session is refused before the access token is looked at (section 5.3 of the Poppy 0.3 specification), so it
+  // A bad Session is refused before the access token is looked at (section 5.3 of the Poppy 1.0 specification), so it
   // costs no request to Auth0: the counters of the tenant stay 0.
   describe('Order of checks', () => {
     it('should refuse a Session for another URL before it looks at an expired access token', async () => {
@@ -400,7 +464,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const token = await makeExpiredToken();
       const sessionJwt = await session('GET', apiUrl('/elsewhere'), { accessToken: token });
 
-      const res = await api.get('/cart').set('Authorization', `Bearer ${token}`).set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart').set('Authorization', `Bearer ${token}`).set(withVersion(sessionJwt));
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('invalid_session');
@@ -413,7 +477,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const token = await makeToken();
       const sessionJwt = await session('GET', apiUrl('/cart'), { accessToken: 'another-token' });
 
-      const res = await api.get('/cart').set('Authorization', `Bearer ${token}`).set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart').set('Authorization', `Bearer ${token}`).set(withVersion(sessionJwt));
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('invalid_session');
@@ -429,7 +493,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp({}, '/shop');
       const sessionJwt = await session('GET', apiUrl('/shop/cart'));
 
-      const res = await api.get('/shop/cart').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/shop/cart').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(200);
       expect(seen.auth0?.poppy?.state).toBe('signed_out');
@@ -439,7 +503,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp({}, '/shop');
       const sessionJwt = await session('GET', apiUrl('/cart'));
 
-      const res = await api.get('/shop/cart').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/shop/cart').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('invalid_session');
@@ -450,7 +514,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp();
       const sessionJwt = await session('GET', apiUrl('/cart'));
 
-      const res = await api.get('/cart?x=1').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart?x=1').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(200);
     });
@@ -465,11 +529,8 @@ describe('Poppy requests through createAuth0Api()', () => {
         const spoofed = (test: request.Test) =>
           test.set('Host', 'evil.example').set('X-Forwarded-Host', 'evil.example').set('X-Forwarded-Proto', 'http');
 
-        const accepted = await spoofed(api.get('/cart')).set('Poppy-Session', await session('GET', apiUrl('/cart')));
-        const refused = await spoofed(api.get('/cart')).set(
-          'Poppy-Session',
-          await session('GET', 'https://evil.example/cart')
-        );
+        const accepted = await spoofed(api.get('/cart')).set(withVersion(await session('GET', apiUrl('/cart'))));
+        const refused = await spoofed(api.get('/cart')).set(withVersion(await session('GET', 'https://evil.example/cart')));
 
         expect(accepted.status).toBe(200);
         expect(refused.status).toBe(400);
@@ -489,14 +550,8 @@ describe('Poppy requests through createAuth0Api()', () => {
         const withHostPath = (test: request.Test) =>
           test.set('Host', 'evil.example/fake').set('X-Forwarded-Host', 'evil.example/fake');
 
-        const accepted = await withHostPath(api.get('/cart')).set(
-          'Poppy-Session',
-          await session('GET', apiUrl('/cart'))
-        );
-        const refused = await withHostPath(api.get('/cart')).set(
-          'Poppy-Session',
-          await session('GET', apiUrl('/fake/cart'))
-        );
+        const accepted = await withHostPath(api.get('/cart')).set(withVersion(await session('GET', apiUrl('/cart'))));
+        const refused = await withHostPath(api.get('/cart')).set(withVersion(await session('GET', apiUrl('/fake/cart'))));
 
         expect(accepted.status).toBe(200);
         expect(refused.status).toBe(400);
@@ -509,8 +564,8 @@ describe('Poppy requests through createAuth0Api()', () => {
 
       const accepted = await api
         .get('/cart')
-        .set('Poppy-Session', await session('GET', 'https://public.example.com/cart'));
-      const refused = await api.get('/cart').set('Poppy-Session', await session('GET', apiUrl('/cart')));
+        .set(withVersion(await session('GET', 'https://public.example.com/cart')));
+      const refused = await api.get('/cart').set(withVersion(await session('GET', apiUrl('/cart'))));
 
       expect(accepted.status).toBe(200);
       expect(refused.status).toBe(400);
@@ -554,25 +609,28 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp({ sessionStore: store });
       const sessionJwt = await session('GET', apiUrl('/cart'), { sid: 'sid_first' });
 
-      const res = await api.get('/cart').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(200);
       expect(seen.auth0?.poppy?.key).toEqual(expect.any(String));
       expect([...store.records]).toEqual([[seen.auth0?.poppy?.key, { userId: 'usr_test' }]]);
     });
 
-    it('should refuse a request for a known Session with another User ID', async () => {
-      const { api } = await makeApp({ sessionStore: new MapSessionStore() });
+    it('should treat the same sid with another User ID as another Session', async () => {
+      const store = new MapSessionStore();
+      const { api } = await makeApp({ sessionStore: store });
       const first = await session('GET', apiUrl('/cart'), { sid: 'sid_known' });
       const second = await session('GET', apiUrl('/cart'), { sid: 'sid_known', sub: 'usr_other' });
 
-      const accepted = await api.get('/cart').set('Poppy-Session', first);
-      const refused = await api.get('/cart').set('Poppy-Session', second);
+      const accepted = await api.get('/cart').set(withVersion(first));
+      const firstKey = seen.auth0?.poppy?.key;
+      const other = await api.get('/cart').set(withVersion(second));
 
+      // A Session is found by agent, `sid` and User ID (spec 5.3), so the second User starts a Session of their own.
       expect(accepted.status).toBe(200);
-      expect(refused.status).toBe(400);
-      expect(refused.body.error).toBe('invalid_session');
-      expect(seen.runs).toBe(1);
+      expect(other.status).toBe(200);
+      expect(seen.auth0?.poppy?.key).not.toBe(firstKey);
+      expect(store.records.size).toBe(2);
     });
 
     it('should refuse a request for a Session that the store says has ended', async () => {
@@ -581,10 +639,10 @@ describe('Poppy requests through createAuth0Api()', () => {
       const first = await session('GET', apiUrl('/cart'), { sid: 'sid_ended' });
       const second = await session('GET', apiUrl('/cart'), { sid: 'sid_ended' });
 
-      const accepted = await api.get('/cart').set('Poppy-Session', first);
+      const accepted = await api.get('/cart').set(withVersion(first));
       const key = seen.auth0?.poppy?.key as string;
       store.records.set(key, { userId: 'usr_test', ended: true });
-      const refused = await api.get('/cart').set('Poppy-Session', second);
+      const refused = await api.get('/cart').set(withVersion(second));
 
       expect(accepted.status).toBe(200);
       expect(refused.status).toBe(400);
@@ -596,7 +654,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp({ sessionStore: new DownSessionStore() });
       const sessionJwt = await session('GET', apiUrl('/cart'));
 
-      const res = await api.get('/cart').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart').set(withVersion(sessionJwt));
 
       const error = seen.error as Error & { status?: number };
       expect(res.status).toBe(500);
@@ -624,7 +682,7 @@ describe('Poppy requests through createAuth0Api()', () => {
         sessionId: 'sid_from_token',
         key: expect.any(String),
         userId: 'usr_test',
-        agent: { cimdUrl: agent.cimdUrl },
+        agent: { id: agent.cimdUrl },
         state: 'signed_in',
         source: 'token',
       });
@@ -708,7 +766,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp({ verifySession: false });
       const sessionJwt = await session('GET', apiUrl('/profile'));
 
-      const res = await api.get('/profile').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/profile').set(withVersion(sessionJwt));
 
       expectBareChallenge(res);
       expect(agentFetch).not.toHaveBeenCalled();
@@ -719,7 +777,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp({ verifySession: false });
       const sessionJwt = await session('GET', apiUrl('/cart'));
 
-      const res = await api.get('/cart').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(200);
       expect(seen.auth0?.poppy?.state).toBe('signed_out');
@@ -779,7 +837,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp({ agents: [other] });
       const sessionJwt = await session('GET', apiUrl('/cart'));
 
-      const res = await api.get('/cart').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(400);
       expect(res.body.error).toBe('invalid_session');
@@ -798,7 +856,7 @@ describe('Poppy requests through createAuth0Api()', () => {
 
       expect(res.status).toBe(200);
       expect(seen.auth0?.poppy?.source).toBe('token');
-      expect(seen.auth0?.poppy?.agent.cimdUrl).toBe(agent.cimdUrl);
+      expect(seen.auth0?.poppy?.agent.id).toBe(agent.cimdUrl);
     });
 
     it('should accept a Session only from an agent in the agents option', async () => {
@@ -806,8 +864,8 @@ describe('Poppy requests through createAuth0Api()', () => {
       const notListed = await makeApp({ agents: [other] });
       const sessionJwt = await session('GET', apiUrl('/cart'));
 
-      const accepted = await listed.api.get('/cart').set('Poppy-Session', sessionJwt);
-      const refused = await notListed.api.get('/cart').set('Poppy-Session', sessionJwt);
+      const accepted = await listed.api.get('/cart').set(withVersion(sessionJwt));
+      const refused = await notListed.api.get('/cart').set(withVersion(sessionJwt));
 
       expect(accepted.status).toBe(200);
       expect(refused.status).toBe(400);
@@ -848,7 +906,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       const { api } = await makeApp({ agentMetadata: { fetch: unreachable } });
       const sessionJwt = await session('GET', apiUrl('/cart'));
 
-      const res = await api.get('/cart').set('Poppy-Session', sessionJwt);
+      const res = await api.get('/cart').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(503);
       expect(res.headers['retry-after']).toBe('30');

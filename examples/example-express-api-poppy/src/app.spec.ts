@@ -13,6 +13,10 @@ import type { TestAgent, TestSessionJwtOptions } from '@auth0/auth0-express-api/
 import { createApp } from './app.js';
 import { MemoryPoppySessionStore } from './memory-store.js';
 
+// A Personal Agent sends `Poppy-Version` with every request that has the `Poppy-Session` header, and the SDK refuses a
+// request without it (spec 3.4).
+const withVersion = (jwt: string) => ({ 'Poppy-Session': jwt, 'Poppy-Version': '1.0' });
+
 // The values are placeholders. No test talks to an Auth0 tenant or to a real Personal Agent: msw plays the tenant, and
 // a test agent plays the agent.
 const AUTH0_DOMAIN = 'tenant.auth0.local';
@@ -134,9 +138,9 @@ describe('example-express-api-poppy', () => {
 
     const added = await api
       .post('/api/cart/items')
-      .set('Poppy-Session', await session('POST', '/api/cart/items', { sid }))
+      .set(withVersion(await session('POST', '/api/cart/items', { sid })))
       .send({ sku: 'sku_shirt' });
-    const cart = await api.get('/api/cart').set('Poppy-Session', await session('GET', '/api/cart', { sid }));
+    const cart = await api.get('/api/cart').set(withVersion(await session('GET', '/api/cart', { sid })));
 
     expect(added.status).toBe(201);
     expect(added.body).toEqual({ items: ['sku_shirt'] });
@@ -148,7 +152,7 @@ describe('example-express-api-poppy', () => {
   test('asks a signed-out agent to sign in for an order', async () => {
     const api = await start();
 
-    const res = await api.post('/api/orders').set('Poppy-Session', await session('POST', '/api/orders'));
+    const res = await api.post('/api/orders').set(withVersion(await session('POST', '/api/orders')));
 
     // One challenge for Bearer and one for DPoP, both naming the scope to sign in for.
     const challenges = headerLines(res, 'www-authenticate');
@@ -166,7 +170,7 @@ describe('example-express-api-poppy', () => {
     const sid = 'sid_signed_in';
     await api
       .post('/api/cart/items')
-      .set('Poppy-Session', await session('POST', '/api/cart/items', { sid }))
+      .set(withVersion(await session('POST', '/api/cart/items', { sid })))
       .send({ sku: 'sku_shirt' });
 
     // The user signs in. The agent now sends an access token too, and its Session JWT vouches for that token.
@@ -174,8 +178,8 @@ describe('example-express-api-poppy', () => {
     const order = await api
       .post('/api/orders')
       .set('Authorization', `Bearer ${token}`)
-      .set('Poppy-Session', await session('POST', '/api/orders', { sid, accessToken: token }));
-    const cart = await api.get('/api/cart').set('Poppy-Session', await session('GET', '/api/cart', { sid }));
+      .set(withVersion(await session('POST', '/api/orders', { sid, accessToken: token })));
+    const cart = await api.get('/api/cart').set(withVersion(await session('GET', '/api/cart', { sid })));
 
     expect(order.status).toBe(201);
     // `sub` is the account of the access token. The User ID of the Session, which the test agent sets to `usr_test`, is
@@ -189,24 +193,38 @@ describe('example-express-api-poppy', () => {
     const api = await start();
     const sessionJwt = await session('GET', '/api/cart', { defect: 'expired_delegation' });
 
-    const res = await api.get('/api/cart').set('Poppy-Session', sessionJwt);
+    const res = await api.get('/api/cart').set(withVersion(sessionJwt));
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('invalid_session');
   });
 
-  test('refuses a Session whose user changed', async () => {
+  test('keeps two users who picked the same Session ID apart', async () => {
     const api = await start();
-    const sid = 'sid_changed_user';
+    const sid = 'sid_two_users';
 
-    const first = await api.get('/api/cart').set('Poppy-Session', await session('GET', '/api/cart', { sid }));
-    const second = await api
+    await api
+      .post('/api/cart/items')
+      .set(withVersion(await session('POST', '/api/cart/items', { sid })))
+      .send({ sku: 'sku_1' });
+    const other = await api
       .get('/api/cart')
-      .set('Poppy-Session', await session('GET', '/api/cart', { sid, sub: 'usr_other' }));
+      .set(withVersion(await session('GET', '/api/cart', { sid, sub: 'usr_other' })));
+    const first = await api.get('/api/cart').set(withVersion(await session('GET', '/api/cart', { sid })));
 
-    expect(first.status).toBe(200);
-    expect(second.status).toBe(400);
-    expect(second.body.error).toBe('invalid_session');
+    // A Session is found by agent, Session ID and User ID, so the other user has a cart of their own.
+    expect(other.status).toBe(200);
+    expect(other.body).toEqual({ items: [] });
+    expect(first.body.items).toHaveLength(1);
+  });
+
+  test('refuses a request without Poppy-Version', async () => {
+    const api = await start();
+
+    const res = await api.get('/api/cart').set('Poppy-Session', await session('GET', '/api/cart'));
+
+    expect(res.status).toBe(400);
+    expect(res.body.error).toBe('version_unsupported');
   });
 
   test('refuses a Session that the store has ended', async () => {
@@ -214,9 +232,9 @@ describe('example-express-api-poppy', () => {
     const api = await start({ sessionStore: store });
     const sid = 'sid_ended';
 
-    const first = await api.get('/api/cart').set('Poppy-Session', await session('GET', '/api/cart', { sid }));
+    const first = await api.get('/api/cart').set(withVersion(await session('GET', '/api/cart', { sid })));
     store.end(store.keys[0]!);
-    const second = await api.get('/api/cart').set('Poppy-Session', await session('GET', '/api/cart', { sid }));
+    const second = await api.get('/api/cart').set(withVersion(await session('GET', '/api/cart', { sid })));
 
     expect(first.status).toBe(200);
     expect(second.status).toBe(400);
@@ -232,7 +250,7 @@ describe('example-express-api-poppy', () => {
 
     const res = await api
       .post('/api/cart/items')
-      .set('Poppy-Session', await session('POST', '/api/cart/items'))
+      .set(withVersion(await session('POST', '/api/cart/items')))
       .send(body);
 
     expect(res.status).toBe(400);

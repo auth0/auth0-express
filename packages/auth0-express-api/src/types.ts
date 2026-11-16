@@ -19,7 +19,7 @@ export interface RequiresAuthOptions {
    */
   scopes?: string | string[];
   /**
-   * Options for a route of an API that serves Personal Agents, as the Poppy (Personal Agent Protocol) 0.3 specification
+   * Options for a route of an API that serves Personal Agents, as the Poppy (Personal Agent Protocol) 1.0 specification
    * describes them: software that acts for a user and proves who it is with a signed `Poppy-Session` header. They apply
    * only to a router created with the `poppy` option of {@link createAuth0Api}. On any other router `requiresAuth()`
    * passes an error to `next()` on every request, so the mistake shows at once.
@@ -34,7 +34,7 @@ export interface RequiresAuthOptions {
    * - A bad Session or a bad access token: the error response the specification asks for, such as `400` with
    *   `{"error": "invalid_session"}`. The route does not run.
    *
-   * @see {@link https://personalagentprotocol.org/docs/0.3/spec Poppy 0.3 specification}
+   * @see {@link https://personalagentprotocol.org/docs/spec Poppy 1.0 specification}
    * @beta
    */
   poppy?: {
@@ -112,7 +112,7 @@ export interface Auth0ApiOptions {
    */
   customFetch?: typeof fetch;
   /**
-   * Support for Personal Agents (Poppy 0.3): software that acts for a user and signs its requests with a
+   * Support for Personal Agents (Poppy 1.0): software that acts for a user and signs its requests with a
    * `Poppy-Session` header. Set it when your API should serve them, with `verifySession: true`: otherwise a plain route
    * does not check the `Poppy-Session` header. `poppy: {}` turns Personal Agent support on and leaves every setting at
    * its default, `verifySession` included. Set `publicOrigin` too: the router passes only the path of each request, so
@@ -135,14 +135,14 @@ export interface Auth0ApiOptions {
    * `req.auth0.poppy` is not set from it, and the access token of a registered agent is accepted without it.
    *
    * @defaultValue `undefined`. Personal Agent support is off, and requests are handled exactly as before.
-   * @see {@link https://personalagentprotocol.org/docs/0.3/spec Poppy 0.3 specification}
+   * @see {@link https://personalagentprotocol.org/docs/spec Poppy 1.0 specification}
    * @beta
    */
   poppy?: Auth0ApiPoppyOptions;
 }
 
 /**
- * Options for serving Personal Agents, as the Poppy (Personal Agent Protocol) 0.3 specification describes. Set them as
+ * Options for serving Personal Agents, as the Poppy (Personal Agent Protocol) 1.0 specification describes. Set them as
  * the `poppy` option of {@link Auth0ApiOptions}.
  *
  * A Personal Agent is software that acts for one user. It signs a `Poppy-Session` header on every request to your API,
@@ -165,7 +165,7 @@ export interface Auth0ApiOptions {
  * });
  * ```
  *
- * @see {@link https://personalagentprotocol.org/docs/0.3/spec Poppy 0.3 specification}
+ * @see {@link https://personalagentprotocol.org/docs/spec Poppy 1.0 specification}
  * @beta
  */
 export type Auth0ApiPoppyOptions = PoppyOptions;
