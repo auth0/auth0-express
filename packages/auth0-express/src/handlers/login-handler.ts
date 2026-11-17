@@ -77,13 +77,19 @@ export async function handleLogin(req: Request, res: Response, options: Auth0Opt
     let disallowedParams = ['returnTo'];
 
     if (options.poppy) {
-      // An agent's browser arrives here with `iss` and `target_link_uri` (OpenID Connect Core 1.0, section 4), and
-      // anyone can send a browser here with any query. This check comes first, before anything writes a cookie: it
-      // throws when `iss` is not the issuer, and it gives `target_link_uri` back as `returnTo` only when it is a page
-      // of this app. Its `authorizationParams` are not used, because they are not filtered like the ones below.
+      // An agent's browser is expected to arrive here with `iss` and `target_link_uri` (OpenID Connect Core 1.0, section
+      // 4), and anyone can send a browser here with any query. This check comes first, before anything writes a cookie.
+      // It never throws: it gives `target_link_uri` back as `returnTo` only when `iss` is the issuer and the target is a
+      // page of this app, and it ignores a request that it cannot use. Its `authorizationParams` are not used, because
+      // they are not filtered like the ones below.
       // https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin
-      const initiation = req.auth0.client.poppy.parseLoginInitiation(new URL(req.originalUrl, appBaseUrl), {
-        appOrigin: new URL(appBaseUrl).origin,
+      // The URL is built from the query alone. `req.originalUrl` is the whole URL when a client sends a request target in
+      // absolute form (`GET http://host/path`), and a host that the URL parser refuses would make `new URL()` throw.
+      const queryStart = req.originalUrl.indexOf('?');
+      const loginUrl = new URL(appBaseUrl);
+      loginUrl.search = queryStart === -1 ? '' : req.originalUrl.slice(queryStart);
+      const initiation = req.auth0.client.poppy.parseLoginInitiation(loginUrl, {
+        appOrigin: loginUrl.origin,
       });
 
       // A `returnTo` in the query that was accepted comes first, then the target, then the value that is used today.

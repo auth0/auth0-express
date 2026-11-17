@@ -45,12 +45,14 @@ const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => `&#${c
 
 type Row = [label: string, value: string | undefined];
 
-// The rows for an agent's browser. A guest has a `poppy`, and so has a user whose session an agent joined.
+// The rows for an agent's browser. A guest has a `poppy`, and so has a user whose session an agent joined. `act` is the
+// `act` claim of the ID token as Auth0 sent it: `act.sub` is the agent (the URL of its metadata, or the Auth0 id of the
+// agent when its client is linked), and the Poppy Session is named by `act.poppy_sid` and `act.poppy_user_id`.
 const agentRows = (poppy: PoppyAgentContext): Row[] => [
   ['Poppy Session state', poppy.state],
-  ['Poppy Session ID', poppy.sessionId],
-  ['Poppy user ID', poppy.userId],
-  ['Agent', poppy.agent.id],
+  ['Poppy Session ID', poppy.act.poppy_sid],
+  ['Poppy user ID', poppy.act.poppy_user_id],
+  ['Agent', poppy.act.sub],
   ['Cart key', poppy.key],
 ];
 
@@ -78,8 +80,8 @@ function sessionRows(visitor: PoppyVisitor): Row[] {
 }
 
 // The buttons of the page. A visitor with a session can log out. Nobody who has a session can log in, and neither can a
-// guest: a guest cannot sign in on the website, because the person the agent acts for signs in through the agent. The
-// login route could also bring back the same guest, so the page does not offer it. The login button goes to the normal
+// guest: a guest cannot sign in on the website, because the person the agent acts for signs in through the agent. A
+// person's login while a guest is there is refused, so the page does not offer it. The login button goes to the normal
 // login route, without `iss` or `target_link_uri`, so it is the login of a person and not the join of an agent.
 function buttons(visitor: PoppyVisitor): string {
   const login =
@@ -99,7 +101,7 @@ function sessionSection(visitor: PoppyVisitor): string {
 }
 
 // `options` replace what the SDK reads from AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_SESSION_SECRET
-// and APP_BASE_URL. The tests use them to run the app with no tenant and with no auth0-poppy.json.
+// and APP_BASE_URL. The tests use them to run the app with no tenant and with no poppy.json.
 export function createApp(options: Partial<Auth0Options> = {}): Express {
   const app = express();
 
@@ -107,10 +109,12 @@ export function createApp(options: Partial<Auth0Options> = {}): Express {
   app.use(express.json());
 
   // The `poppy` option turns on support for Personal Agents. The router then:
-  // - serves /.well-known/poppy.json and /.well-known/oauth-protected-resource from auth0-poppy.json. It reads the file
-  //   once, at startup, from the working directory. Agents look for both documents at the root of the site.
-  // - checks `iss` on the login route. After the login it sends the browser to `target_link_uri` only when that is a
-  //   page of this site, and it never sends `iss` or `target_link_uri` on to Auth0.
+  // - serves /.well-known/poppy.json and /.well-known/oauth-protected-resource from poppy.json, the file that
+  //   `auth0 poppy config` writes. It reads the file once, at startup, from the working directory. Agents look for both
+  //   documents at the root of the site.
+  // - reads `iss` on the login route. After the login it sends the browser to `target_link_uri` only when `iss` is the
+  //   issuer and the target is a page of this site, and it never sends `iss` or `target_link_uri` on to Auth0. A request
+  //   whose `iss` it cannot use is a normal login.
   // - turns the join of an agent's browser into a guest or a signed-in user, and tells a route who drives the browser
   //   with `getVisitor()`.
   app.use(createAuth0({ poppy: true, ...options }));
@@ -171,9 +175,10 @@ export function createApp(options: Partial<Auth0Options> = {}): Express {
   });
 
   // `requiresAuth()` looks for a user, and a guest is not a user, so it answers a guest with 403. It does not send a guest
-  // to the login page, because a guest cannot sign in there and the login route could bring back the same guest, so the
-  // redirect would repeat without end. The exception is a browser that also holds a person's own login (see the README
-  // of this example).
+  // to the login page: a guest cannot sign in there, and the login cannot succeed while a guest is in the browser, so
+  // the guest would only go to Auth0 and come back to a 403. The SDK never writes a guest and a person's session
+  // together: a guest join ends the session of a person, and while a guest is there, a person's login is refused with
+  // a 403 (see the README of this example).
   app.get('/orders', requiresAuth(), (_req, res) => {
     res.send(page('<p>Your orders are shown here, because you are signed in.</p>'));
   });

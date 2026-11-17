@@ -21,7 +21,8 @@ describe('exports', () => {
   test('should re-export the Poppy values of server-js', () => {
     expect(sdk.AbstractPoppyGuestStore).toBe(serverJs.AbstractPoppyGuestStore);
     expect(sdk.InvalidPoppySessionError).toBe(serverJs.InvalidPoppySessionError);
-    expect(sdk.IssuerValidationError).toBe(serverJs.IssuerValidationError);
+    expect(sdk.PoppyError).toBe(serverJs.PoppyError);
+    expect(sdk.PoppyErrorCode).toBe(serverJs.PoppyErrorCode);
     expect(sdk.SessionExpiredError).toBe(serverJs.SessionExpiredError);
     expect(sdk.StatelessPoppyGuestStore).toBe(serverJs.StatelessPoppyGuestStore);
   });
@@ -34,8 +35,9 @@ describe('exports', () => {
       'EnterpriseConnectNotSupportedError',
       'InvalidConfigurationError',
       'InvalidPoppySessionError',
-      'IssuerValidationError',
       'MissingAnonymousSessionError',
+      'PoppyError',
+      'PoppyErrorCode',
       'SessionExpiredError',
       'StatelessPoppyGuestStore',
       'claimCheck',
@@ -55,7 +57,7 @@ describe('exports', () => {
   // older errors in other specs, so run it by hand after a change to the exports and read the errors of this file.
   test('should export the Poppy types', () => {
     expectTypeOf<PoppyVisitor['kind']>().toEqualTypeOf<'none' | 'anonymous' | 'user' | 'guest'>();
-    expectTypeOf<PoppyAgentContext['state']>().toEqualTypeOf<'signed_out' | 'signed_in'>();
+    expectTypeOf<PoppyAgentContext['state']>().toEqualTypeOf<'guest' | 'signed_in'>();
     expectTypeOf<NonNullable<Auth0Options['poppy']>>().toEqualTypeOf<true | PoppyOptions>();
     expectTypeOf<PoppyOptions['guestStore']>().toEqualTypeOf<PoppyGuestStore<StoreOptions> | undefined>();
 
@@ -70,7 +72,7 @@ describe('exports', () => {
       {
         protocol_version: '1.0',
         organization: { name: 'Zepto', domain: 'zepto.example' },
-        issuer: 'https://auth.zepto.example/',
+        auth: { issuer: 'https://auth.zepto.example/' },
         web: { browser_session_endpoint: 'https://auth.zepto.example/poppy/web_app_client/browser-session' },
       } satisfies PoppyConfig,
       {
@@ -81,7 +83,7 @@ describe('exports', () => {
       { sameSite: 'lax', secure: true, path: '/' } satisfies PoppyGuestCookieOptions,
       {
         sub: 'anon_poppy@z4eHq6gTjlgaMSjrplb3j5j3kb3hEDz9hZx8mgdxQLg',
-        poppy: { sessionId: 'sid_1', userId: 'usr_1', agent: { id: 'https://agent.example/agent.json' } },
+        act: { sub: 'https://agent.example/agent.json', poppy_sid: 'sid_1', poppy_user_id: 'usr_1' },
         tokenSets: [{ audience: 'default', accessToken: 'at_sample', scope: 'orders:read', expiresAt: 1_800_000_000 }],
         createdAt: 1_799_990_000,
         expiresAt: 1_800_000_000,

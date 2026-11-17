@@ -259,7 +259,7 @@ app.use(createAuth0({
   clientSecret: '<AUTH0_CLIENT_SECRET>',
   appBaseUrl: '<APP_BASE_URL>',
   sessionSecret: '<SESSION_SECRET>',
-  // Turns on Poppy. Reads auth0-poppy.json from the working directory, once, at startup.
+  // Turns on Poppy. Reads poppy.json from the working directory, once, at startup.
   poppy: true,
 }));
 
@@ -280,7 +280,7 @@ app.get('/', async (req, res, next) => {
 });
 ```
 
-`requiresAuth()` answers a guest with `403` and never sends it to the login route, because a guest cannot sign in there and the redirect could repeat without end. Pass `onGuest` to answer a guest your own way. When the browser also holds a person's own login, a page that has only `requiresAuth()` is open to an agent as that person (see [Guard pages from guests](./EXAMPLES.md#guard-pages-from-guests)).
+`requiresAuth()` answers a guest with `403` and never sends it to the login route, because a guest cannot sign in there, and the login cannot succeed while a guest is in the browser: the redirect would only send the guest to Auth0 and back to a `403` (`poppy_sign_in_required`). Pass `onGuest` to answer a guest your own way. The SDK never writes a guest and a person's session together: a guest join ends the session of a person, and while a guest is there, a person's login is refused with a `PoppyError` (see [Guard pages from guests](./EXAMPLES.md#guard-pages-from-guests)).
 
 For the set-up, the discovery files, the kinds of visitor and going to production, see [Personal Agent Protocol (Poppy)](./EXAMPLES.md#personal-agent-protocol-poppy).
 
@@ -291,7 +291,7 @@ The browser-facing auth routes (login, callback, and logout) forward failures to
 - No internal detail (an OAuth `error_description`, a token-endpoint failure reason, stack traces, file paths) reaches the client, regardless of `NODE_ENV`. The original error is preserved on `error.cause`, so your own logging can still inspect it.
 - The failure status is a stable `500` instead of mirroring whatever status an upstream call happened to return (for example a `400` from the token endpoint).
 
-With the `poppy` option, three failures get their own status instead: the login route answers `400` for a login request with a wrong `iss`, and the callback answers `400` for a malformed Poppy Session and `401` for a session that has already ended. These errors are sanitized the same way, with the original error on `error.cause` (see [Poppy errors](./EXAMPLES.md#poppy-errors)).
+With the `poppy` option, some callback failures get their own status instead: `403` for a login that Poppy refuses (a `PoppyError`), `400` for a malformed Poppy Session and `401` for a session that has already ended. The login route never refuses a request for `iss` or `target_link_uri`. These errors are sanitized the same way, with the original error on `error.cause` (see [Poppy errors](./EXAMPLES.md#poppy-errors)).
 
 Express still produces the final response. Its built-in error handler writes the (now generic) error stack into the response body unless `NODE_ENV` is set to `production`. For full control over what clients see, you can:
 

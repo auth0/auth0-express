@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { hasPoppy } from '../poppy/enabled.js';
 
 /**
  * Options for the requiresAuth middleware.
@@ -17,7 +18,8 @@ export interface RequiresAuthOptions {
    *
    * A guest is never sent to the login route. A guest cannot sign in on your website: the person the agent acts for
    * signs in through the agent, and the agent then joins again. Auth0 can keep the anonymous session of the join for
-   * single sign-on, so the login route can bring back the same guest, and a redirect to it would repeat without end.
+   * single sign-on, so the login route can bring back the same guest. The login cannot succeed while a guest is in the
+   * browser, so a redirect would only send the guest to Auth0 and back to a `403` of the callback.
    *
    * Answer the request, or call `next()` to let the route run. Without this handler, the middleware answers a guest
    * with `403` and a short message, as JSON for an API client.
@@ -69,13 +71,14 @@ export function requiresAuth(options?: RequiresAuthOptions) {
         // Check if this is an API request (wants JSON response)
         const acceptsJson = req.accepts('json') && !req.accepts('html');
 
-        // A guest cannot sign in here, and the login route can bring back the same guest. So a guest is not sent to
-        // it: that would be a redirect without end. `getContext()` reads only the guest, and without a user it is the
-        // guest that it finds.
-        if (req.app.locals.auth0ClientOptions?.poppy) {
+        // A guest cannot sign in here: the login cannot succeed while a guest is in the browser, so a redirect would only
+        // send the guest to Auth0 and back to the `403` of the callback. `getContext()` reads the guest and, when there
+        // is none, the session, and without a user it is the guest that it finds. The switch is read from the client of
+        // the request, not from `req.app.locals`: in a sub-app, `req.app` is not the app that the router is mounted on.
+        if (hasPoppy(req.auth0.client)) {
           const context = await req.auth0.client.poppy.getContext();
 
-          if (context.kind === 'agent' && context.state === 'signed_out') {
+          if (context.kind === 'agent' && context.state === 'guest') {
             if (options?.onGuest) {
               return await options.onGuest(req, res, next);
             }

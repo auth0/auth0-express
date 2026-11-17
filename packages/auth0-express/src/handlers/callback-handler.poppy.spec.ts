@@ -67,7 +67,8 @@ describe.each(['production', 'development'] as const)('callback errors on a Popp
     });
   });
 
-  test('a guest marker without a Poppy Session gets 400', async () => {
+  // A PoppyError is a refusal because of Poppy, so it is a 403. The SDK gives each code a fixed text without a value.
+  test('a guest marker without a Poppy Session gets 403', async () => {
     await withNodeEnv(env, async () => {
       const agent = await serve(poppyApp());
       const jar = cookieJar();
@@ -77,13 +78,42 @@ describe.each(['production', 'development'] as const)('callback errors on a Popp
 
       const joined = await join(agent, jar, tenant, markerOnly);
 
-      expect(joined.callback.status).toBe(400);
+      expect(joined.callback.status).toBe(403);
       expect(joined.callback.text).toContain(
-        errorPage(env, 'Bad Request', 'The Poppy Session of this login is not valid.')
+        errorPage(
+          env,
+          'Forbidden',
+          'The ID token looks like the login of a Poppy guest but is not a valid one, so it is neither a guest nor a user.'
+        )
       );
+      expect(joined.callback.text).not.toContain(GUEST_SUB);
       expect(joined.callback.text).not.toContain('act.poppy_sid');
-      expect(joined.callback.text).not.toContain('well-formed');
       await expectNothingKept(agent, jar, joined);
+    });
+  });
+
+  test("a person's login over a guest gets 403, and the guest stays", async () => {
+    await withNodeEnv(env, async () => {
+      const agent = await serve(poppyApp());
+      const jar = cookieJar();
+      const first = await join(agent, jar, tenant, guestIdToken());
+      expect(first.callback.status).toBe(302);
+
+      const second = await join(agent, jar, tenant, humanIdToken('auth0|ana'));
+
+      expect(second.callback.status).toBe(403);
+      expect(second.callback.text).toContain(
+        errorPage(
+          env,
+          'Forbidden',
+          // The page of Express escapes the apostrophe, so the text starts after it.
+          's guest is in this browser, so only a signed-in agent or a new guest join can replace it. Log out to sign in as a person.'
+        )
+      );
+      expect(keptCookies(second.callback)).toEqual([]);
+
+      const visitor = await agent.get('/visitor').set('Cookie', jar.header());
+      expect(visitor.body).toMatchObject({ kind: 'guest', poppy: { state: 'guest' } });
     });
   });
 

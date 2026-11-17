@@ -7,6 +7,7 @@ import { handleCallback } from './handlers/callback-handler.js';
 import { handleLogout } from './handlers/logout-handler.js';
 import { handleBackchannelLogout, parseBackchannelLogoutBody } from './handlers/backchannel-logout-handler.js';
 import { handlePoppyDiscovery, POPPY_DISCOVERY_PATHS } from './handlers/poppy-discovery-handler.js';
+import { markPoppyClient } from './poppy/enabled.js';
 import { runWithContext } from './store/request-context.js';
 import { getConfig } from './config.js';
 import './types/express.js';
@@ -17,7 +18,7 @@ import './types/express.js';
  * This is the main entry point for the Auth0 Express SDK. It configures
  * authentication routes and attaches the Auth0 client to the request object.
  *
- * With the `poppy` option, it reads `auth0-poppy.json` once, here, and throws `InvalidConfigurationError` when the
+ * With the `poppy` option, it reads `poppy.json` once, here, and throws `InvalidConfigurationError` when the
  * file cannot be read or the Poppy config is invalid. The discovery files are served at `/.well-known/...` of the
  * router's mount point, so with `poppy` set, mount the router at the root of the site.
  *
@@ -50,6 +51,9 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
 
   // Initialize auth0Client
   const auth0Client = createServerClientInstance(options);
+  if (options.poppy) {
+    markPoppyClient(auth0Client);
+  }
 
   const shouldMountRoutes = options.mountRoutes ?? true;
 

@@ -96,7 +96,7 @@ async function serve(app: Express) {
 
 type Site = Awaited<ReturnType<typeof serve>>;
 
-// A new app for every test, so that no test starts with the carts of another. `config` is the parsed auth0-poppy.json,
+// A new app for every test, so that no test starts with the carts of another. `config` is the parsed poppy.json,
 // so that no file is read.
 function start() {
   return serve(
@@ -107,11 +107,18 @@ function start() {
       appBaseUrl: APP_BASE_URL,
       sessionSecret: 'a-session-secret-of-at-least-32-characters-long',
       poppy: {
+        // The shape that `auth0 poppy config` writes.
         config: {
           protocol_version: '1.0',
           organization: { name: 'Zepto', domain: 'zepto.example' },
-          issuer: ISSUER,
-          web: { browser_session_endpoint: `${ISSUER}poppy/${CLIENT_ID}/browser-session` },
+          auth: {
+            issuer: ISSUER,
+            scopes: { 'poppy:browser-sign-in': 'poppy:browser-sign-in' },
+            scope_hints: { 'poppy:browser-sign-in': { changes: 'none', personal_data: false } },
+          },
+          apis: [],
+          // The example applies no scopes, so its file says `unscoped: true`.
+          web: { browser_session_endpoint: `${ISSUER}poppy/${CLIENT_ID}/browser-session`, unscoped: true },
         },
       },
     })
@@ -157,6 +164,8 @@ async function join(site: Site, jar: Jar, token: Promise<string>, link: Record<s
   const callback = await site.get('/auth/callback').query({ code: 'abc' }).set('Cookie', jar.header());
   expect(callback.status).toBe(302);
   jar.take(callback);
+
+  return callback;
 }
 
 describe('example-express-web-poppy', () => {
@@ -185,7 +194,7 @@ describe('example-express-web-poppy', () => {
 
     await join(site, jar, guestIdToken());
     const guest = await site.get('/api/visitor').set('Cookie', jar.header());
-    expect(guest.body).toEqual({ kind: 'guest', state: 'signed_out' });
+    expect(guest.body).toEqual({ kind: 'guest', state: 'guest' });
 
     const added = await site.post('/api/cart/items').set('Cookie', jar.header()).send({ sku: 'tea' });
     expect(added.status).toBe(201);
@@ -208,28 +217,67 @@ describe('example-express-web-poppy', () => {
     // Nobody is sent to the login page by this test unless the browser holds the guest, so check that it does.
     expect((await site.get('/api/visitor').set('Cookie', jar.header())).body).toEqual({
       kind: 'guest',
-      state: 'signed_out',
+      state: 'guest',
     });
 
     const res = await site.get('/orders').set('Cookie', jar.header());
 
-    // The login route could bring back the same guest, so a redirect to it could repeat without end.
+    // The login cannot succeed while a guest is in the browser, so a redirect would only send the guest to Auth0 and back
+    // to a 403.
     expect(res.status).toBe(403);
     expect(res.get('Location')).toBeUndefined();
 
-    // Nobody, who can sign in, is sent to the login page.
+    // Nobody (a visitor with no login) is sent to the login page.
     const nobody = await site.get('/orders');
     expect(nobody.status).toBe(302);
     expect(nobody.get('Location')).toBe('/auth/login?returnTo=%2Forders');
   });
 
-  test('refuses a login link from another issuer', async () => {
+  // The login route never refuses a request for its `iss`. A link that is not for this site is a normal login: the
+  // target is not used, so the browser lands on the home page, and `iss` never goes on to Auth0.
+  test('ignores a login link from another issuer, and lands on the home page', async () => {
     const site = await start();
+    const jar = cookieJar();
+    const link = { iss: 'https://other.auth0.local/', target_link_uri: `${APP_BASE_URL}/orders` };
 
-    const res = await site.get('/auth/login').query({ ...AGENT_LINK, iss: 'https://other.auth0.local/' });
+    const login = await site.get('/auth/login').query(link);
 
-    expect(res.status).toBe(400);
-    expect(res.get('Set-Cookie')).toBeUndefined();
+    expect(login.status).toBe(302);
+    expect(new URL(login.get('Location') ?? '').searchParams.has('iss')).toBe(false);
+    expect(new URL(login.get('Location') ?? '').searchParams.has('target_link_uri')).toBe(false);
+
+    const callback = await join(site, jar, agentIdToken(), link);
+
+    expect(callback.get('Location')).toBe(`${APP_BASE_URL}/`);
+  });
+
+  test('refuses the login of a person while a guest is in the browser, and the guest stays', async () => {
+    const site = await start();
+    const jar = cookieJar();
+    await join(site, jar, guestIdToken());
+    const before = (await site.get('/api/visitor').set('Cookie', jar.header())).body;
+    expect(before).toEqual({ kind: 'guest', state: 'guest' });
+
+    const login = await site.get('/auth/login').set('Cookie', jar.header());
+    expect(login.status).toBe(302);
+    jar.take(login);
+    nextIdToken = await personIdToken();
+    const callback = await site.get('/auth/callback').query({ code: 'abc' }).set('Cookie', jar.header());
+
+    expect(callback.status).toBe(403);
+    expect((await site.get('/api/visitor').set('Cookie', jar.header())).body).toEqual(before);
+  });
+
+  test('a guest join ends the login of a person in the same browser', async () => {
+    const site = await start();
+    const jar = cookieJar();
+    await join(site, jar, personIdToken(), {});
+    expect((await site.get('/api/visitor').set('Cookie', jar.header())).body).toEqual({ kind: 'user' });
+
+    await join(site, jar, guestIdToken());
+
+    expect((await site.get('/api/visitor').set('Cookie', jar.header())).body).toEqual({ kind: 'guest', state: 'guest' });
+    expect((await site.get('/orders').set('Cookie', jar.header())).status).toBe(403);
   });
 
   test('shows the orders to an agent whose user has signed in', async () => {
@@ -344,7 +392,7 @@ describe('example-express-web-poppy', () => {
     expect(nobody.text).not.toContain('Poppy Session ID');
 
     expect(guest.text).toContain('<dt>Visitor</dt><dd>guest</dd>');
-    expect(guest.text).toContain('<dt>Poppy Session state</dt><dd>signed_out</dd>');
+    expect(guest.text).toContain('<dt>Poppy Session state</dt><dd>guest</dd>');
     expect(guest.text).toContain(`<dt>Poppy Session ID</dt><dd>${SESSION_ID}</dd>`);
     expect(guest.text).toContain(`<dt>Poppy user ID</dt><dd>${USER_ID}</dd>`);
     expect(guest.text).toContain(`<dt>Agent</dt><dd>${AGENT_URL}</dd>`);

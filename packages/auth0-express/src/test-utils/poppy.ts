@@ -22,28 +22,33 @@ export const JOIN_ACCESS_TOKEN = 'at_join';
 
 const ANONYMOUS_SESSION_TOKEN = 'ANONYMOUS_SESSION_' + 'a'.repeat(64);
 
-// Not annotated on purpose: it has members that `PoppyConfig` does not declare, as a real file can.
+// The shape that `auth0 poppy config` writes. Not annotated on purpose: it has members that `PoppyConfig` does not
+// declare, as a real file does, and a type check of the whole object shows that it needs no cast.
 export const poppyConfig = {
   protocol_version: '1.0',
   organization: { name: 'Zepto', domain: 'zepto.example' },
-  issuer: 'https://auth.zepto.example/',
-  scopes: {
-    'orders:read': { description: 'See your orders.', hints: { changes: 'none', personal_data: true } },
+  auth: {
+    issuer: 'https://auth.zepto.example/',
+    scopes: {
+      'orders:read': 'orders:read',
+      'poppy:browser-sign-in': 'poppy:browser-sign-in',
+    },
+    scope_hints: {
+      'orders:read': { changes: 'none', personal_data: true },
+      'poppy:browser-sign-in': { changes: 'none', personal_data: false },
+    },
   },
   apis: [
     {
       type: 'openapi',
-      url: 'https://zepto.example/api/openapi.json',
-      description: 'Orders',
-      identifier: 'https://zepto.example/api',
-      public_origin: 'https://zepto.example',
+      url: 'https://zepto.example/openapi.json',
+      description: 'https://zepto.example',
     },
   ],
   web: {
-    client_id: 'web_app_client',
     browser_session_endpoint: 'https://auth.zepto.example/poppy/web_app_client/browser-session',
+    unscoped: false,
   },
-  agents: ['https://agent.example/agent.json'],
 };
 
 /** The `act` claim that an agent's browser join carries. */
@@ -190,8 +195,30 @@ export function setCookieLines(res: ResponseWithHeaders): string[] {
 }
 
 /**
- * The cookies a browser would keep, by name. It ignores `Path`, `Domain` and `Secure`. `names()` lists them in the
- * order they were first set.
+ * Whether a browser accepts a `Set-Cookie` line. It applies the cookie name prefixes of RFC 6265bis, section 4.1.3,
+ * to a header that sets a cookie and to one that clears it alike: a `__Secure-` name needs `Secure`, and a `__Host-`
+ * name needs `Secure`, `Path=/` and no `Domain`. A browser ignores the line otherwise.
+ */
+export function browserAccepts(line: string): boolean {
+  const [pair = '', ...attributes] = line.split(';');
+  const name = pair.slice(0, pair.indexOf('=')).trim();
+  const has = (attribute: RegExp) => attributes.some((value) => attribute.test(value));
+  const secure = has(/^\s*secure\s*$/i);
+
+  if (name.startsWith('__Secure-')) {
+    return secure;
+  }
+
+  if (name.startsWith('__Host-')) {
+    return secure && has(/^\s*path\s*=\s*\/\s*$/i) && !has(/^\s*domain\s*=/i);
+  }
+
+  return true;
+}
+
+/**
+ * The cookies a browser would keep, by name. It ignores `Path` and `Domain`, but it applies the rules for the `__Host-`
+ * and `__Secure-` prefixes (see `browserAccepts`). `names()` lists them in the order they were first set.
  */
 export function cookieJar() {
   const cookies = new Map<string, string>();
@@ -200,6 +227,10 @@ export function cookieJar() {
     /** Adds each cookie that the response sets, and removes one that it empties or expires in 1970. */
     take(res: ResponseWithHeaders) {
       for (const line of setCookieLines(res)) {
+        if (!browserAccepts(line)) {
+          continue;
+        }
+
         const [pair = '', ...attributes] = line.split(';');
         const equals = pair.indexOf('=');
         const name = pair.slice(0, equals).trim();

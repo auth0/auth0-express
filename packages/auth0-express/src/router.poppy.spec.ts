@@ -2,16 +2,17 @@ import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi 
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
+import { randomUUID } from 'node:crypto';
 import { pathToFileURL } from 'node:url';
 import type { Express } from 'express';
 import type { PoppyGuestData, PoppyGuestStore } from '@auth0/auth0-server-js';
 import { InvalidConfigurationError } from './errors/index.js';
 import type { Auth0Options, PoppyOptions, StoreOptions } from './types.js';
 import {
-  GUEST_SUB,
   POPPY_DOMAIN,
   cookieJar,
   guestIdToken,
+  humanIdToken,
   join as joinPoppy,
   poppyApp,
   poppyConfig,
@@ -30,7 +31,7 @@ const RESOURCE_BODY = '{"resource":"https://zepto.example","authorization_server
 
 const cannotRead = (path: string) =>
   `Invalid poppy configuration: cannot read the config file at "${path}". ` +
-  'Put auth0-poppy.json there, set poppy.configPath to where it is, or pass the parsed file as poppy.config.';
+  'Put poppy.json there, set poppy.configPath to where it is, or pass the parsed file as poppy.config.';
 
 function expectInvalidConfig(fn: () => unknown, message: string) {
   let thrown: unknown;
@@ -53,7 +54,7 @@ function cookieAttributes(line: string | undefined) {
 }
 
 function guestCookieLine(res: Parameters<typeof setCookieLines>[0]) {
-  return setCookieLines(res).find((line) => line.startsWith('__a0_poppy.0='));
+  return setCookieLines(res).find((line) => /^(__Host-a0_poppy|__a0_poppy)\.0=/.test(line));
 }
 
 describe('createAuth0 with poppy', () => {
@@ -94,14 +95,14 @@ describe('createAuth0 with poppy', () => {
     test.each<[string, true | PoppyOptions]>([
       ['true', true],
       ['{}', {}],
-    ])('poppy: %s reads auth0-poppy.json from the working directory', async (_name, poppy) => {
-      writeFileSync(join(dir, 'auth0-poppy.json'), JSON.stringify(poppyConfig));
+    ])('poppy: %s reads poppy.json from the working directory', async (_name, poppy) => {
+      writeFileSync(join(dir, 'poppy.json'), JSON.stringify(poppyConfig));
 
       expect(await resourceBody(build({ poppy }))).toBe(RESOURCE_BODY);
     });
 
-    test('poppy: true stops startup when the working directory has no auth0-poppy.json', () => {
-      expectInvalidConfig(() => build({ poppy: true }), cannotRead(join(dir, 'auth0-poppy.json')));
+    test('poppy: true stops startup when the working directory has no poppy.json', () => {
+      expectInvalidConfig(() => build({ poppy: true }), cannotRead(join(dir, 'poppy.json')));
     });
 
     test('configPath relative to the working directory', async () => {
@@ -151,8 +152,8 @@ describe('createAuth0 with poppy', () => {
 
     test('a config with another issuer is refused by the ServerClient, with its text', () => {
       expectInvalidConfig(
-        () => poppyApp({ poppy: { config: { ...poppyConfig, issuer: 'https://other.example/' } } }),
-        "Invalid poppy configuration: config.issuer must match Auth0's issuer for the ServerClient domain exactly, trailing slash included."
+        () => poppyApp({ poppy: { config: { ...poppyConfig, auth: { ...poppyConfig.auth, issuer: 'https://other.example/' } } } }),
+        "Invalid poppy configuration: config.auth.issuer must match Auth0's issuer for the ServerClient domain exactly, trailing slash included. Expected: https://auth.zepto.example/"
       );
     });
 
@@ -179,10 +180,10 @@ describe('createAuth0 with poppy', () => {
   });
 
   describe('options passed to server-js', () => {
-    test('agentSessionMaxAge: 0', () => {
+    test('agentSessionMaxAge: 30', () => {
       expectInvalidConfig(
-        () => poppyApp({ poppy: { config: poppyConfig, agentSessionMaxAge: 0 } }),
-        'Invalid poppy configuration: agentSessionMaxAge must be a positive whole number of seconds.'
+        () => poppyApp({ poppy: { config: poppyConfig, agentSessionMaxAge: 30 } }),
+        'Invalid poppy configuration: agentSessionMaxAge must be a whole number of seconds above 30, because a session ends 30 seconds before its deadline.'
       );
     });
 
@@ -202,12 +203,23 @@ describe('createAuth0 with poppy', () => {
       expect(res.body.web).toEqual({ browser_session_endpoint: poppyConfig.web.browser_session_endpoint, unscoped: true });
     });
 
-    test('web.unscoped that is not a boolean', () => {
+    // The ServerClient checks two members of the file and serves the rest as written, so a value that the Auth0 CLI wrote
+    // is never refused here.
+    test('web.unscoped that is not a boolean is served as written, and is not refused', async () => {
       const config = { ...poppyConfig, web: { ...poppyConfig.web, unscoped: 'yes' } };
+
+      const res = await (await serve(poppyApp({ poppy: { config } }))).get('/.well-known/poppy.json');
+
+      expect(res.status).toBe(200);
+      expect(res.body.web.unscoped).toBe('yes');
+    });
+
+    test('a config with no auth.issuer is refused by the ServerClient', () => {
+      const config = { ...poppyConfig, auth: {} };
 
       expectInvalidConfig(
         () => poppyApp({ poppy: { config: config as never } }),
-        'Invalid poppy configuration: config.web.unscoped must be true or false, or left out.'
+        "Invalid poppy configuration: config.auth.issuer must match Auth0's issuer for the ServerClient domain exactly, trailing slash included. Expected: https://auth.zepto.example/"
       );
     });
 
@@ -257,6 +269,8 @@ describe('createAuth0 with poppy', () => {
 
       const { callback } = await joinPoppy(await serve(app), cookieJar(), tenant, guestIdToken());
 
+      // A browser would refuse the `__Host-` prefix on a cookie that is not Secure or has another path.
+      expect(guestCookieLine(callback)).toMatch(/^__a0_poppy\.0=/);
       const attributes = cookieAttributes(guestCookieLine(callback));
       expect(attributes).toContain('SameSite=Strict');
       expect(attributes).toContain('Path=/shop');
@@ -268,10 +282,13 @@ describe('createAuth0 with poppy', () => {
 
       const { callback } = await joinPoppy(await serve(app), cookieJar(), tenant, guestIdToken());
 
+      // With the defaults the cookie has the `__Host-` prefix: Secure, Path=/ and no Domain.
+      expect(guestCookieLine(callback)).toMatch(/^__Host-a0_poppy\.0=/);
       const attributes = cookieAttributes(guestCookieLine(callback));
       expect(attributes).toContain('SameSite=Lax');
       expect(attributes).toContain('Secure');
       expect(attributes).toContain('Path=/');
+      expect(attributes.some((attribute) => attribute.toLowerCase().startsWith('domain='))).toBe(false);
     });
 
     test('agentSessionMaxAge limits the life of the guest cookie', async () => {
@@ -299,31 +316,82 @@ describe('createAuth0 with poppy', () => {
       expect(replacedVisitor.body).toEqual({ kind: 'none' });
     });
 
-    test('a custom guestStore keeps the guest, and no guest cookie is set', async () => {
+    // A guest store as the docs describe it: the records stay on the server, under an id that the store issued to the
+    // browser in a cookie of its own. The store finds the browser in the request that every call gets.
+    function browserKeyedGuestStore() {
       const guests = new Map<string, PoppyGuestData>();
-      const sets: { identifier: string; data: PoppyGuestData; options: unknown }[] = [];
+      const calls: { method: 'get' | 'set' | 'delete'; identifier: string; options: StoreOptions | undefined }[] = [];
+      const browserOf = (options?: StoreOptions): string | undefined => options?.request.cookies?.['guest_browser'];
       const guestStore: PoppyGuestStore<StoreOptions> = {
         async set(identifier, data, _removeIfExists, options) {
-          sets.push({ identifier, data, options });
-          guests.set(identifier, data);
+          calls.push({ method: 'set', identifier, options });
+          let browser = browserOf(options);
+          if (!browser) {
+            browser = randomUUID();
+            options!.response.cookie('guest_browser', browser, { httpOnly: true, secure: true, sameSite: 'lax' });
+          }
+          guests.set(`${browser}:${identifier}`, data);
         },
-        async get(identifier) {
-          return guests.get(identifier);
+        async get(identifier, options) {
+          calls.push({ method: 'get', identifier, options });
+          const browser = browserOf(options);
+
+          return browser ? guests.get(`${browser}:${identifier}`) : undefined;
         },
-        async delete(identifier) {
-          guests.delete(identifier);
+        async delete(identifier, options) {
+          calls.push({ method: 'delete', identifier, options });
+          const browser = browserOf(options);
+          if (browser) {
+            guests.delete(`${browser}:${identifier}`);
+          }
         },
       };
-      const app = poppyApp({ poppy: { config: poppyConfig, guestStore, cookie: { secure: false } } });
 
-      const { callback } = await joinPoppy(await serve(app), cookieJar(), tenant, guestIdToken());
+      return { guestStore, guests, calls };
+    }
 
+    test('a custom guestStore keeps the guest, gets the request in every call, and no guest cookie is set', async () => {
+      const { guestStore, calls } = browserKeyedGuestStore();
+      const app = poppyApp({ poppy: { config: poppyConfig, guestStore } });
+      const agent = await serve(app);
+      const jar = cookieJar();
+
+      const { callback } = await joinPoppy(agent, jar, tenant, guestIdToken());
+
+      const sets = calls.filter(({ method }) => method === 'set');
       expect(sets).toHaveLength(1);
       expect(sets[0]?.identifier).toBe('__a0_poppy');
-      expect(sets[0]?.data.sub).toBe(GUEST_SUB);
-      expect(setCookieLines(callback).some((line) => line.startsWith('__a0_poppy'))).toBe(false);
-      // The package calls the client without storeOptions, so a custom store gets no request.
-      expect(sets[0]?.options).toBeUndefined();
+      expect(setCookieLines(callback).some((line) => /^(__Host-a0_poppy|__a0_poppy)/.test(line))).toBe(false);
+      // The package does not pass `storeOptions` itself. It gives the store the request of the browser.
+      expect(calls.length).toBeGreaterThan(0);
+      for (const { options } of calls) {
+        expect(options?.request).toBeDefined();
+        expect(options?.response).toBeDefined();
+      }
+
+      const visitor = await agent.get('/visitor').set('Cookie', jar.header());
+      expect(visitor.body.kind).toBe('guest');
+    });
+
+    test('a custom guestStore keeps one guest for each browser: another browser is not the guest', async () => {
+      const { guestStore } = browserKeyedGuestStore();
+      const agent = await serve(poppyApp({ poppy: { config: poppyConfig, guestStore } }));
+      const guestBrowser = cookieJar();
+      await joinPoppy(agent, guestBrowser, tenant, guestIdToken());
+
+      // A browser that never joined reads no guest, and a person can sign in there.
+      const other = cookieJar();
+      const before = await agent.get('/visitor').set('Cookie', other.header());
+      expect(before.body).toEqual({ kind: 'none' });
+
+      const { callback } = await joinPoppy(agent, other, tenant, humanIdToken('auth0|ana'));
+      expect(callback.status).toBe(302);
+      const after = await agent.get('/visitor').set('Cookie', other.header());
+      expect(after.body.kind).toBe('user');
+
+      // The guest is still the guest of its own browser.
+      const first = await agent.get('/visitor').set('Cookie', guestBrowser.header());
+      expect(first.body.kind).toBe('guest');
     });
   });
 });

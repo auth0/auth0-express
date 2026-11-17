@@ -16,6 +16,10 @@ export const POPPY_DISCOVERY_PATHS = ['/.well-known/poppy.json', '/.well-known/o
  *
  * The response is written with `res.status()`, `res.setHeader()` and `res.end()` only. `res.send()` and `res.json()`
  * would both add `; charset=utf-8` to the `content-type` and an ETag, because `res.json()` calls `res.send()`.
+ *
+ * The files are public and a shared cache may keep them (`cache-control: public`), so the response never carries a
+ * cookie: a `Set-Cookie` that earlier middleware already put on it is removed. A middleware that adds its cookie when
+ * the response ends (for example `express-session`) is out of reach, so mount the router before such middleware.
  */
 export function handlePoppyDiscovery(
   client: ServerClient<StoreOptions>
@@ -29,9 +33,11 @@ export function handlePoppyDiscovery(
     }
 
     res.status(document.status);
+    res.removeHeader('Set-Cookie');
     for (const [name, value] of Object.entries(document.headers)) {
       res.setHeader(name, value);
     }
+    res.setHeader('X-Content-Type-Options', 'nosniff');
     res.end(document.body);
   };
 }

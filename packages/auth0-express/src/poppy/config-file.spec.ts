@@ -9,7 +9,7 @@ import { POPPY_CONFIG_FILE_NAME, readPoppyConfigFile } from './config-file.js';
 
 const cannotRead = (path: string) =>
   `Invalid poppy configuration: cannot read the config file at "${path}". ` +
-  'Put auth0-poppy.json there, set poppy.configPath to where it is, or pass the parsed file as poppy.config.';
+  'Put poppy.json there, set poppy.configPath to where it is, or pass the parsed file as poppy.config.';
 
 const notJson = (path: string) => `Invalid poppy configuration: the config file at "${path}" is not valid JSON.`;
 
@@ -41,13 +41,13 @@ describe('readPoppyConfigFile', () => {
     return file;
   }
 
-  test('the default file name is auth0-poppy.json', () => {
-    expect(POPPY_CONFIG_FILE_NAME).toBe('auth0-poppy.json');
+  test('the default file name is poppy.json', () => {
+    expect(POPPY_CONFIG_FILE_NAME).toBe('poppy.json');
   });
 
   describe('reads', () => {
     test('a file by absolute path', () => {
-      const file = write('auth0-poppy.json', JSON.stringify(poppyConfig));
+      const file = write('poppy.json', JSON.stringify(poppyConfig));
 
       expect(readPoppyConfigFile(file)).toEqual(poppyConfig);
     });
@@ -60,13 +60,13 @@ describe('readPoppyConfigFile', () => {
     });
 
     test('a file by file: URL', () => {
-      const file = write('auth0-poppy.json', JSON.stringify(poppyConfig));
+      const file = write('poppy.json', JSON.stringify(poppyConfig));
 
       expect(readPoppyConfigFile(pathToFileURL(file))).toEqual(poppyConfig);
     });
 
     test('a file that starts with a byte order mark', () => {
-      const file = write('auth0-poppy.json', '\uFEFF' + JSON.stringify(poppyConfig));
+      const file = write('poppy.json', '\uFEFF' + JSON.stringify(poppyConfig));
 
       expect(readPoppyConfigFile(file)).toEqual(poppyConfig);
     });
@@ -118,16 +118,16 @@ describe('readPoppyConfigFile', () => {
     });
 
     test('a file: URL with a host', () => {
-      const url = new URL('file://./auth0-poppy.json');
+      const url = new URL('file://./poppy.json');
 
       const error = thrownBy(() => readPoppyConfigFile(url));
 
-      expect(error.message).toBe(cannotRead('file://./auth0-poppy.json'));
+      expect(error.message).toBe(cannotRead('file://./poppy.json'));
       expect(error.cause).toMatchObject({ code: 'ERR_INVALID_FILE_URL_HOST' });
     });
 
     test('a URL that is not a file: URL', () => {
-      const url = new URL('https://zepto.example/auth0-poppy.json');
+      const url = new URL('https://zepto.example/poppy.json');
 
       const error = thrownBy(() => readPoppyConfigFile(url));
 
@@ -150,13 +150,14 @@ describe('readPoppyConfigFile', () => {
       ['an empty file', ''],
       ['a file that is not JSON', '{ oops'],
     ])('%s', (_name, text) => {
-      const file = write('auth0-poppy.json', text);
+      const file = write('poppy.json', text);
 
       const error = thrownBy(() => readPoppyConfigFile(file));
 
       expect(error.message).toBe(notJson(file));
       expect(error.message).not.toContain('oops');
-      expect(error.cause).toBeInstanceOf(SyntaxError);
+      // The `SyntaxError` of the parser quotes the start of the text, so it is not kept as the cause.
+      expect(error.cause).toBeUndefined();
     });
   });
 });

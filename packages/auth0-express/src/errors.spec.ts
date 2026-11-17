@@ -1,17 +1,16 @@
 import { describe, expect, test } from 'vitest';
-import { InvalidPoppySessionError, IssuerValidationError, SessionExpiredError } from '@auth0/auth0-server-js';
+import {
+  InvalidPoppySessionError,
+  PoppyError,
+  PoppyErrorCode,
+  SessionExpiredError,
+} from '@auth0/auth0-server-js';
 import { sanitizeHandlerError, sanitizePoppyHandlerError } from './errors.js';
 
 type ErrorWithStatus = Error & { status?: number };
 
 describe('sanitizePoppyHandlerError', () => {
   test.each([
-    {
-      name: 'IssuerValidationError',
-      cause: new IssuerValidationError('detail-1'),
-      message: 'The login request is not valid.',
-      status: 400,
-    },
     {
       name: 'InvalidPoppySessionError',
       cause: new InvalidPoppySessionError('act.poppy_sid'),
@@ -36,6 +35,31 @@ describe('sanitizePoppyHandlerError', () => {
     expect(error.stack).not.toMatch(/detail|poppy_sid/);
     expect(error.message).not.toContain(cause.message);
     expect(error.stack).not.toContain(cause.message);
+  });
+
+  // The message of a PoppyError is a fixed text for its code, with no value in it, so it is shown as it is. The reason is
+  // for logs and never reaches the page.
+  test.each([
+    {
+      name: 'poppy_sign_in_required',
+      cause: new PoppyError(PoppyErrorCode.SIGN_IN_REQUIRED, 'reason-detail'),
+      message:
+        "An agent's guest is in this browser, so only a signed-in agent or a new guest join can replace it. Log out to sign in as a person.",
+    },
+    {
+      name: 'invalid_poppy_guest',
+      cause: new PoppyError(PoppyErrorCode.INVALID_GUEST, 'reason-detail'),
+      message:
+        'The ID token looks like the login of a Poppy guest but is not a valid one, so it is neither a guest nor a user.',
+    },
+  ])('PoppyError $name gets its own text and status 403, and stays on cause', ({ cause, message }) => {
+    const error = sanitizePoppyHandlerError(cause) as ErrorWithStatus;
+
+    expect(error.message).toBe(message);
+    expect(error.status).toBe(403);
+    expect(error.cause).toBe(cause);
+    expect(error.message).not.toContain('reason-detail');
+    expect(error.stack).not.toContain('reason-detail');
   });
 
   test.each([
@@ -63,7 +87,7 @@ describe('sanitizePoppyHandlerError', () => {
 
 describe('sanitizeHandlerError', () => {
   test('still gives a Poppy error status 500, as it does without the poppy option', () => {
-    const cause = new IssuerValidationError('x');
+    const cause = new PoppyError(PoppyErrorCode.SIGN_IN_REQUIRED, 'x');
 
     const error = sanitizeHandlerError(cause) as ErrorWithStatus;
 

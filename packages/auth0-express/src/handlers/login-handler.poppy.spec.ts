@@ -1,14 +1,15 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
 import { request as httpRequest } from 'node:http';
 import type { IncomingHttpHeaders } from 'node:http';
 import { decrypt } from '../test-utils/encryption.js';
-import { withNodeEnv } from '../test-utils/env.js';
 import { APP_BASE_URL, POPPY_SECRET, poppyApp, poppyConfig, poppyTenant, setCookieLines } from '../test-utils/poppy.js';
 import { serve } from '../test-utils/serve.js';
 
-// With the poppy option, the login route is also where an agent's browser arrives, with `iss` and `target_link_uri`
-// (OpenID Connect Core 1.0, section 4: https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin).
-// Anyone can send a browser to the login route with any query, so the tests below send hostile ones too.
+// With the poppy option, the login route is also where an agent's browser is expected to arrive, with `iss` and
+// `target_link_uri` (OpenID Connect Core 1.0, section 4:
+// https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin). Today's Auth0 builds add neither.
+// Anyone can send a browser to the login route with any query, so the tests below send hostile ones too. The route never
+// refuses a request for its `iss`: a request that cannot be used is a normal login without `iss` and `target_link_uri`.
 
 const tenant = poppyTenant();
 
@@ -24,7 +25,7 @@ type Login = Awaited<ReturnType<typeof login>>;
 
 const enc = encodeURIComponent;
 
-const ISS = poppyConfig.issuer;
+const ISS = poppyConfig.auth.issuer;
 const OTHER_ISS = 'https://other-tenant.auth0.com/';
 const HOME = `${APP_BASE_URL}/`;
 const CART = `${APP_BASE_URL}/cart`;
@@ -98,13 +99,6 @@ function expectHome(result: Login) {
   expect(result.returnTo).toBe(HOME);
 }
 
-/** The login is refused: no redirect and no cookie. */
-function expectRefused(result: Login) {
-  expect(result.status).toBe(400);
-  expect(result.location).toBeUndefined();
-  expect(result.setCookie).toEqual([]);
-}
-
 /** Runs `fn` with APP_BASE_URL and BASE_URL unset, so that only the request decides the base URL. Restores them. */
 async function withoutBaseUrlEnv(fn: () => Promise<void>) {
   const saved = { APP_BASE_URL: process.env.APP_BASE_URL, BASE_URL: process.env.BASE_URL };
@@ -165,14 +159,10 @@ describe('the login route of an app with the poppy option', () => {
       expect(result.returnTo).toBe(`${CART}?x=1`);
     });
 
-    test('a target without iss is the returnTo', async () => {
+    test('a target without iss is ignored, and the login lands on the home page', async () => {
       const agent = await serve(poppyApp());
 
-      const result = await login(agent, `?target_link_uri=${enc(CART)}`);
-
-      expect(result.status).toBe(302);
-      expect(result.keys).toEqual(TODAY_KEYS);
-      expect(result.returnTo).toBe(CART);
+      expectHome(await login(agent, `?target_link_uri=${enc(CART)}`));
     });
 
     test('an iss without a target lands on the home page', async () => {
@@ -207,7 +197,10 @@ describe('the login route of an app with the poppy option', () => {
     test('a returnTo that is not accepted gives way to a valid target', async () => {
       const agent = await serve(poppyApp());
 
-      const result = await login(agent, `?target_link_uri=${enc(CART)}&returnTo=${enc('https://evil.example/')}`);
+      const result = await login(
+        agent,
+        `?iss=${enc(ISS)}&target_link_uri=${enc(CART)}&returnTo=${enc('https://evil.example/')}`
+      );
 
       expect(result.status).toBe(302);
       expect(result.returnTo).toBe(CART);
@@ -216,7 +209,7 @@ describe('the login route of an app with the poppy option', () => {
     test('an empty returnTo gives way to a valid target', async () => {
       const agent = await serve(poppyApp());
 
-      const result = await login(agent, `?target_link_uri=${enc(CART)}&returnTo=`);
+      const result = await login(agent, `?iss=${enc(ISS)}&target_link_uri=${enc(CART)}&returnTo=`);
 
       expect(result.status).toBe(302);
       expect(result.returnTo).toBe(CART);
@@ -236,7 +229,7 @@ describe('the login route of an app with the poppy option', () => {
 
       const result = await login(
         agent,
-        `?target_link_uri=${enc('https://evil.example/')}&returnTo=${enc('//evil.example')}`
+        `?iss=${enc(ISS)}&target_link_uri=${enc('https://evil.example/')}&returnTo=${enc('//evil.example')}`
       );
 
       expect(result.status).toBe(302);
@@ -246,27 +239,34 @@ describe('the login route of an app with the poppy option', () => {
   });
 
   describe('hostile queries', () => {
-    describe.each(['production', 'development'] as const)('an iss that is not the issuer, NODE_ENV=%s', (env) => {
-      test.each(BAD_ISS)('%s gets 400, with no redirect and no cookie', async (_name, query) => {
-        await withNodeEnv(env, async () => {
-          const agent = await serve(poppyApp());
+    // The SDK ignores an `iss` that is not the issuer: the login goes on as a normal login, without the target, and it
+    // logs one warning that holds no value of the request.
+    describe('an iss that is not the issuer', () => {
+      test.each(BAD_ISS)('%s: a normal login with no returnTo, and one warning', async (_name, query) => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const agent = await serve(poppyApp());
 
-          const result = await login(agent, query);
+        const result = await login(agent, `${query}&target_link_uri=${enc(CART)}`);
 
-          expectRefused(result);
-          // Express writes the status text in production and `err.stack` in any other environment.
-          expect(result.text).toContain(env === 'production' ? 'Bad Request' : 'The login request is not valid.');
-          expect(result.text).not.toContain('does not match');
-          expect(result.text).not.toContain('issuer');
-        });
+        expectHome(result);
+        expect(warn).toHaveBeenCalledTimes(1);
+        expect(String(warn.mock.calls[0]?.[0])).not.toContain('other-tenant');
+        expect(String(warn.mock.calls[0]?.[0])).not.toContain('evil');
+        warn.mockRestore();
       });
-    });
 
-    test('a bad iss is refused even when a valid returnTo and a valid target come with it', async () => {
-      const agent = await serve(poppyApp());
-      const query = `?iss=${enc(OTHER_ISS)}&target_link_uri=${enc(CART)}&returnTo=${enc('/orders')}`;
+      test('an accepted returnTo still works', async () => {
+        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const agent = await serve(poppyApp());
+        const query = `?iss=${enc(OTHER_ISS)}&target_link_uri=${enc(CART)}&returnTo=${enc('/orders')}`;
 
-      expectRefused(await login(agent, query));
+        const result = await login(agent, query);
+
+        expect(result.status).toBe(302);
+        expect(result.keys).toEqual(TODAY_KEYS);
+        expect(result.returnTo).toBe(`${APP_BASE_URL}/orders`);
+        warn.mockRestore();
+      });
     });
 
     test.each(HOSTILE_TARGETS)('the target %s gives no returnTo', async (hostile) => {
@@ -352,10 +352,11 @@ describe('the login route of an app with the poppy option', () => {
 
         const result = await login(
           agent,
-          `?iss[]=${enc('https://evil.example/')}&target_link_uri[]=${enc('https://evil.example/')}&a[b]=c`
+          `?iss[]=${enc(ISS)}&target_link_uri[]=${enc(CART)}&a[b]=c`
         );
 
-        // Not read as the issuer (there is no 400) and not read as the target (the landing page is the home page).
+        // The values are the real issuer and a page of the site, so only the name decides. Neither is read as the issuer or
+        // as the target: the landing page is the home page, not the cart.
         expect(result.status).toBe(302);
         expect(result.returnTo).toBe(HOME);
         expect(result.keys).toEqual([...TODAY_KEYS, ...sentOn].sort());
@@ -385,6 +386,19 @@ describe('the login route of an app with the poppy option', () => {
       expect(params.get('redirect_uri')).toBe(`${APP_BASE_URL}/auth/callback`);
       expect(await keptReturnTo(res.status, setCookieLines(res))).toBe(CART);
     });
+
+    // The host of this target is one that the URL parser refuses. The login must not throw for it: the route without
+    // `poppy` answers it with a redirect too.
+    test('with a host that the URL parser refuses is a normal login, not a 500', async () => {
+      const agent = await serve(poppyApp());
+      const query = `?iss=${enc(ISS)}&target_link_uri=${enc(CART)}`;
+
+      const res = await rawGet(agent, `http://ex@mple@/auth/login${query}`, { Host: 'zepto.example' });
+
+      expect(res.status).toBe(302);
+      expect(res.headers['location'] ?? '').toMatch(AUTHORIZE);
+      expect(await keptReturnTo(res.status, setCookieLines(res))).toBe(CART);
+    });
   });
 
   describe('the origin of a target, in each mode of appBaseUrl', () => {
@@ -394,11 +408,19 @@ describe('the login route of an app with the poppy option', () => {
       const agent = await serve(app);
       const headers = { 'X-Forwarded-Host': 'shop.zepto.example', 'X-Forwarded-Proto': 'https' };
 
-      const onShop = await login(agent, `?target_link_uri=${enc('https://shop.zepto.example/cart')}`, headers);
+      const onShop = await login(
+        agent,
+        `?iss=${enc(ISS)}&target_link_uri=${enc('https://shop.zepto.example/cart')}`,
+        headers
+      );
       expect(onShop.status).toBe(302);
       expect(onShop.returnTo).toBe('https://shop.zepto.example/cart');
 
-      const onZepto = await login(agent, `?target_link_uri=${enc('https://zepto.example/cart')}`, headers);
+      const onZepto = await login(
+        agent,
+        `?iss=${enc(ISS)}&target_link_uri=${enc('https://zepto.example/cart')}`,
+        headers
+      );
       expect(onZepto.status).toBe(302);
       expect(onZepto.returnTo).toBe('https://shop.zepto.example/');
     });
@@ -408,11 +430,11 @@ describe('the login route of an app with the poppy option', () => {
         const agent = await serve(poppyApp({ appBaseUrl: undefined }));
         const headers = { Host: 'shop.example' };
 
-        const onHost = await login(agent, `?target_link_uri=${enc('http://shop.example/cart')}`, headers);
+        const onHost = await login(agent, `?iss=${enc(ISS)}&target_link_uri=${enc('http://shop.example/cart')}`, headers);
         expect(onHost.status).toBe(302);
         expect(onHost.returnTo).toBe('http://shop.example/cart');
 
-        const onZepto = await login(agent, `?target_link_uri=${enc('https://zepto.example/cart')}`, headers);
+        const onZepto = await login(agent, `?iss=${enc(ISS)}&target_link_uri=${enc('https://zepto.example/cart')}`, headers);
         expect(onZepto.status).toBe(302);
         expect(onZepto.returnTo).toBe('http://shop.example/');
       });

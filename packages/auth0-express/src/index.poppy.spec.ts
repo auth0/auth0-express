@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
+import express from 'express';
 import type { Express, Response } from 'express';
 import type { SessionStore, StateData } from '@auth0/auth0-server-js';
 import { SessionExpiredError, requiresAuth } from './index.js';
@@ -7,6 +8,8 @@ import {
   AGENT_ID,
   APP_BASE_URL,
   CIMD_URL,
+  GUEST_SUB,
+  GUEST_SUB_PROFILE,
   JOIN_ACCESS_TOKEN,
   POPPY_CLIENT_ID,
   SESSION_ID,
@@ -14,6 +17,7 @@ import {
   USER_ID,
   act,
   agentIdToken,
+  browserAccepts,
   cookieJar,
   guestIdToken,
   humanIdToken,
@@ -44,29 +48,39 @@ type Agent = Awaited<ReturnType<typeof serve>>;
 
 const enc = encodeURIComponent;
 
-const ISS = poppyConfig.issuer;
+const ISS = poppyConfig.auth.issuer;
 const HOME = `${APP_BASE_URL}/`;
 const CART = `${APP_BASE_URL}/cart`;
 // What the login link of an agent carries: the issuer and the page to land on.
 const AGENT_LINK = `?iss=${enc(ISS)}&target_link_uri=${enc(CART)}`;
 
-const GUEST_COOKIE = '__a0_poppy.0';
+const GUEST_COOKIE = '__Host-a0_poppy.0';
 const SESSION_COOKIE = '__a0_session.0';
 const ANONYMOUS_COOKIE = '__a0_anon.0';
 
-// The Poppy Session of a guest. A join that signs in keeps the same key, because the key comes from the agent and the
-// Session, and not from the state.
-const SIGNED_OUT: PoppyAgentContext = {
+// The context of a guest mirrors its ID token: `sub`, `sub_profile` and the whole `act`. A guest has no scopes. A join that
+// signs in keeps the same key, because the key comes from the agent and the Session, and not from the state.
+const GUEST_CONTEXT: PoppyAgentContext = {
   kind: 'agent',
-  state: 'signed_out',
-  sessionId: SESSION_ID,
-  userId: USER_ID,
-  agent: { id: CIMD_URL },
+  state: 'guest',
+  sub: GUEST_SUB,
+  sub_profile: GUEST_SUB_PROFILE,
+  act,
+  scopes: [],
   key: SESSION_KEY,
 };
-const SIGNED_IN: PoppyAgentContext = { ...SIGNED_OUT, state: 'signed_in' };
+// A signed-in agent has the user as `sub`, and the scope of the access token of its join (the mock tenant gives
+// `openid profile`).
+const SIGNED_IN: PoppyAgentContext = {
+  kind: 'agent',
+  state: 'signed_in',
+  sub: 'auth0|ana',
+  act,
+  scopes: ['openid', 'profile'],
+  key: SESSION_KEY,
+};
 
-const GUEST: PoppyVisitor = { kind: 'guest', poppy: SIGNED_OUT };
+const GUEST: PoppyVisitor = { kind: 'guest', poppy: GUEST_CONTEXT };
 const NONE: PoppyVisitor = { kind: 'none' };
 
 /** The visitor after a login by `sub`. `poppy` is there when an agent made the login, and only then. */
@@ -126,9 +140,14 @@ async function visitorOf(agent: Agent, jar: CookieJar): Promise<PoppyVisitor> {
   return res.body;
 }
 
-/** Whether the response removes the cookie: it sets an empty value that ended in 1970, as a server does. */
+/**
+ * Whether the response removes the cookie: it sets an empty value that ended in 1970, as a server does, and a browser
+ * accepts the header (a `__Host-` cookie is cleared only by a header with `Secure`).
+ */
 function removes(res: Parameters<typeof setCookieLines>[0], name: string) {
-  return setCookieLines(res).some((line) => line.startsWith(`${name}=;`) && /expires=[^;]*\b1970\b/i.test(line));
+  return setCookieLines(res).some(
+    (line) => line.startsWith(`${name}=;`) && /expires=[^;]*\b1970\b/i.test(line) && browserAccepts(line)
+  );
 }
 
 /** The names of the cookies in the jar, sorted: the order that they were set in is not what a test is about. */
@@ -146,7 +165,7 @@ function fakeDate(from: number) {
 }
 
 // An agent's session ends at the first of these: two hours after the join (agentSessionMaxAge, the default), the exp
-// of the ID token, and the end of its Poppy Session.
+// of the ID token, and the session_expiry of the ID token. The SDK does not see the end of the Poppy Session itself.
 const TWO_HOURS = 7200;
 
 describe('Guest join', () => {
@@ -173,17 +192,18 @@ describe('Guest join', () => {
       kind: 'guest',
       poppy: {
         kind: 'agent',
-        state: 'signed_out',
-        sessionId: SESSION_ID,
-        userId: USER_ID,
-        agent: { id: CIMD_URL },
+        state: 'guest',
+        sub: GUEST_SUB,
+        sub_profile: GUEST_SUB_PROFILE,
+        act: { sub: CIMD_URL, poppy_sid: SESSION_ID, poppy_user_id: USER_ID },
+        scopes: [],
         key: SESSION_KEY,
       },
     });
   });
 
-  // A guest cannot sign in on the website, and the login route can bring back the same guest, so a redirect to it
-  // would repeat without end. The guest is answered where it is.
+  // A guest cannot sign in on the website: the login cannot succeed while a guest is in the browser, so a redirect would
+  // only send the guest to Auth0 and back to the 403 of the callback. The guest is answered where it is.
   test('a guest is not a user: a page for users refuses it and never redirects it to the login', async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
@@ -217,6 +237,35 @@ describe('Guest join', () => {
     const api = await visit(agent, jar, '/private').set('Accept', 'application/json');
     expect(api.status).toBe(401);
     expect(api.body).toEqual({ error: 'unauthorized', message: 'Authentication required' });
+  });
+
+  test('in an Express sub-app, a guest is still answered with the 403 and onGuest runs', async () => {
+    const onGuest = vi.fn((_req: unknown, res: Response) => {
+      res.status(200).send('Ask your agent to sign in.');
+    });
+    const app = testApp();
+    // `req.app` is the sub-app here, and the router writes `app.locals` of the main app only.
+    const shop = express();
+    shop.get('/orders', requiresAuth(), (_req, res) => {
+      res.send('orders');
+    });
+    shop.get('/members', requiresAuth({ onGuest }), (_req, res) => {
+      res.send('members');
+    });
+    app.use('/shop', shop);
+    const agent = await serve(app);
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    expect(await visitorOf(agent, jar)).toEqual(GUEST);
+
+    const orders = await visit(agent, jar, '/shop/orders').set('Accept', 'text/html');
+    expect(orders.status).toBe(403);
+    expect(orders.headers['location']).toBeUndefined();
+
+    const members = await visit(agent, jar, '/shop/members').set('Accept', 'text/html');
+    expect(members.status).toBe(200);
+    expect(members.text).toBe('Ask your agent to sign in.');
+    expect(onGuest).toHaveBeenCalledTimes(1);
   });
 
   describe('requiresAuth({ onGuest })', () => {
@@ -295,7 +344,7 @@ describe('Guest join', () => {
     expect(res.body).toEqual({ accessToken: JOIN_ACCESS_TOKEN });
   });
 
-  test('the id of the agent in act is in the visitor', async () => {
+  test('the whole act is in the visitor, with the id of the agent', async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
 
@@ -303,7 +352,7 @@ describe('Guest join', () => {
 
     expect(await visitorOf(agent, jar)).toEqual({
       kind: 'guest',
-      poppy: { ...SIGNED_OUT, agent: { id: CIMD_URL, poppyAgentId: AGENT_ID } },
+      poppy: { ...GUEST_CONTEXT, act: { ...act, poppy_agent_id: AGENT_ID } },
     });
   });
 
@@ -388,23 +437,50 @@ describe('Session changes', () => {
   });
 });
 
-describe("A guest join keeps a person's login", () => {
-  // A join without an access token should not end or change the login that the browser has, and the specification says
-  // so: https://personalagentprotocol.org/docs/1.0/spec#web-browsing. The guest comes first in getVisitor(), because an
-  // agent drives the browser then. The login of the person is not touched, so getUser() and requiresAuth() still see
-  // the person. An app that must keep an agent's browser out of the pages of a person checks getVisitor() as well.
-  test('getVisitor() says guest, while getUser() and requiresAuth() still see the person', async () => {
+describe("A guest join ends a person's login", () => {
+  // The specification says that a join without an access token should not end or change the login of the browser
+  // (https://personalagentprotocol.org/docs/1.0/spec#web-browsing). This SDK ends it on purpose, so that an agent's
+  // browser never acts with an account that the agent was not approved for. The guest is then the only login, and the
+  // person's session is gone with its cookie.
+  test('the guest replaces the session of the person, and the cookie of the session is removed', async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
     await join(agent, jar, tenant, humanIdToken());
 
     const { callback } = await join(agent, jar, tenant, guestIdToken());
 
-    expect(removes(callback, SESSION_COOKIE)).toBe(false);
-    expect(sortedNames(jar)).toEqual([GUEST_COOKIE, SESSION_COOKIE]);
+    expect(removes(callback, SESSION_COOKIE)).toBe(true);
+    expect(jar.names()).toEqual([GUEST_COOKIE]);
     expect(await visitorOf(agent, jar)).toEqual(GUEST);
-    expect((await visit(agent, jar, '/user')).body.user.sub).toBe('auth0|person');
-    expect((await visit(agent, jar, '/private')).status).toBe(200);
+    expect((await visit(agent, jar, '/user')).body).toEqual({ user: null });
+    expect((await visit(agent, jar, '/private').set('Accept', 'text/html')).status).toBe(403);
+  });
+
+  test("a person's login over a guest is refused with 403, and the guest stays", async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+
+    const { callback } = await join(agent, jar, tenant, humanIdToken());
+
+    expect(callback.status).toBe(403);
+    // The callback spends its transaction cookie first, as for any login. Nothing of the session or the guest is set.
+    expect(setCookieLines(callback).filter((line) => /^__a0_(session|poppy|anon)/.test(line))).toEqual([]);
+    expect(jar.names()).toEqual([GUEST_COOKIE]);
+    expect(await visitorOf(agent, jar)).toEqual(GUEST);
+  });
+
+  test('a signed-in agent replaces the guest', async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+
+    const { callback } = await join(agent, jar, tenant, agentIdToken());
+
+    expect(callback.status).toBe(302);
+    expect(removes(callback, GUEST_COOKIE)).toBe(true);
+    expect(jar.names()).toEqual([SESSION_COOKIE]);
+    expect(await visitorOf(agent, jar)).toEqual(userVisitor('auth0|ana', SIGNED_IN));
   });
 });
 
@@ -467,6 +543,24 @@ describe('Logout', () => {
     expect(await visitorOf(agent, jar)).toEqual(NONE);
   });
 
+  // The way out that the 403 names: "Log out to sign in as a person". It works only when the logout really removes the
+  // guest cookie, which a browser does for a `__Host-` cookie only when the clearing header has `Secure`.
+  test('after a guest logs out, a person can sign in', async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    const refused = await join(agent, jar, tenant, humanIdToken('auth0|ana'));
+    expect(refused.callback.status).toBe(403);
+
+    jar.take(await visit(agent, jar, '/auth/logout'));
+    expect(jar.names()).toEqual([]);
+    const signedIn = await join(agent, jar, tenant, humanIdToken('auth0|ana'));
+
+    expect(signedIn.callback.status).toBe(302);
+    expect(jar.names()).toEqual([SESSION_COOKIE]);
+    expect((await visitorOf(agent, jar)).kind).toBe('user');
+  });
+
   test('after a signed-in join, it clears the session and the visitor is none', async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
@@ -483,19 +577,18 @@ describe('Logout', () => {
     expect(await visitorOf(agent, jar)).toEqual(NONE);
   });
 
-  test('it ends the guest and the login of the person that the guest joined over', async () => {
+  test('after a guest join over the login of a person, there is only the guest to end', async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
     await join(agent, jar, tenant, humanIdToken());
     await join(agent, jar, tenant, guestIdToken());
-    expect(sortedNames(jar)).toEqual([GUEST_COOKIE, SESSION_COOKIE]);
+    expect(jar.names()).toEqual([GUEST_COOKIE]);
 
     const logout = await visit(agent, jar, '/auth/logout');
     jar.take(logout);
 
     expect(String(logout.headers['location'])).toMatch(/^https:\/\/auth\.zepto\.example\/v2\/logout\?/);
     expect(removes(logout, GUEST_COOKIE)).toBe(true);
-    expect(removes(logout, SESSION_COOKIE)).toBe(true);
     expect(jar.names()).toEqual([]);
     expect(await visitorOf(agent, jar)).toEqual(NONE);
     expect((await visit(agent, jar, '/user')).body).toEqual({ user: null });
@@ -743,7 +836,7 @@ describe('Anonymous sessions', () => {
     const { callback } = await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
 
     expect(removes(callback, ANONYMOUS_COOKIE)).toBe(false);
-    expect(sortedNames(jar)).toEqual([ANONYMOUS_COOKIE, GUEST_COOKIE]);
+    expect(sortedNames(jar)).toEqual([GUEST_COOKIE, ANONYMOUS_COOKIE]);
     expect(await visitorOf(agent, jar)).toEqual(GUEST);
   });
 

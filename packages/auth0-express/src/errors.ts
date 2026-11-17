@@ -1,4 +1,4 @@
-import { InvalidPoppySessionError, IssuerValidationError, SessionExpiredError } from '@auth0/auth0-server-js';
+import { InvalidPoppySessionError, PoppyError, SessionExpiredError } from '@auth0/auth0-server-js';
 
 /**
  * Normalizes an error thrown by a browser-facing auth handler (login, callback,
@@ -35,15 +35,18 @@ export function sanitizeHandlerError(cause: unknown): Error {
  *
  * Three failures of a Poppy login get a status that tells the browser what went wrong, in place of `500`:
  *
- * - `IssuerValidationError`: `400` and "The login request is not valid."
+ * - `PoppyError`: `403`, and the message of the error. The login is refused because of Poppy: a guest is in the browser
+ *   and the login is not a signed-in agent's (`poppy_sign_in_required`), or the ID token looks like a guest's but is
+ *   not valid (`invalid_poppy_guest`). The SDK gives each code a fixed text that holds no value, so it is safe to show.
  * - `InvalidPoppySessionError`: `400` and "The Poppy Session of this login is not valid."
  * - `SessionExpiredError`: `401` and "The session of this login has already ended."
  *
- * Any other error goes to `sanitizeHandlerError` and gets `500`.
+ * Any other error goes to `sanitizeHandlerError` and gets `500`. The login route never throws for `iss` or
+ * `target_link_uri`: the SDK ignores a request that it cannot use and the login goes on as a normal login.
  */
 export function sanitizePoppyHandlerError(cause: unknown): Error {
-  if (cause instanceof IssuerValidationError) {
-    return errorWithStatus('The login request is not valid.', 400, cause);
+  if (cause instanceof PoppyError) {
+    return errorWithStatus(cause.message, 403, cause);
   }
   if (cause instanceof InvalidPoppySessionError) {
     return errorWithStatus('The Poppy Session of this login is not valid.', 400, cause);

@@ -4,12 +4,14 @@ import { fileURLToPath } from 'node:url';
 import { InvalidConfigurationError } from '../errors/index.js';
 
 /** The name of the config file that the `poppy` option reads when it is given no `config` and no `configPath`. */
-export const POPPY_CONFIG_FILE_NAME = 'auth0-poppy.json';
+export const POPPY_CONFIG_FILE_NAME = 'poppy.json';
 
-function invalidConfiguration(message: string, cause: unknown) {
+function invalidConfiguration(message: string, ...cause: [] | [unknown]) {
   const error = new InvalidConfigurationError(message);
-  // The constructor takes no options, so set the cause the way `new Error(message, { cause })` does.
-  Object.defineProperty(error, 'cause', { value: cause, writable: true, configurable: true });
+  if (cause.length > 0) {
+    // The constructor takes no options, so set the cause the way `new Error(message, { cause })` does.
+    Object.defineProperty(error, 'cause', { value: cause[0], writable: true, configurable: true });
+  }
   return error;
 }
 
@@ -37,7 +39,9 @@ function locationOf(path: string | URL) {
  * A string is a path, resolved against `process.cwd()`. A string that starts with `file:` is a relative path like any
  * other. A `URL` object must be a `file:` URL.
  *
- * The messages name the file and never show its content. The cause of the error holds the details.
+ * The messages name the file and never show its content. When the file cannot be read, the cause of the error holds
+ * the details. When it is not valid JSON, the error has no cause, because the message of the parser shows a part of
+ * the text of the file.
  *
  * @throws {InvalidConfigurationError} When the file cannot be read or is not valid JSON.
  */
@@ -50,7 +54,7 @@ export function readPoppyConfigFile(path: string | URL): unknown {
   } catch (cause) {
     throw invalidConfiguration(
       `Invalid poppy configuration: cannot read the config file at "${location}". ` +
-        'Put auth0-poppy.json there, set poppy.configPath to where it is, or pass the parsed file as poppy.config.',
+        'Put poppy.json there, set poppy.configPath to where it is, or pass the parsed file as poppy.config.',
       cause
     );
   }
@@ -58,10 +62,9 @@ export function readPoppyConfigFile(path: string | URL): unknown {
   try {
     // A byte order mark is not valid JSON, and some editors write one.
     return JSON.parse(text.replace(/^\uFEFF/, ''));
-  } catch (cause) {
-    throw invalidConfiguration(
-      `Invalid poppy configuration: the config file at "${location}" is not valid JSON.`,
-      cause
-    );
+  } catch {
+    // No cause: the `SyntaxError` of the parser quotes the first characters of the text, and the file may be the wrong
+    // one (a `.env`, for example).
+    throw invalidConfiguration(`Invalid poppy configuration: the config file at "${location}" is not valid JSON.`);
   }
 }

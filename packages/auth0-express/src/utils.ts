@@ -1,5 +1,5 @@
 import { CookieTransactionStore, ServerClient, StatefulStateStore, StatelessAnonymousStore, StatelessPoppyGuestStore, StatelessStateStore } from '@auth0/auth0-server-js';
-import type { DomainResolver, PoppyConfig, PoppyOptions as ServerPoppyOptions } from '@auth0/auth0-server-js';
+import type { DomainResolver, PoppyConfig, PoppyGuestStore, PoppyOptions as ServerPoppyOptions } from '@auth0/auth0-server-js';
 import { Auth0Options, PoppyOptions, StoreOptions } from './types.js';
 import { ExpressCookieHandler } from './store/express-cookie-handler.js';
 import { MigrationStatelessStateStore } from './store/legacy-compatible-stateless-state-store.js';
@@ -198,6 +198,21 @@ function getAnonymousStore(options: Auth0Options) {
   return new StatelessAnonymousStore({ secret: options.sessionSecret, sessionTokenLifetime, cookie }, new ExpressCookieHandler());
 }
 
+/**
+ * Wraps a custom guest store so that it always gets the Express request context, as the cookie handler and the domain
+ * resolver do. `@auth0/auth0-server-js` calls the store with the `storeOptions` of the client method, and this SDK
+ * does not pass them explicitly, so when `storeOptions` is absent we recover them with `getRequestContext()`. Without
+ * it the store cannot tell one browser from another, and one guest would serve every visitor.
+ */
+export function wrapGuestStore(store: PoppyGuestStore<StoreOptions>): PoppyGuestStore<StoreOptions> {
+  return {
+    set: (identifier, data, removeIfExists, storeOptions) =>
+      store.set(identifier, data, removeIfExists, storeOptions ?? getRequestContext()),
+    get: (identifier, storeOptions) => store.get(identifier, storeOptions ?? getRequestContext()),
+    delete: (identifier, storeOptions) => store.delete(identifier, storeOptions ?? getRequestContext()),
+  };
+}
+
 function getPoppyOptions(options: Auth0Options): ServerPoppyOptions<StoreOptions> | undefined {
   if (!options.poppy) return undefined;
   const poppy: PoppyOptions = options.poppy === true ? {} : options.poppy;
@@ -208,12 +223,12 @@ function getPoppyOptions(options: Auth0Options): ServerPoppyOptions<StoreOptions
     config: (poppy.config !== undefined
       ? poppy.config
       : readPoppyConfigFile(poppy.configPath ?? POPPY_CONFIG_FILE_NAME)) as PoppyConfig,
-    guestStore:
-      poppy.guestStore ??
-      new StatelessPoppyGuestStore<StoreOptions>(
-        { secret: options.sessionSecret, cookie: poppy.cookie },
-        new ExpressCookieHandler()
-      ),
+    guestStore: poppy.guestStore
+      ? wrapGuestStore(poppy.guestStore)
+      : new StatelessPoppyGuestStore<StoreOptions>(
+          { secret: options.sessionSecret, cookie: poppy.cookie },
+          new ExpressCookieHandler()
+        ),
     agentSessionMaxAge: poppy.agentSessionMaxAge,
     protectedResource: poppy.protectedResource,
   };

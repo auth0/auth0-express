@@ -1,3 +1,4 @@
+import express from 'express';
 import { describe, expect, test } from 'vitest';
 import { createAuth0 } from '../router.js';
 import { poppyApp, poppyAuth0Options, poppyConfig, setCookieLines } from '../test-utils/poppy.js';
@@ -9,9 +10,9 @@ import { POPPY_DISCOVERY_PATHS } from './poppy-discovery-handler.js';
 const POPPY_JSON = '/.well-known/poppy.json';
 const PROTECTED_RESOURCE = '/.well-known/oauth-protected-resource';
 
-// The documents of the fixture config, byte for byte.
-const POPPY_JSON_BODY =
-  '{"protocol_version":"1.0","organization":{"name":"Zepto","domain":"zepto.example"},"auth":{"issuer":"https://auth.zepto.example/","scopes":{"orders:read":"See your orders."},"scope_hints":{"orders:read":{"changes":"none","personal_data":true}}},"web":{"browser_session_endpoint":"https://auth.zepto.example/poppy/web_app_client/browser-session"},"apis":[{"type":"openapi","url":"https://zepto.example/api/openapi.json","description":"Orders"}]}';
+// The file is served as written: the same members in the same order, with the members that this package does not know.
+// `JSON.stringify` of the fixture is that text, because the fixture is the parsed file.
+const POPPY_JSON_BODY = JSON.stringify(poppyConfig);
 const PROTECTED_RESOURCE_BODY =
   '{"resource":"https://zepto.example","authorization_servers":["https://auth.zepto.example/"]}';
 
@@ -31,10 +32,9 @@ describe('Poppy discovery routes', () => {
       // `res.send()` would add `; charset=utf-8` and an ETag, so the handler ends the response with `res.end()`.
       expect(res.headers['content-type']).toBe('application/json');
       expect(res.headers['cache-control']).toBe('public, max-age=300');
-      expect(res.headers['content-length']).toBe('444');
+      expect(res.headers['content-length']).toBe(String(Buffer.byteLength(POPPY_JSON_BODY)));
       expect(res.headers).not.toHaveProperty('etag');
       expect(res.text).toBe(POPPY_JSON_BODY);
-      expect(Buffer.byteLength(res.text)).toBe(444);
     });
 
     test('GET /.well-known/oauth-protected-resource sends the document and nothing else', async () => {
@@ -93,8 +93,29 @@ describe('Poppy discovery routes', () => {
     );
   });
 
+  describe('a cookie from earlier middleware', () => {
+    // An app that mounts the router after a middleware that sets a cookie. The files are public, so the cookie must not
+    // ride on them: a shared cache could hand it to the next visitor.
+    test.each([POPPY_JSON, PROTECTED_RESOURCE])('%s is sent with no Set-Cookie, and with nosniff', async (path) => {
+      const app = express();
+      app.use((_req, res, next) => {
+        res.cookie('sid', 'VISITOR-SESSION', { httpOnly: true });
+        next();
+      });
+      app.use(createAuth0(poppyAuth0Options()));
+      const agent = await serve(app);
+
+      const res = await agent.get(path);
+
+      expect(res.status).toBe(200);
+      expect(setCookieLines(res)).toEqual([]);
+      expect(res.headers['x-content-type-options']).toBe('nosniff');
+      expect(res.headers['cache-control']).toBe('public, max-age=300');
+    });
+  });
+
   describe('no cookies, no session', () => {
-    const cookies = '__a0_session.0=x; __a0_poppy.0=y';
+    const cookies = '__a0_session.0=x; __Host-a0_poppy.0=y';
 
     test.each([
       ['get', POPPY_JSON],
@@ -248,34 +269,29 @@ describe('Poppy discovery routes', () => {
     });
   });
 
-  describe('a config file of a newer protocol version', () => {
-    // Pins what the ServerClient serves for this file: the version, a scope the file adds and `web.unscoped` are served
-    // as written, and the members of `web` that this version of the ServerClient does not know are left out.
+  describe('a config file with members that this package does not know', () => {
+    // The file is served as the Auth0 CLI wrote it. A member that a later version of the protocol or of the CLI adds,
+    // such as `disabled` or a scope that the file lists, is served too, and the version is the one in the file.
     const newerConfig = {
       ...poppyConfig,
-      protocol_version: '0.4',
-      scopes: { ...poppyConfig.scopes, 'poppy:browser-sign-in': { description: 'Sign in the browser.' } },
+      protocol_version: '1.1',
+      auth: { ...poppyConfig.auth, disabled: false, x_later: { nested: [1, 2] } },
       web: { ...poppyConfig.web, unscoped: true, disabled: false },
+      x_member: 'kept',
     };
 
-    test('poppy.json keeps the version, the scope and unscoped, and drops disabled', async () => {
+    test('poppy.json is the file as written, with the version, unscoped, disabled and the member it does not know', async () => {
       const agent = await serve(poppyApp({ poppy: { config: newerConfig } }));
 
       const res = await agent.get(POPPY_JSON);
 
       expect(res.status).toBe(200);
-      expect(res.text).toContain('"protocol_version":"0.4"');
-      expect(res.text).toContain('"poppy:browser-sign-in":"Sign in the browser."');
-      expect(res.text).not.toContain('disabled');
-
-      const document = JSON.parse(res.text);
-      expect(document.auth.scopes).toEqual({
-        'orders:read': 'See your orders.',
-        'poppy:browser-sign-in': 'Sign in the browser.',
-      });
-      expect(document.web).toEqual({
-        browser_session_endpoint: 'https://auth.zepto.example/poppy/web_app_client/browser-session',
-        unscoped: true,
+      expect(res.text).toBe(JSON.stringify(newerConfig));
+      expect(JSON.parse(res.text)).toMatchObject({
+        protocol_version: '1.1',
+        x_member: 'kept',
+        web: { unscoped: true, disabled: false },
+        auth: { disabled: false, x_later: { nested: [1, 2] } },
       });
     });
   });
