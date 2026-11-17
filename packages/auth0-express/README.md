@@ -242,7 +242,7 @@ console.log(accessTokenResult.accessToken);
 
 ## Personal Agents (Poppy, beta)
 
-A Personal Agent is software that acts for a user, and its browser can join your website as a guest or as a signed-in user. `poppy: true` turns this on, as described in [Poppy (Personal Agent Protocol) 1.0](https://personalagentprotocol.org/docs/spec#web-browsing). The router then serves the two discovery files that agents read and accepts the join. Without the option, nothing changes.
+A Personal Agent is software that acts for a user, and its browser can join your website as a guest or as a signed-in user. `poppy: true` turns this on, as described in [Poppy (Personal Agent Protocol) 1.0](https://personalagentprotocol.org/docs/1.0/spec#web-browsing). The router then serves the two discovery files that agents read and accepts the join. Without the option, nothing changes.
 
 > [!NOTE]
 > The support in this package is a beta that follows Poppy 1.0. The join has not been proven end to end against a live Auth0 tenant, so test it on your tenant before you rely on it.

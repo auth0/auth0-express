@@ -346,7 +346,7 @@ describe('Session changes', () => {
     const { callback } = await join(agent, jar, tenant, guestIdToken());
 
     // A rejoin without an access token ends the sign-in of a Session:
-    // https://personalagentprotocol.org/docs/spec#web-browsing
+    // https://personalagentprotocol.org/docs/1.0/spec#web-browsing
     expect(removes(callback, SESSION_COOKIE)).toBe(true);
     expect(jar.names()).toEqual([GUEST_COOKIE]);
     expect(await visitorOf(agent, jar)).toEqual(GUEST);
@@ -365,7 +365,7 @@ describe('Session changes', () => {
   });
 
   // A join with an access token signs the browser in "in place of any login it had, and an earlier login doesn't come
-  // back": https://personalagentprotocol.org/docs/spec#web-browsing
+  // back": https://personalagentprotocol.org/docs/1.0/spec#web-browsing
   test("a signed-in join over a person's login replaces it, and the login does not come back", async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
@@ -390,7 +390,7 @@ describe('Session changes', () => {
 
 describe("A guest join keeps a person's login", () => {
   // A join without an access token should not end or change the login that the browser has, and the specification says
-  // so: https://personalagentprotocol.org/docs/spec#web-browsing. The guest comes first in getVisitor(), because an
+  // so: https://personalagentprotocol.org/docs/1.0/spec#web-browsing. The guest comes first in getVisitor(), because an
   // agent drives the browser then. The login of the person is not touched, so getUser() and requiresAuth() still see
   // the person. An app that must keep an agent's browser out of the pages of a person checks getVisitor() as well.
   test('getVisitor() says guest, while getUser() and requiresAuth() still see the person', async () => {

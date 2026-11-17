@@ -903,7 +903,7 @@ app.use(createAuth0({
 
 ## Personal Agent Protocol (Poppy)
 
-With the `poppy` option, your Express website can take part in [Poppy (Personal Agent Protocol) 1.0](https://personalagentprotocol.org/docs/spec#web-browsing) web browsing. A Personal Agent is software that acts for a user. It drives a browser of its own, and that browser joins the agent's Session before it visits your website. A runnable example is in [`examples/example-express-web-poppy`](../../examples/example-express-web-poppy).
+With the `poppy` option, your Express website can take part in [Poppy (Personal Agent Protocol) 1.0](https://personalagentprotocol.org/docs/1.0/spec#web-browsing) web browsing. A Personal Agent is software that acts for a user. It drives a browser of its own, and that browser joins the agent's Session before it visits your website. A runnable example is in [`examples/example-express-web-poppy`](../../examples/example-express-web-poppy).
 
 ### What changes when you turn on Poppy
 
@@ -953,7 +953,7 @@ These are Auth0's beta settings, so their names may change. The technical detail
 | Field | What it is |
 | --- | --- |
 | `protocol_version` | The Poppy version that the file is written for, such as `"1.0"` |
-| `organization.name` and `organization.domain` | Your organization, and the host that serves `poppy.json`: lowercase, with its port when the port is not 443 (`localhost:3000`, `shop.example.com:8443`), and with no scheme or path ([spec 3.1](https://personalagentprotocol.org/docs/spec#fields)) |
+| `organization.name` and `organization.domain` | Your organization, and the host that serves `poppy.json`: lowercase, with its port when the port is not 443 (`localhost:3000`, `shop.example.com:8443`), and with no scheme or path ([spec 3.1](https://personalagentprotocol.org/docs/1.0/spec#fields)) |
 | `issuer` | Your Auth0 issuer. It must be exactly `https://<AUTH0_DOMAIN>/`, with the trailing slash |
 | `scopes` | What each scope lets an agent do: a `description`, and optional `hints` with `changes` (`none`, `reversible` or `irreversible`) and `personal_data` |
 | `apis` | Your APIs: each has a `type`, a `url` and a `description` |
@@ -1022,7 +1022,7 @@ A custom `guestStore` is called without `options`, like `anonymousSessions.store
 
 ### Serve the discovery files
 
-With `poppy` set, and `mountRoutes` not `false`, the router serves the two files that agents read, at the paths that the specification fixes ([section 3](https://personalagentprotocol.org/docs/spec#discovery), [section 3.2](https://personalagentprotocol.org/docs/spec#oauth-server) and [RFC 9728, section 3](https://www.rfc-editor.org/rfc/rfc9728#section-3)):
+With `poppy` set, and `mountRoutes` not `false`, the router serves the two files that agents read, at the paths that the specification fixes ([section 3](https://personalagentprotocol.org/docs/1.0/spec#discovery), [section 3.2](https://personalagentprotocol.org/docs/1.0/spec#oauth-server) and [RFC 9728, section 3](https://www.rfc-editor.org/rfc/rfc9728#section-3)):
 
 - `/.well-known/poppy.json`, which is built from your config file.
 - `/.well-known/oauth-protected-resource`, which names your website as the resource and your Auth0 issuer as its authorization server.
@@ -1265,7 +1265,7 @@ app.get(
 );
 ```
 
-One case needs care. A guest join leaves a person's own login in the same browser in place, as the specification recommends ([section 6](https://personalagentprotocol.org/docs/spec#web-browsing)). Then `getVisitor()` says `guest`, while `getUser()` and `requiresAuth()` still see that person. So a page that has only `requiresAuth()` is open to the agent as that person. The specification also says that an agent joins only a browser it controls, never the user's own browser, but your site cannot verify that. Where an agent must not act as the person, check `getVisitor()` first. This middleware lets only a user through. With `personOnly`, it also refuses a signed-in agent, for the pages where the person alone may act:
+One case needs care. A guest join leaves a person's own login in the same browser in place, as the specification recommends ([section 6](https://personalagentprotocol.org/docs/1.0/spec#web-browsing)). Then `getVisitor()` says `guest`, while `getUser()` and `requiresAuth()` still see that person. So a page that has only `requiresAuth()` is open to the agent as that person. The specification also says that an agent joins only a browser it controls, never the user's own browser, but your site cannot verify that. Where an agent must not act as the person, check `getVisitor()` first. This middleware lets only a user through. With `personOnly`, it also refuses a signed-in agent, for the pages where the person alone may act:
 
 ```ts
 import type { NextFunction, Request, Response } from 'express';

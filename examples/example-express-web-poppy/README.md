@@ -1,6 +1,6 @@
 # Express Web Example with Personal Agents (Poppy)
 
-This example shows how a website that uses [`@auth0/auth0-express`](../../packages/auth0-express) lets a Personal Agent browse it. A Personal Agent is software that acts for a user. It drives its own browser, and that browser joins the agent's Poppy Session before it visits your site. The [Poppy (Personal Agent Protocol) 0.3 specification](https://personalagentprotocol.org/docs/spec#web-browsing) describes this. The support in the SDK is in beta.
+This example shows how a website that uses [`@auth0/auth0-express`](../../packages/auth0-express) lets a Personal Agent browse it. A Personal Agent is software that acts for a user. It drives its own browser, and that browser joins the agent's Poppy Session before it visits your site. The [Poppy (Personal Agent Protocol) 0.3 specification](https://personalagentprotocol.org/docs/1.0/spec#web-browsing) describes this. The support in the SDK is in beta.
 
 ## What it shows
 

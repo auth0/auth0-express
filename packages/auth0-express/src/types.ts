@@ -339,7 +339,7 @@ export interface Auth0Options {
 
   /**
    * Enable Poppy (Personal Agent Protocol) support, so that an agent can browse your website
-   * ({@link https://personalagentprotocol.org/docs/spec#web-browsing section 6 of the specification}).
+   * ({@link https://personalagentprotocol.org/docs/1.0/spec#web-browsing section 6 of the specification}).
    * Set to `true` to use all defaults (the same as `{}`), or provide an options object. Without it, nothing
    * changes.
    *
