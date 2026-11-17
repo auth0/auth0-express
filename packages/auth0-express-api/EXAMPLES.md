@@ -643,7 +643,7 @@ Read `error.cause?.error_description` into your logs and keep it out of the resp
 
 ## Personal Agents (Poppy)
 
-A Personal Agent is software that acts for a user. It signs a `Poppy-Session` header on every request to your API, and once its user has signed in, it also sends an access token. This section shows how to serve such agents with this SDK, as the [Poppy (Personal Agent Protocol) 1.0 specification](https://personalagentprotocol.org/docs/spec) describes. The support is a beta, so the SDK's API can change before it is final. The [Express API example with Personal Agents](../../examples/example-express-api-poppy) puts it all in a small shop API, with tests that need no Auth0 tenant.
+A Personal Agent is software that acts for a user. It signs a `Poppy-Session` header on every request to your API, and once its user has signed in, it also sends an access token. This section shows how to serve such agents with this SDK, as the [Poppy (Personal Agent Protocol) 1.0 specification](https://personalagentprotocol.org/docs/1.0/spec) describes. The support is a beta, so the SDK's API can change before it is final. The [Express API example with Personal Agents](../../examples/example-express-api-poppy) puts it all in a small shop API, with tests that need no Auth0 tenant.
 
 ### What changes when you turn it on
 
@@ -666,7 +666,7 @@ Turning on `poppy` also changes how your existing `requiresAuth()` routes answer
 - DPoP-bound tokens work.
 - Access-token errors are `WWW-Authenticate` challenges for both schemes, `Bearer` and `DPoP`, with no JSON body, except the 403 for a missing scope.
 - An `Authorization` header that is not one `Bearer` or `DPoP` credential, such as `Basic`, is refused with challenges for both schemes.
-- A request with a `Poppy-Session` header must also send `Poppy-Version`, with a version that the API serves (`1.0` by default). Without it, or with another version, it gets 400 `version_unsupported`, before the Session JWT is read ([spec 3.4](https://personalagentprotocol.org/docs/spec#versions)). A request with only an access token needs no `Poppy-Version`.
+- A request with a `Poppy-Session` header must also send `Poppy-Version`, with a version that the API serves (`1.0` by default). Without it, or with another version, it gets 400 `version_unsupported`, before the Session JWT is read ([spec 3.4](https://personalagentprotocol.org/docs/1.0/spec#versions)). A request with only an access token needs no `Poppy-Version`.
 - A `Poppy-Session` header that fails verification gets 400 `invalid_session`, even with a good token.
 - A request with no credentials gets the same 401 as without `poppy`, except on a `requireSession` route, where it gets 400 `invalid_session`.
 
@@ -675,7 +675,7 @@ Turning on `poppy` also changes how your existing `requiresAuth()` routes answer
 What the SDK does not do:
 
 - It does no rate limiting (see [Production notes](#production-notes)).
-- It keeps no store of used Session JWT `jti`s, so it cannot refuse a reused one, as [spec 5.3](https://personalagentprotocol.org/docs/spec#session-verification) allows. Within the `iatWindow` option (60 seconds by default), a copied header works again for the same method and URL, so make a route that changes something safe to repeat.
+- It keeps no store of used Session JWT `jti`s, so it cannot refuse a reused one, as [spec 5.3](https://personalagentprotocol.org/docs/1.0/spec#session-verification) allows. Within the `iatWindow` option (60 seconds by default), a copied header works again for the same method and URL, so make a route that changes something safe to repeat.
 - It keeps no Session records unless you pass a store (see [Session records](#session-records)).
 - It checks no Sessions on routes without `requiresAuth()`.
 - `scopesInclude()` and the claim middlewares still read only `req.auth0.user` (see [Protect routes for agents](#protect-routes-for-agents)).
@@ -771,11 +771,11 @@ app.get('/profile', requiresAuth(), (req, res) => {
 
 Put `requiresAuth()` on each route, as above. A `requiresAuth()` that you put on a router in front of `requireSession` routes answers a signed-out agent with 401 first, so the agent never reaches those routes.
 
-The router passes a `sessionStore` because the carts are keyed by `poppy.key`. Without a store, the SDK keeps no record of a Session, so it cannot tell a Session that continues from a new one ([spec 5.3, step 4](https://personalagentprotocol.org/docs/spec#session-verification)), or see that a Session ended. See [Session records](#session-records).
+The router passes a `sessionStore` because the carts are keyed by `poppy.key`. Without a store, the SDK keeps no record of a Session, so it cannot tell a Session that continues from a new one ([spec 5.3, step 4](https://personalagentprotocol.org/docs/1.0/spec#session-verification)), or see that a Session ended. See [Session records](#session-records).
 
 Which one to use:
 
-- A route that reads `req.auth0.poppy` sets `requireSession`. [Spec 5.3](https://personalagentprotocol.org/docs/spec#session-verification) requires an API to reject a request without the Session header when handling it depends on Session claims. A request without a verified Session never reaches such a route, and a Session alone is enough, so it also works for an agent whose user has not signed in.
+- A route that reads `req.auth0.poppy` sets `requireSession`. [Spec 5.3](https://personalagentprotocol.org/docs/1.0/spec#session-verification) requires an API to reject a request without the Session header when handling it depends on Session claims. A request without a verified Session never reaches such a route, and a Session alone is enough, so it also works for an agent whose user has not signed in.
 - A route that needs the account of the user names its `scopes`. A signed-out agent then gets the sign-in challenge, which names them. The agent signs its user in for those scopes and sends the request again. On a router with `poppy`, a `scopes` string is split on spaces (`'a b'` means two scopes), but on a router without `poppy` it is still matched as one whole string. On a router with `poppy`, a `scopes` value that is not empty but names no scope, such as `' '` or `['']`, is refused with the 500 of the last row of [Error responses](#error-responses), and never treated as "no scope". `''` and `[]` do mean no scope. The token of a guest in a web app passes `scopes` too, when it has them, so a route that must have an account also tests `poppy.state` (see [Guests in a web app](#guests-in-a-web-app)).
 - A route with neither needs an access token, as before.
 
@@ -820,7 +820,7 @@ A request with no Session at all, such as a plain access token, has no `poppy`, 
 
 ### Error responses
 
-`requiresAuth()` answers a failed check itself, and your route does not run. [Spec section 7](https://personalagentprotocol.org/docs/spec#apis) defines most of these answers. In the default DPoP mode, which this SDK uses, a request may use `Bearer` or `DPoP`, so a row with two `WWW-Authenticate` headers has one for each scheme. This is what an agent sees:
+`requiresAuth()` answers a failed check itself, and your route does not run. [Spec section 7](https://personalagentprotocol.org/docs/1.0/spec#apis) defines most of these answers. In the default DPoP mode, which this SDK uses, a request may use `Bearer` or `DPoP`, so a row with two `WWW-Authenticate` headers has one for each scheme. This is what an agent sees:
 
 | Case | Status | Headers and body |
 | --- | --- | --- |
@@ -842,7 +842,7 @@ A request with no Session at all, such as a plain access token, has no `poppy`, 
 - `invalid_session` means that a Session check failed. The `error_description` says which one, for you, so do not match on its text. A new Session does not fix it, so the agent stops sending the request until it fixes the cause.
 - `session_ended` means that the Session ended, or that your code refused an account change in it. The agent starts a new Session and sends the request again, once.
 - `version_unsupported` means that `Poppy-Version` is missing or is not a version that the API serves. The agent fetches `poppy.json` again, chooses a version again, and starts a new Session if it chose another one.
-- `temporarily_unavailable` means that the SDK cannot fetch the metadata or the keys of the agent right now. The request is never accepted, and the agent tries again later. The [spec](https://personalagentprotocol.org/docs/spec#apis) defines no answer for this case, so the 503 is the choice of the SDK. While the SDK remembers the failure, `Retry-After` counts down from 30.
+- `temporarily_unavailable` means that the SDK cannot fetch the metadata or the keys of the agent right now. The request is never accepted, and the agent tries again later. The [spec](https://personalagentprotocol.org/docs/1.0/spec#apis) defines no answer for this case, so the 503 is the choice of the SDK. While the SDK remembers the failure, `Retry-After` counts down from 30.
 - For anything else, such as a Session store that throws, or a `scopes` option that is not empty but names no scope, log the `cause` and keep it out of the response.
 
 **Errors your handlers throw.** Some Session errors come from your own code (see [Session records](#session-records)). Register an error handler after your routes to answer them. `toHttpErrorResponse()` gives an `HttpErrorResponse`, the status, the headers and the body, for an error of this SDK, and `undefined` for any other error, which goes on to `next(error)`:
@@ -872,7 +872,7 @@ app.use(poppyErrorHandler);
 
 ### Session records
 
-A Session is more than a verified header. [Spec 5.3](https://personalagentprotocol.org/docs/spec#session-verification), step 4, finds a Session by the agent, the Session ID and the User ID: an unknown combination starts a signed-out Session, and a known one continues it. The Agent ID is kept with the Session but is not compared. [Spec 5.5](https://personalagentprotocol.org/docs/spec#ending-sessions) lets you remember ended Sessions and answer them with `session_ended`. Both need a record of each Session. Without records, the SDK verifies the header and returns the Session, and nothing more: it cannot tell a new Session from a continuing one, or that the Session ended. Keep the records in a store that the SDK calls, or run the two checks yourself.
+A Session is more than a verified header. [Spec 5.3](https://personalagentprotocol.org/docs/1.0/spec#session-verification), step 4, finds a Session by the agent, the Session ID and the User ID: an unknown combination starts a signed-out Session, and a known one continues it. The Agent ID is kept with the Session but is not compared. [Spec 5.5](https://personalagentprotocol.org/docs/1.0/spec#ending-sessions) lets you remember ended Sessions and answer them with `session_ended`. Both need a record of each Session. Without records, the SDK verifies the header and returns the Session, and nothing more: it cannot tell a new Session from a continuing one, or that the Session ended. Keep the records in a store that the SDK calls, or run the two checks yourself.
 
 **The store contract.** Extend `PoppySessionStore` on top of your own storage, and pass an instance as the `sessionStore` option of `poppy`. The SDK has no built-in store, no expiry and no clean-up. The class has two methods:
 
@@ -1041,7 +1041,7 @@ app.get('/cart', requiresAuth({ poppy: { requireSession: true } }), checkSession
 
 In an `async` handler, an error that you throw reaches your error handler on Express 5 only. On Express 4, catch it and call `next(error)`, as [Handling a failed exchange](#handling-a-failed-exchange) explains.
 
-**Account changes.** [Spec 5.4](https://personalagentprotocol.org/docs/spec#sign-in) lets you refuse a request whose access token is for another account than the one its Session used before. The SDK does not track accounts. Keep the account that a Session first used in your own table, and throw `SessionEndedError` when it changes. The agent then starts a new Session for the other account.
+**Account changes.** [Spec 5.4](https://personalagentprotocol.org/docs/1.0/spec#sign-in) lets you refuse a request whose access token is for another account than the one its Session used before. The SDK does not track accounts. Keep the account that a Session first used in your own table, and throw `SessionEndedError` when it changes. The agent then starts a new Session for the other account.
 
 ```ts
 import type { RequestHandler } from 'express';
@@ -1095,7 +1095,7 @@ app.use(
 With a list:
 
 - A Session from an agent that is not on the list gets 400 `invalid_session`, before the SDK fetches anything from that agent.
-- While Session checks are on, the access token of a listed agent gets 400 `invalid_session` when it comes without the `Poppy-Session` header, because a registered agent sends the header on every request ([spec 5.2](https://personalagentprotocol.org/docs/spec#session-header)). The agent of a token is named by its `client_id` claim, else its `azp` claim.
+- While Session checks are on, the access token of a listed agent gets 400 `invalid_session` when it comes without the `Poppy-Session` header, because a registered agent sends the header on every request ([spec 5.2](https://personalagentprotocol.org/docs/1.0/spec#session-header)). The agent of a token is named by its `client_id` claim, else its `azp` claim.
 - `agents` does not filter a Session that comes from the `act` claim of a web app's access token (`source: 'token'`). If you need that, check `req.auth0.poppy.agent.id` yourself.
 
 Use a list in production. Without one, any public HTTPS agent URL in a Session JWT makes your API fetch that agent's metadata.
@@ -1170,7 +1170,7 @@ A signed-out request never calls Auth0, so these tests need no Auth0 mocks. A si
 ### Production notes
 
 - **Keep Session records** in a store that all instances share, and make `set` atomic in the database: pass a `sessionStore`, or run the two checks yourself (see [Session records](#session-records)). Two requests of a new Session can reach two instances at the same time. Without records, the SDK cannot see that a known Session ID came back with another User ID.
-- **Rate limit**, because the SDK does not. Limit by client IP before `requiresAuth()`, and per agent after it, keyed by the verified `req.auth0.poppy.agent.id`. Answer a request over the limit with 429 and a `Retry-After` header ([spec 5.6](https://personalagentprotocol.org/docs/spec#sending-requests)).
+- **Rate limit**, because the SDK does not. Limit by client IP before `requiresAuth()`, and per agent after it, keyed by the verified `req.auth0.poppy.agent.id`. Answer a request over the limit with 429 and a `Retry-After` header ([spec 5.6](https://personalagentprotocol.org/docs/1.0/spec#sending-requests)).
 - **`trust proxy`** matters only for `req.ip`, which your IP limit reads. The Session checks never use `Host` or `X-Forwarded-*`.
 - **Refuse a request with two `Authorization` lines.** Node keeps the first `Authorization` line of a request and drops the others, so the SDK sees only one. Use `http.createServer({ joinDuplicateHeaders: true }, app).listen(port)` instead of `app.listen(port)`: Node then joins the lines with a comma, and the SDK refuses the request with a 400 (see [Error responses](#error-responses)).
 - **Keep an `agents` list** (see [Registered agents](#registered-agents)).

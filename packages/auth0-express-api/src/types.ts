@@ -34,7 +34,7 @@ export interface RequiresAuthOptions {
    * - A bad Session or a bad access token: the error response the specification asks for, such as `400` with
    *   `{"error": "invalid_session"}`. The route does not run.
    *
-   * @see {@link https://personalagentprotocol.org/docs/spec Poppy 1.0 specification}
+   * @see {@link https://personalagentprotocol.org/docs/1.0/spec Poppy 1.0 specification}
    * @beta
    */
   poppy?: {
@@ -135,7 +135,7 @@ export interface Auth0ApiOptions {
    * `req.auth0.poppy` is not set from it, and the access token of a registered agent is accepted without it.
    *
    * @defaultValue `undefined`. Personal Agent support is off, and requests are handled exactly as before.
-   * @see {@link https://personalagentprotocol.org/docs/spec Poppy 1.0 specification}
+   * @see {@link https://personalagentprotocol.org/docs/1.0/spec Poppy 1.0 specification}
    * @beta
    */
   poppy?: Auth0ApiPoppyOptions;
@@ -165,7 +165,7 @@ export interface Auth0ApiOptions {
  * });
  * ```
  *
- * @see {@link https://personalagentprotocol.org/docs/spec Poppy 1.0 specification}
+ * @see {@link https://personalagentprotocol.org/docs/1.0/spec Poppy 1.0 specification}
  * @beta
  */
 export type Auth0ApiPoppyOptions = PoppyOptions;

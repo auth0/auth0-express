@@ -1,6 +1,6 @@
 # Express API Example with Personal Agents (Poppy)
 
-This example shows how to serve Personal Agents with [`@auth0/auth0-express-api`](../../packages/auth0-express-api). A Personal Agent is software that acts for a user. It signs every request to your API with a `Poppy-Session` header (a Poppy Session), and once its user has signed in, it sends an access token as well. The [Poppy (Personal Agent Protocol) 1.0 specification](https://personalagentprotocol.org/docs/spec) describes this. The support in the SDK is in beta.
+This example shows how to serve Personal Agents with [`@auth0/auth0-express-api`](../../packages/auth0-express-api). A Personal Agent is software that acts for a user. It signs every request to your API with a `Poppy-Session` header (a Poppy Session), and once its user has signed in, it sends an access token as well. The [Poppy (Personal Agent Protocol) 1.0 specification](https://personalagentprotocol.org/docs/1.0/spec) describes this. The support in the SDK is in beta.
 
 ## What it shows
 
@@ -18,7 +18,7 @@ The cart belongs to the Session. It is keyed by `req.auth0.poppy.key`. When the 
 
 The order has the `sub` of the access token, which is the account. `req.auth0.poppy.userId` is not the account: it is the pseudonymous User ID that the agent gave its user for this API, and the example never uses it as one.
 
-The app passes a `sessionStore` to the `poppy` option. The SDK keeps no Session records on its own, so without a store it cannot see that a Session has ended ([spec 5.5](https://personalagentprotocol.org/docs/spec#ending-sessions)). With the store, the SDK refuses a Session that the store has marked as ended. The cart is keyed by `poppy.key`, which holds the agent, the Session ID and the User ID, so two users who picked the same Session ID have two carts (the test `keeps two users who picked the same Session ID apart`). `MemoryPoppySessionStore` is the same store as the one in [Session records](../../packages/auth0-express-api/EXAMPLES.md#session-records).
+The app passes a `sessionStore` to the `poppy` option. The SDK keeps no Session records on its own, so without a store it cannot see that a Session has ended ([spec 5.5](https://personalagentprotocol.org/docs/1.0/spec#ending-sessions)). With the store, the SDK refuses a Session that the store has marked as ended. The cart is keyed by `poppy.key`, which holds the agent, the Session ID and the User ID, so two users who picked the same Session ID have two carts (the test `keeps two users who picked the same Session ID apart`). `MemoryPoppySessionStore` is the same store as the one in [Session records](../../packages/auth0-express-api/EXAMPLES.md#session-records).
 
 ## Install dependencies
 
@@ -73,8 +73,8 @@ This needs an Auth0 tenant that is set up for Poppy, and a Personal Agent to cal
 Before you use this pattern in production:
 
 - **List your agents.** Keep only the agents you accept in `POPPY_AGENTS`. Without a list, any public HTTPS agent URL in a Session makes the app fetch that agent's metadata.
-- **Rate limit by agent.** The SDK does no rate limiting. Limit by the verified `req.auth0.poppy.agent.id`, and answer a request over the limit with 429 and a `Retry-After` header ([spec 5.6](https://personalagentprotocol.org/docs/spec#sending-requests)).
-- **Make the POST routes safe to repeat.** A copied `Poppy-Session` header works again within the `iatWindow` (60 seconds by default), and `POST /api/cart/items` and `POST /api/orders` change state. A real app takes an idempotency key. The SDK keeps no store of used Session JWT `jti`s, although [spec 5.3](https://personalagentprotocol.org/docs/spec#session-verification) allows refusing a reused one.
+- **Rate limit by agent.** The SDK does no rate limiting. Limit by the verified `req.auth0.poppy.agent.id`, and answer a request over the limit with 429 and a `Retry-After` header ([spec 5.6](https://personalagentprotocol.org/docs/1.0/spec#sending-requests)).
+- **Make the POST routes safe to repeat.** A copied `Poppy-Session` header works again within the `iatWindow` (60 seconds by default), and `POST /api/cart/items` and `POST /api/orders` change state. A real app takes an idempotency key. The SDK keeps no store of used Session JWT `jti`s, although [spec 5.3](https://personalagentprotocol.org/docs/1.0/spec#session-verification) allows refusing a reused one.
 - **Use a database.** The carts and the Session store live in memory, so they are gone when the app stops, they grow without limit, and they are not shared between instances.
 
 ## More
