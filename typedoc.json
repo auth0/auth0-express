@@ -4,8 +4,8 @@
     "entryPointStrategy": "packages",
     "includeVersion": false,
     "navigationLinks": {
-        "Web App": "/modules/_auth0_auth0-express.html",
-        "API": "/modules/_auth0_auth0-express-api.html"
+        "Web App": "https://auth0.github.io/auth0-express/modules/_auth0_auth0-express.html",
+        "API": "https://auth0.github.io/auth0-express/modules/_auth0_auth0-express-api.html"
     },
     "navigation": {
         "includeCategories": false,
