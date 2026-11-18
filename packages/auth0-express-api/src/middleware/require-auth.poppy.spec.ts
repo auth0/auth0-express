@@ -151,10 +151,13 @@ function expectNothingAdded(req: Request, client: ApiClient) {
   expect(Object.getOwnPropertyNames(req.auth0)).toEqual(['client']);
 }
 
-// The answer to a request with no credentials, which a route without the Poppy option gives as well.
+// What a router with the poppy option answers a request with no credentials: a bare challenge for each scheme it takes.
+const NO_CREDENTIALS_CHALLENGES = ['Bearer', 'DPoP algs="ES256"'];
+
+// The answer to a request with no credentials. It names `Bearer` and `DPoP`, as the router accepts both.
 function expectBareChallenge(recorded: Recorded) {
   expect(recorded.statusCode).toBe(401);
-  expect(recorded.headers).toEqual({ 'www-authenticate': 'Bearer' });
+  expect(recorded.headers).toEqual({ 'www-authenticate': NO_CREDENTIALS_CHALLENGES });
   expect(recorded.body).toBeUndefined();
   expect(recorded.ended).toBe(true);
 }
@@ -187,7 +190,9 @@ function outcomeOf(recorded: Recorded, next: Next): string {
     return 'next() with an argument';
   }
   const challenge = recorded.headers['www-authenticate'];
-  if (recorded.statusCode === 401 && challenge === 'Bearer') return 'bare 401';
+  if (recorded.statusCode === 401 && JSON.stringify(challenge) === JSON.stringify(NO_CREDENTIALS_CHALLENGES)) {
+    return 'bare 401';
+  }
   if (recorded.statusCode === 401 && Array.isArray(challenge)) return 'sign-in 401';
   if (recorded.statusCode === 403) return '403';
   return `status ${recorded.statusCode}`;
@@ -481,8 +486,11 @@ describe('requiresAuth on a Poppy router', () => {
   });
 
   describe('an access token without a scope the route needs', () => {
-    const insufficientScope = (scope: string) =>
-      `Bearer error="insufficient_scope", error_description="Insufficient scopes", scope="${scope}"`;
+    // Both challenges, as the router accepts `Bearer` and `DPoP` access tokens.
+    const insufficientScope = (scope: string) => [
+      `Bearer error="insufficient_scope", error_description="Insufficient scopes", scope="${scope}"`,
+      `DPoP error="insufficient_scope", error_description="Insufficient scopes", scope="${scope}", algs="ES256"`,
+    ];
 
     it.each([
       ['claims alone', { claims: { sub: 'user_123', scope: 'orders:read' } }],
@@ -622,7 +630,7 @@ describe('requiresAuth on a Poppy router', () => {
       expect(allowed.next).toHaveBeenCalledWith();
       expect(refused.next).not.toHaveBeenCalled();
       expect(refused.recorded.statusCode).toBe(403);
-      expect(refused.recorded.headers['www-authenticate']).toContain('scope="orders:read"');
+      expect([refused.recorded.headers['www-authenticate']].flat().join('\n')).toContain('scope="orders:read"');
     });
 
     it.each([[' '], [['']], [[' ']]])(
@@ -922,19 +930,30 @@ describe('requiresAuth on a Poppy router', () => {
       expectNothingAdded(req, client);
     });
 
-    it('should pass the fixed 500 error to next() when the sign-in challenge cannot be built', async () => {
-      const { client, req, recorded, next, run, verifyPoppyRequest } = setup();
-      verifyPoppyRequest.mockResolvedValue({ poppy });
+    it.each([
+      ['a double quote', 'orders"write'],
+      ['a backslash', 'orders\\write'],
+      ['a character outside printable ASCII', 'orders\u00e9write'],
+      ['a control character', 'orders\u0001write'],
+    ])('should pass the fixed 500 error to next() for every request when a scope has %s', async (_label, scopes) => {
+      // The same for a Session alone and for a token that lacks the scope, so no request gets a malformed challenge.
+      for (const result of [{ poppy }, { claims: { sub: 'user_123', scope: 'other' } }]) {
+        const { client, req, recorded, next, run, verifyPoppyRequest } = setup({
+          headers: { authorization: 'Bearer tok.en' },
+        });
+        verifyPoppyRequest.mockResolvedValue(result);
 
-      await expect(run({ scopes: 'orders"write' })).resolves.toBeUndefined();
+        await expect(run({ scopes })).resolves.toBeUndefined();
 
-      expect(next).toHaveBeenCalledTimes(1);
-      const error = next.mock.calls[0]?.[0] as Error & { status?: number };
-      expect(error.message).toBe(POPPY_REQUEST_FAILED);
-      expect(error.status).toBe(500);
-      expect(error.cause).toBeInstanceOf(InvalidConfigurationError);
-      expect(recorded).toStrictEqual(nothingRecorded);
-      expectNothingAdded(req, client);
+        expect(next).toHaveBeenCalledTimes(1);
+        const error = next.mock.calls[0]?.[0] as Error & { status?: number };
+        expect(error.message).toBe(POPPY_REQUEST_FAILED);
+        expect(error.status).toBe(500);
+        expect((error.cause as Error).message).toMatch(/^A scope of requiresAuth\(\) must not contain/);
+        expect(verifyPoppyRequest).not.toHaveBeenCalled();
+        expect(recorded).toStrictEqual(nothingRecorded);
+        expectNothingAdded(req, client);
+      }
     });
 
     it('should pass the fixed 500 error to next() when the claims came with no credential to read', async () => {
@@ -1022,7 +1041,7 @@ describe('requiresAuth on a Poppy router', () => {
       },
       {
         answer: 'the bare challenge for a Session with no token',
-        method: 'header' as const,
+        method: 'set' as const,
         mock: (verify: Mock) => verify.mockResolvedValue({ poppy }),
         options: undefined,
       },
@@ -1064,6 +1083,192 @@ describe('requiresAuth on a Poppy router', () => {
       expectRequestFailed(next, boom);
       expect(recorded.ended).toBe(false);
       expectNothingAdded(req, client);
+    });
+  });
+
+  describe('a route that sets requireAccount', () => {
+    // The Session of a guest comes from the access token of the web app, and is signed_out. That of a signed-in user is
+    // signed_in.
+    const guest: PoppySession = { ...poppy, source: 'token' };
+    const member: PoppySession = { ...signedInPoppy, source: 'token' };
+    const needsAccount = { poppy: { requireAccount: true } };
+    const bearer = { authorization: 'Bearer tok.en' };
+
+    it('should answer the token of a guest with the sign-in challenges that name the scopes, and not run the route', async () => {
+      const { client, req, recorded, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+      verifyPoppyRequest.mockResolvedValue({ poppy: guest, claims });
+
+      await run({ scopes: 'orders:write', ...needsAccount });
+
+      expect(recorded.statusCode).toBe(401);
+      expect(recorded.headers).toEqual({
+        'www-authenticate': ['Bearer realm="api", scope="orders:write"', 'DPoP scope="orders:write", algs="ES256"'],
+      });
+      expect(recorded.body).toBeUndefined();
+      expect(next).not.toHaveBeenCalled();
+      expectNothingAdded(req, client);
+    });
+
+    it('should answer the token of a guest on a route without scopes with the bare challenges', async () => {
+      const { client, req, recorded, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+      verifyPoppyRequest.mockResolvedValue({ poppy: guest, claims });
+
+      await run(needsAccount);
+
+      expectBareChallenge(recorded);
+      expect(next).not.toHaveBeenCalled();
+      expectNothingAdded(req, client);
+    });
+
+    it('should answer a guest with 401 before it checks the scopes, as the guest cannot fix a scope without signing in', async () => {
+      const { recorded, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+      verifyPoppyRequest.mockResolvedValue({ poppy: guest, claims: { sub: 'anon', scope: 'orders:read' } });
+
+      await run({ scopes: 'orders:write', ...needsAccount });
+
+      expect(recorded.statusCode).toBe(401);
+      expect(next).not.toHaveBeenCalled();
+    });
+
+    it('should run the route for the token of a signed-in user', async () => {
+      const { req, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+      verifyPoppyRequest.mockResolvedValue({ poppy: member, claims });
+
+      await run({ scopes: 'orders:write', ...needsAccount });
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.auth0.poppy).toBe(member);
+      expect(req.auth0.user).toEqual(claims);
+    });
+
+    it('should run the route for an access token that has no Session, as it is an account like any other', async () => {
+      const { req, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+      verifyPoppyRequest.mockResolvedValue({ claims });
+
+      await run({ scopes: 'orders:write', ...needsAccount });
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.auth0.poppy).toBeUndefined();
+    });
+
+    it('should not let a Session without an access token through, though the route sets requireSession', async () => {
+      const { client, req, recorded, next, run, verifyPoppyRequest } = setup();
+      verifyPoppyRequest.mockResolvedValue({ poppy });
+
+      await run({ poppy: { requireSession: true, requireAccount: true } });
+
+      expectBareChallenge(recorded);
+      expect(next).not.toHaveBeenCalled();
+      expectNothingAdded(req, client);
+      // The Session is still asked for: requireAccount adds to requireSession, and does not replace it.
+      expect(verifyPoppyRequest).toHaveBeenCalledWith(expect.objectContaining({ requireSession: true }));
+    });
+
+    it('should let the same guest through on a route that does not set it', async () => {
+      const { req, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+      verifyPoppyRequest.mockResolvedValue({ poppy: guest, claims });
+
+      await run({ scopes: 'orders:write' });
+
+      expect(next).toHaveBeenCalledWith();
+      expect(req.auth0.poppy).toBe(guest);
+    });
+
+    it.each([
+      ['false', false],
+      ['left out', undefined],
+    ])('should not apply requireAccount when it is %s', async (_label, requireAccount) => {
+      const { next, run, verifyPoppyRequest } = setup({ headers: bearer });
+      verifyPoppyRequest.mockResolvedValue({ poppy: guest, claims });
+
+      await run({ poppy: { requireAccount } });
+
+      expect(next).toHaveBeenCalledWith();
+    });
+
+    it.each([
+      ['the string "true"', 'true'],
+      ['the number 1', 1],
+      ['null', null],
+    ])(
+      'should refuse every request with the fixed 500 error when requireAccount is %s, so a guest cannot get in',
+      async (_label, requireAccount) => {
+        const { client, req, recorded, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+        verifyPoppyRequest.mockResolvedValue({ poppy: guest, claims });
+
+        await expect(run({ poppy: { requireAccount: requireAccount as unknown as boolean } })).resolves.toBeUndefined();
+
+        expect(next).toHaveBeenCalledTimes(1);
+        const error = next.mock.calls[0]?.[0] as Error & { status?: number };
+        expect(error.message).toBe(POPPY_REQUEST_FAILED);
+        expect(error.status).toBe(500);
+        expect((error.cause as Error).message).toMatch(
+          /^The requireAccount option of requiresAuth\(\) must be true or false/
+        );
+        expect(verifyPoppyRequest).not.toHaveBeenCalled();
+        expect(recorded).toStrictEqual(nothingRecorded);
+        expectNothingAdded(req, client);
+      }
+    );
+
+    describe('a token that carries the guest markers', () => {
+      // `@auth0/auth0-api-js` reads the markers only for a token that holds a Session. These tokens hold none, or hold
+      // one that is not a guest Session, and the route still must not take them for an account.
+      it.each([
+        [
+          'a sub_profile string with the anonymous word, and no Session',
+          { sub: 'user_1', sub_profile: 'user urn:auth0:anonymous_user' },
+        ],
+        [
+          'a sub_profile list with the anonymous word, and no Session',
+          { sub: 'user_1', sub_profile: ['user', 'urn:auth0:anonymous_user'] },
+        ],
+        ['a sub that starts with anon_poppy@, and no Session', { sub: 'anon_poppy@abc' }],
+      ])('should answer %s with the sign-in challenges', async (_label, markers) => {
+        const { recorded, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+        verifyPoppyRequest.mockResolvedValue({ claims: { ...claims, ...markers } });
+
+        await run({ scopes: 'orders:write', ...needsAccount });
+
+        expect(recorded.statusCode).toBe(401);
+        expect(recorded.headers['www-authenticate']).toHaveLength(2);
+        expect(next).not.toHaveBeenCalled();
+      });
+
+      it('should answer a guest-marked token that carries a signed-in Session as a guest', async () => {
+        const { recorded, next, run, verifyPoppyRequest } = setup({ headers: bearer });
+        verifyPoppyRequest.mockResolvedValue({ poppy: member, claims: { ...claims, sub: 'anon_poppy@abc' } });
+
+        await run(needsAccount);
+
+        expectBareChallenge(recorded);
+        expect(next).not.toHaveBeenCalled();
+      });
+
+      it.each([
+        [
+          'a sub_profile that only contains the word as a part of another word',
+          { sub_profile: 'user urn:auth0:anonymous_users' },
+        ],
+        ['a sub that has anon_poppy@ in the middle', { sub: 'user|anon_poppy@abc' }],
+        ['a machine token', { sub: 'abc@clients', gty: 'client-credentials' }],
+      ])('should let %s through, as nothing in it says that it is a guest', async (_label, markers) => {
+        const { next, run, verifyPoppyRequest } = setup({ headers: bearer });
+        verifyPoppyRequest.mockResolvedValue({ claims: { ...claims, ...markers } });
+
+        await run(needsAccount);
+
+        expect(next).toHaveBeenCalledWith();
+      });
+    });
+
+    it('should fail on a router without the poppy option, as every poppy option does', async () => {
+      const { next, run } = setup({ poppyClient: false, headers: bearer });
+
+      await run(needsAccount);
+
+      expect(next).toHaveBeenCalledTimes(1);
+      expect((next.mock.calls[0]?.[0] as Error).message).toBe(POPPY_OPTION_WITHOUT_POPPY_ROUTER);
     });
   });
 
@@ -1114,7 +1319,10 @@ describe('requiresAuth on a Poppy router', () => {
 
       await run(null as unknown as RequiresAuthOptions);
 
-      expectBareChallenge(recorded);
+      // A router without the poppy option accepts `Bearer` only, and says so.
+      expect(recorded.statusCode).toBe(401);
+      expect(recorded.headers).toEqual({ 'www-authenticate': 'Bearer' });
+      expect(recorded.ended).toBe(true);
       expect(next).not.toHaveBeenCalled();
       expect(verifyPoppyRequest).not.toHaveBeenCalled();
       expect(verifyAccessToken).not.toHaveBeenCalled();

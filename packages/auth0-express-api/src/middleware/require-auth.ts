@@ -4,6 +4,7 @@ import { sendBearerError } from './claim-auth.js';
 import { SignInRequiredError, toHttpErrorResponse } from '@auth0/auth0-api-js';
 import type { ApiClient, VerifiedPoppyRequest } from '@auth0/auth0-api-js';
 import { isPoppyClient } from '../poppy/poppy-clients.js';
+import { printable, sendNoCredentials } from '../poppy/challenges.js';
 
 function validateScopes(token: Token, requiredScopes: string | string[]): boolean {
   const scopes = Array.isArray(requiredScopes) ? requiredScopes : [requiredScopes];
@@ -125,8 +126,9 @@ const BLANK_SCOPES =
  * `verifyPoppyRequest()` of the `ApiClient` verifies the `Poppy-Session` header and the access token together. This
  * decides from the two things it returns, a verified Session (`poppy`) and the claims of a verified access token
  * (`claims`), and from nothing else that the request says. It reads the `Authorization` header only once there are
- * claims, to hand the token on as `req.auth0.token`. The route runs for verified claims that have the scopes it needs,
- * and for a verified Session on a route that sets `requireSession` and has no scopes. Any other request is answered
+ * claims, to hand the token on as `req.auth0.token`. The route runs for verified claims that have the scopes it needs
+ * (and, on a route that sets `requireAccount`, are not the token of a guest), and for a verified Session on a route
+ * that sets `requireSession`, has no scopes and does not set `requireAccount`. Any other request is answered
  * here, and anything unexpected ends in an error for `next()`, such as a `null` part, or claims without the Session
  * that a `requireSession` route needs. So a request never goes on unverified, and this promise never rejects, which
  * Express 4 would not catch.
@@ -165,7 +167,9 @@ async function verifyAndAnswer(
   options: RequiresAuthOptions
 ): Promise<boolean> {
   const requireSession = options.poppy?.requireSession === true;
-  // A mistake of the route, the same for every request, so it is found before anything is verified.
+  // Mistakes of the route, the same for every request, so they are found before anything is verified.
+  assertRequireAccountIsBoolean(options.poppy?.requireAccount);
+  const requireAccount = options.poppy?.requireAccount === true;
   assertScopesNameAScope(options.scopes);
   let result: VerifiedPoppyRequest;
 
@@ -199,8 +203,20 @@ async function verifyAndAnswer(
       throw new Error('verifyPoppyRequest returned claims without the Session that the route requires.');
     }
 
+    // The access token of a guest, an anonymous user whom the agent joined to a web app, is a valid token, and has the
+    // scopes the tenant grants to guests. It is no account, so a route that needs one answers it as a request that has
+    // none yet. This comes before the scopes, because the guest cannot fix a missing scope without signing in. A
+    // machine token (client credentials) is not a guest, and passes: nothing in it says it is not an account.
+    // It fails closed: any Session that is not signed in is refused, and so is a token that carries the guest markers,
+    // whether or not api-js found a Session in it (the markers of Anonymous Sessions are the same, and `act` is a beta
+    // claim whose members can change).
+    if (requireAccount && ((poppy !== undefined && poppy.state !== 'signed_in') || isGuestToken(claims as Token))) {
+      sendAccountRequired(res, scope);
+      return false;
+    }
+
     if (scope.length > 0 && !validateScopes(claims as Token, scope)) {
-      sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes', scope);
+      sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes', scope, { dpop: true });
       return false;
     }
 
@@ -236,14 +252,27 @@ async function verifyAndAnswer(
     return false;
   }
 
-  if (poppy !== undefined && requireSession) {
+  // A Session alone is no account, so a route that needs one never runs for it, whatever `requireSession` says.
+  if (poppy !== undefined && requireSession && !requireAccount) {
     req.auth0.poppy = poppy;
     return true;
   }
 
-  // Nothing above lets the request through, so it is refused as a request with no access token is without Poppy.
-  res.status(401).header('WWW-Authenticate', 'Bearer').end();
+  // Nothing above lets the request through, so it is refused as a request with no access token is.
+  sendNoCredentials(res);
   return false;
+}
+
+/**
+ * Answers a request that carries no account where the route needs one: the sign-in challenges that name the scopes of
+ * the route, or, for a route without scopes, the answer for a request with no credentials.
+ */
+function sendAccountRequired(res: Response, scope: string[]): void {
+  if (scope.length > 0) {
+    sendHttpError(res, new SignInRequiredError({ scope }));
+  } else {
+    sendNoCredentials(res);
+  }
 }
 
 /**
@@ -257,6 +286,23 @@ function splitScopes(scopes: RequiresAuthOptions['scopes']): string[] {
     .filter((scope) => scope !== '');
 }
 
+const INVALID_REQUIRE_ACCOUNT =
+  'The requireAccount option of requiresAuth() must be true or false. A value that is not a boolean could leave a route that needs an account open to a guest.';
+
+const INVALID_SCOPE =
+  'A scope of requiresAuth() must not contain a double quote, a backslash, a space or a character outside printable ASCII, as no scope token of RFC 6749 does.';
+
+/**
+ * Throws for a `requireAccount` that is set and is not a boolean, such as `'true'` or `1`. A route that reads it from a
+ * setting would otherwise lose the check without any message. The error ends in the fixed error for `next()`, as a
+ * blank `scopes` does.
+ */
+function assertRequireAccountIsBoolean(requireAccount: unknown): void {
+  if (requireAccount !== undefined && typeof requireAccount !== 'boolean') {
+    throw new Error(INVALID_REQUIRE_ACCOUNT);
+  }
+}
+
 /**
  * Throws for a `scopes` option that is not empty but names no scope, such as `' '` or `['']`. `''` and `[]` say that
  * the route needs no scope. These say nothing, which can only be a mistake of the route, such as a list built from a
@@ -267,6 +313,34 @@ function assertScopesNameAScope(scopes: RequiresAuthOptions['scopes']): void {
   if (scopes?.length && splitScopes(scopes).length === 0) {
     throw new Error(BLANK_SCOPES);
   }
+  // The same rule for every request, so a scope that no challenge can hold is found at once, and not only by the
+  // request that happens to need the challenge.
+  if (splitScopes(scopes).some((scope) => !SCOPE_TOKEN.test(scope))) {
+    throw new Error(INVALID_SCOPE);
+  }
+}
+
+// A scope token of RFC 6749 (section 3.3): printable ASCII without space, double quote and backslash.
+const SCOPE_TOKEN = /^[\x21\x23-\x5b\x5d-\x7e]+$/;
+
+const GUEST_SUBJECT_PREFIX = 'anon_poppy@';
+const ANONYMOUS_SUBJECT_PROFILE = 'urn:auth0:anonymous_user';
+
+/**
+ * Whether the claims of a verified access token are the ones of a guest, an anonymous user: `sub_profile` lists
+ * `urn:auth0:anonymous_user` (as a string of words, or as a list), or `sub` starts with `anon_poppy@`. These are the two
+ * markers that `@auth0/auth0-api-js` reads. It reads them only for a token that holds a Poppy Session, so a token that
+ * carries the markers and no Session would reach the route as an account without this check. Only the claims of the
+ * token itself are read, never `act`.
+ */
+function isGuestToken(claims: Token): boolean {
+  const profile: unknown = claims.sub_profile;
+  const words = typeof profile === 'string' ? profile.split(/\s+/) : Array.isArray(profile) ? profile : [];
+
+  return (
+    words.includes(ANONYMOUS_SUBJECT_PROFILE) ||
+    (typeof claims.sub === 'string' && claims.sub.startsWith(GUEST_SUBJECT_PREFIX))
+  );
 }
 
 /**
@@ -281,7 +355,17 @@ function sendHttpError(res: Response, error: unknown): void {
     throw error;
   }
 
-  res.status(response.status).set(response.headers);
+  // The text of a challenge can come from the client (a library error that quotes a JWT header, for example), and a
+  // header cannot hold a control character: `set` would throw, and the request would end as a 500. So every character
+  // outside printable ASCII becomes `?`.
+  const headers = Object.fromEntries(
+    Object.entries(response.headers).map(([name, value]) => [
+      name,
+      Array.isArray(value) ? value.map(printable) : printable(String(value)),
+    ])
+  );
+
+  res.status(response.status).set(headers);
 
   if (response.body === undefined) {
     res.end();

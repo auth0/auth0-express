@@ -49,7 +49,17 @@ const server = setupServer(
 );
 
 beforeAll(async () => {
-  server.listen({ onUnhandledRequest: 'bypass' });
+  server.listen({
+    // A request to the app under test, which listens on this machine, goes through. Any other request that no handler
+    // covers is stopped (`print.error()` alone only prints, and the request would reach the real host), and the test
+    // fails in `afterEach`.
+    onUnhandledRequest: (request, print) => {
+      if (['127.0.0.1', 'localhost', '[::1]'].includes(new URL(request.url).hostname)) return;
+      unhandled.push(`${request.method} ${request.url}`);
+      print.error();
+      throw new Error(`A request has no handler: ${request.method} ${request.url}`);
+    },
+  });
   const keys = await generateKeyPair('RS256');
   privateKey = keys.privateKey;
   publicJwk = await exportJWK(keys.publicKey);
@@ -59,7 +69,11 @@ beforeAll(async () => {
 // The servers that the current test started.
 const servers: Server[] = [];
 
+// The requests that no handler covers and that are not for the app under test.
+const unhandled: string[] = [];
+
 afterEach(async () => {
+  expect(unhandled.splice(0), 'requests that no msw handler covers').toEqual([]);
   hits.discovery = 0;
   hits.jwks = 0;
 
@@ -90,6 +104,7 @@ function start(poppy: Auth0ApiPoppyOptions = {}) {
   return serve(
     createApp({
       publicOrigin: PUBLIC_ORIGIN,
+      agents: [agent.cimdUrl],
       agentMetadata: { fetch: agent.fetch },
       ...poppy,
     })
@@ -115,6 +130,41 @@ function session(method: string, path: string, options: Partial<TestSessionJwtOp
 // An access token for the API, as Auth0 issues it to the agent once the user has signed in.
 function makeToken() {
   return new SignJWT({ azp: agent.cimdUrl, scope: 'orders:write' })
+    .setProtectedHeader({ alg: 'RS256', kid: KID })
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
+    .setSubject('auth0|user_123')
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(privateKey);
+}
+
+// The access token of the web app of a guest: an anonymous user whom the agent joined to the web app before they signed
+// in. It is a valid token with the scope, but it has no account behind it, and its `act` claim holds the Session.
+function makeGuestToken() {
+  return new SignJWT({
+    azp: 'web_app',
+    scope: 'orders:write',
+    sub_profile: 'user urn:auth0:anonymous_user',
+    act: { sub: agent.cimdUrl, poppy_sid: 'sid_guest', poppy_user_id: 'usr_test' },
+  })
+    .setProtectedHeader({ alg: 'RS256', kid: KID })
+    .setIssuer(ISSUER)
+    .setAudience(AUDIENCE)
+    .setSubject('anon_poppy@b_wzya665QRXJiNwauv_Y69mOaXNyTFMFlpU54QqhHc')
+    .setIssuedAt()
+    .setExpirationTime('1h')
+    .sign(privateKey);
+}
+
+// The access token of the web app that joined an agent to its user, which holds the Session in its `act` claim. `sub` is
+// a signed-in user, so only the agent decides what happens.
+function makeWebAppToken(agentId: string) {
+  return new SignJWT({
+    azp: 'web_app',
+    scope: 'orders:write',
+    act: { sub: agentId, poppy_sid: 'sid_web_app', poppy_user_id: 'usr_test' },
+  })
     .setProtectedHeader({ alg: 'RS256', kid: KID })
     .setIssuer(ISSUER)
     .setAudience(AUDIENCE)
@@ -189,6 +239,64 @@ describe('example-express-api-poppy', () => {
     expect(hits.jwks).toBeGreaterThan(0);
   });
 
+  test('does not let a guest place an order, though its token has the scope', async () => {
+    const api = await start();
+    const token = await makeGuestToken();
+
+    const res = await api.post('/api/orders').set('Authorization', `Bearer ${token}`);
+
+    const challenges = headerLines(res, 'www-authenticate');
+    expect(res.status).toBe(401);
+    // One challenge for Bearer and one for DPoP, both naming the scope. The loop alone would pass with none.
+    expect(challenges).toHaveLength(2);
+    for (const challenge of challenges) {
+      expect(challenge).toContain('scope="orders:write"');
+    }
+    expect(res.body).toEqual({});
+  });
+
+  test('refuses the token Session of an agent that is not on the list, though the web app that joined it is', async () => {
+    const api = await start();
+    const unlisted = await makeWebAppToken('https://attacker.example/agent.json');
+    const listed = await makeWebAppToken(agent.cimdUrl);
+
+    const refused = await api.get('/api/cart').set('Authorization', `Bearer ${unlisted}`);
+    const accepted = await api.get('/api/cart').set('Authorization', `Bearer ${listed}`);
+
+    // The `agents` option filters the header only, so the app checks the agent of a token Session itself.
+    expect(refused.status).toBe(403);
+    expect(refused.body.error).toBe('agent_not_allowed');
+    expect(accepted.status).toBe(200);
+  });
+
+  test('answers an error with a JSON body that has no detail', async () => {
+    const failing = new (class extends MemoryPoppySessionStore {
+      override async get(): Promise<PoppySessionRecord | undefined> {
+        throw new Error('db down at /srv/shop/secret-path');
+      }
+    })();
+    const api = await start({ sessionStore: failing });
+
+    const res = await api.get('/api/cart').set(withVersion(await session('GET', '/api/cart')));
+
+    expect(res.status).toBe(500);
+    expect(res.body).toEqual({ error: 'server_error' });
+    expect(res.text).not.toContain('secret-path');
+  });
+
+  test('answers a body that is not JSON with 400, and no stack', async () => {
+    const api = await start();
+
+    const res = await api
+      .post('/api/cart/items')
+      .set(withVersion(await session('POST', '/api/cart/items')))
+      .set('Content-Type', 'application/json')
+      .send('{ not json');
+
+    expect(res.status).toBe(400);
+    expect(res.body).toEqual({ error: 'invalid_request' });
+  });
+
   test('refuses an expired delegation', async () => {
     const api = await start();
     const sessionJwt = await session('GET', '/api/cart', { defect: 'expired_delegation' });
@@ -255,6 +363,19 @@ describe('example-express-api-poppy', () => {
 
     expect(res.status).toBe(400);
     expect(res.body.error).toBe('invalid_request');
+  });
+});
+
+describe('createApp', () => {
+  test.each([
+    ['no agents', undefined],
+    ['an empty list of agents', []],
+  ])('does not start with %s', (_label, agents) => {
+    expect(() => createApp({ publicOrigin: PUBLIC_ORIGIN, agents })).toThrow('Set POPPY_AGENTS');
+  });
+
+  test('does not start without a public origin', () => {
+    expect(() => createApp({ agents: [agent.cimdUrl] })).toThrow('Set API_PUBLIC_ORIGIN');
   });
 });
 

@@ -167,7 +167,7 @@ app.get('/cart', requiresAuth({ poppy: { requireSession: true } }), (req, res) =
 });
 ```
 
-Set `publicOrigin` to the public origin of your API, such as `https://api.example.com`. If a `poppy` option is invalid, `createAuth0Api()` throws at startup ([Configure the router](./EXAMPLES.md#configure-the-router) lists the options). Pass a `sessionStore`: without one, the SDK cannot see that a known Session ID came back with another User ID, so a cart keyed by `poppy.key` could be shared ([spec 5.3, step 4](https://personalagentprotocol.org/docs/1.0/spec#session-verification)).
+`publicOrigin` is required: set it to the public origin of your API, such as `https://api.example.com`, or `createAuth0Api()` throws. If a `poppy` option is invalid, `createAuth0Api()` throws at startup ([Configure the router](./EXAMPLES.md#configure-the-router) lists the options). Pass a `sessionStore`: without one, the SDK keeps no record of a Session, so it cannot refuse a Session that has ended ([spec 5.5](https://personalagentprotocol.org/docs/1.0/spec#ending-sessions)). Key your data by `req.auth0.poppy.key` either way: it holds the agent, the Session ID and the User ID, so two users who picked the same Session ID have two keys.
 
 See [Personal Agents (Poppy)](./EXAMPLES.md#personal-agents-poppy) for the options, the routes, the error responses, Session records, registered agents and testing.
 

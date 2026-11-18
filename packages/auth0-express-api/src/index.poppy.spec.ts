@@ -1,17 +1,29 @@
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 import type { Mock } from 'vitest';
+import { createServer, request as httpRequest } from 'node:http';
 import type { IncomingMessage } from 'node:http';
+import type { AddressInfo } from 'node:net';
 import { setupServer } from 'msw/node';
 import { http, HttpResponse } from 'msw';
 import * as jose from 'jose';
 import express from 'express';
 import type { ErrorRequestHandler, Request, RequestHandler, Router } from 'express';
 import request from 'supertest';
-import { PoppySessionStore, createAuth0Api, requiresAuth, scopesInclude } from './index.js';
+import {
+  InvalidConfigurationError,
+  PoppySessionStore,
+  claimCheck,
+  claimEquals,
+  claimIncludes,
+  createAuth0Api,
+  requiresAuth,
+  scopesInclude,
+} from './index.js';
 import type { Auth0ApiPoppyOptions, PoppySessionRecord } from './index.js';
 import { createTestAgent } from './testing.js';
 import type { TestAgent, TestSessionJwtOptions } from './testing.js';
 import { serve } from './test-utils/serve.js';
+import { failOnExternalRequests } from './test-utils/unhandled.js';
 import { generateToken, jwks } from './test-utils/tokens.js';
 
 // A Personal Agent sends `Poppy-Version` with every request that has the `Poppy-Session` header, and the SDK refuses a
@@ -49,9 +61,12 @@ const server = setupServer(
 
 let agent: TestAgent;
 let agentFetch: Mock<typeof fetch>;
+const unhandled: string[] = [];
 
 beforeAll(async () => {
-  server.listen({ onUnhandledRequest: 'bypass' });
+  // A request to the app under test goes through. Any other request that no handler covers is stopped, and the test
+  // fails in `afterEach`, so that a call to a real host cannot pass unseen.
+  server.listen({ onUnhandledRequest: failOnExternalRequests(unhandled) });
   agent = await createTestAgent();
   agentFetch = vi.fn(agent.fetch);
 });
@@ -70,6 +85,7 @@ interface Seen {
 let seen: Seen = { runs: 0 };
 
 afterEach(() => {
+  expect(unhandled.splice(0), 'requests that no msw handler covers').toEqual([]);
   hits.discovery = 0;
   hits.jwks = 0;
   agentFetch.mockClear();
@@ -101,6 +117,14 @@ function addRoutes(router: Router) {
   router.get('/cart', requiresAuth({ poppy: { requireSession: true } }), handler);
   router.post('/orders', requiresAuth({ scopes: 'orders:write', poppy: { requireSession: true } }), handler);
   router.get('/cart/scoped', requiresAuth({ poppy: { requireSession: true } }), scopesInclude('orders:read'), handler);
+  // Routes whose claim middleware refuses the token: they answer with the challenges of a router with poppy.
+  router.get('/claims/equals', requiresAuth(), claimEquals('tier', 'gold'), handler);
+  router.get('/claims/includes', requiresAuth(), claimIncludes('roles', ['admin']), handler);
+  router.get('/claims/check', requiresAuth(), claimCheck(() => false), handler);
+  // Routes that need the account of a signed-in user: a guest, whose token has the scopes, must not reach them.
+  router.post('/orders/place', requiresAuth({ scopes: 'orders:write', poppy: { requireAccount: true } }), handler);
+  router.get('/account', requiresAuth({ poppy: { requireAccount: true } }), handler);
+  router.get('/account/cart', requiresAuth({ poppy: { requireSession: true, requireAccount: true } }), handler);
 }
 
 // A new router, and with it a new ApiClient with cold caches, for every test.
@@ -116,6 +140,32 @@ async function makeApp(poppy?: Partial<Auth0ApiPoppyOptions>, mount = '') {
   app.use(mount, router);
   app.use(recordError);
   return { app, api: await serve(app) };
+}
+
+// Sends `GET <target>` with the request target exactly as given, which a client library would not let a test do: an
+// absolute-form target (`https://host/path`) is a valid request line that a proxy sends.
+async function getWithTarget(app: express.Express, target: string, headers: Record<string, string>) {
+  const server = createServer(app);
+  await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+
+  try {
+    const { port } = server.address() as AddressInfo;
+    return await new Promise<{ status: number; body: Record<string, unknown> | null }>((resolve, reject) => {
+      const outgoing = httpRequest({ host: '127.0.0.1', port, method: 'GET', path: target, headers }, (response) => {
+        const chunks: Buffer[] = [];
+        response.on('data', (chunk: Buffer) => chunks.push(chunk));
+        response.on('end', () => {
+          const text = Buffer.concat(chunks).toString();
+          resolve({ status: response.statusCode ?? 0, body: text === '' ? null : JSON.parse(text) });
+        });
+      });
+      outgoing.on('error', reject);
+      outgoing.end();
+    });
+  } finally {
+    server.closeAllConnections();
+    server.close();
+  }
 }
 
 // The URL an agent signs a Session JWT for: the public origin of the API and the path it calls.
@@ -194,10 +244,11 @@ function expectSameToken(received: string | undefined, sent: string) {
   expect(received === sent, 'the route did not get the access token that was sent').toBe(true);
 }
 
-// What a request without an access token gets from `requiresAuth()` on any router: a bare challenge and no body.
+// What a request without an access token gets from `requiresAuth()` on a router with the poppy option: a bare challenge
+// for each of the two schemes it accepts, `Bearer` and `DPoP`, and no body.
 function expectBareChallenge(res: request.Response) {
   expect(res.status).toBe(401);
-  expect(res.headers['www-authenticate']).toBe('Bearer');
+  expect(rawHeaders(res, 'www-authenticate')).toEqual(['Bearer', 'DPoP algs="ES256"']);
   expect(res.text).toBe('');
 }
 
@@ -245,9 +296,11 @@ describe('Poppy requests through createAuth0Api()', () => {
       const res = await api.get('/cart/scoped').set(withVersion(sessionJwt));
 
       expect(res.status).toBe(403);
-      expect(res.headers['www-authenticate']).toBe(
-        'Bearer error="insufficient_scope", error_description="Insufficient scopes", scope="orders:read"'
-      );
+      // `scopesInclude()` names `DPoP` too, because the request went through a router with the poppy option.
+      expect(rawHeaders(res, 'www-authenticate')).toEqual([
+        'Bearer error="insufficient_scope", error_description="Insufficient scopes", scope="orders:read"',
+        'DPoP error="insufficient_scope", error_description="Insufficient scopes", scope="orders:read", algs="ES256"',
+      ]);
       expect(res.body).toEqual({ error: 'insufficient_scope', error_description: 'Insufficient scopes' });
       expect(seen.runs).toBe(0);
     });
@@ -292,16 +345,22 @@ describe('Poppy requests through createAuth0Api()', () => {
       expect(seen.auth0?.poppy?.version).toBe('1.1');
     });
 
-    it('should serve the versions of the versions option', async () => {
-      const { api } = await makeApp({ versions: ['2.0'] });
+    it('should serve the versions of the versions option, by major version', async () => {
+      const { api } = await makeApp({ versions: ['1.2'] });
       const sessionJwt = await session('GET', apiUrl('/cart'));
 
-      const refused = await api.get('/cart').set(withVersion(sessionJwt));
-      const accepted = await api.get('/cart').set({ 'Poppy-Session': sessionJwt, 'Poppy-Version': '2.0' });
+      const refused = await api.get('/cart').set({ 'Poppy-Session': sessionJwt, 'Poppy-Version': '2.0' });
+      const accepted = await api.get('/cart').set(withVersion(sessionJwt));
 
       expect(refused.status).toBe(400);
       expect(refused.body.error).toBe('version_unsupported');
       expect(accepted.status).toBe(200);
+    });
+
+    it.each(['2.0', '0.9', '01.0'])('should fail startup for the version %s, as only 1.x is served', (version) => {
+      const poppy = { publicOrigin, versions: [version] };
+
+      expect(() => createAuth0Api({ domain, audience, poppy })).toThrow(InvalidConfigurationError);
     });
 
     it('should not ask for Poppy-Version on a request that has only an access token', async () => {
@@ -573,6 +632,44 @@ describe('Poppy requests through createAuth0Api()', () => {
     });
   });
 
+  describe('A request target in absolute form', () => {
+    // `GET https://other-api.example/cart HTTP/1.1` is a valid request line, and `req.originalUrl` then holds the whole
+    // URL, with the origin the client chose. The Session is compared with the public origin of the API and the path.
+    it('should compare a Session with the public origin and the path, and not with the origin of the target', async () => {
+      const { app } = await makeApp();
+      const target = 'https://other-api.example/cart';
+      const headers = { Host: 'other-api.example', 'Poppy-Version': '1.0' };
+
+      const accepted = await getWithTarget(app, target, {
+        ...headers,
+        'Poppy-Session': await session('GET', apiUrl('/cart')),
+      });
+      const refused = await getWithTarget(app, target, {
+        ...headers,
+        'Poppy-Session': await session('GET', 'https://other-api.example/cart'),
+      });
+
+      expect(accepted.status).toBe(200);
+      expect(refused.status).toBe(400);
+      expect(refused.body).toMatchObject({ error: 'invalid_session' });
+      expect(seen.runs).toBe(1);
+    });
+
+    it('should refuse a Session that is signed for another path than the one of the target', async () => {
+      const { app } = await makeApp();
+
+      const refused = await getWithTarget(app, 'https://other-api.example/cart', {
+        Host: 'other-api.example',
+        'Poppy-Version': '1.0',
+        'Poppy-Session': await session('GET', apiUrl('/orders')),
+      });
+
+      expect(refused.status).toBe(400);
+      expect(refused.body).toMatchObject({ error: 'invalid_session' });
+      expect(seen.runs).toBe(0);
+    });
+  });
+
   describe('Session records', () => {
     // A Session store in memory. As the contract asks, `set` keeps the record that is there and resolves to the one
     // that is stored afterwards.
@@ -747,6 +844,141 @@ describe('Poppy requests through createAuth0Api()', () => {
     });
   });
 
+  describe('Routes that need the account (requireAccount)', () => {
+    const guestSub = 'anon_poppy@b_wzya665QRXJiNwauv_Y69mOaXNyTFMFlpU54QqhHc';
+
+    // The access token of the web app. Its act claim holds the Session of the agent. A guest has the anonymous markers.
+    function webAppToken(subject: string, claims: Record<string, unknown> = {}) {
+      return generateToken(domain, subject, audience, undefined, undefined, undefined, {
+        azp: 'web_app',
+        scope: 'orders:read orders:write',
+        act: { sub: agent.cimdUrl, poppy_sid: 'sid_from_token', poppy_user_id: 'usr_test' },
+        ...claims,
+      });
+    }
+
+    const guestToken = () => webAppToken(guestSub, { sub_profile: 'user urn:auth0:anonymous_user' });
+
+    it('should not let a guest with the orders:write scope place an order', async () => {
+      const { api } = await makeApp();
+      const token = await guestToken();
+
+      const res = await api.post('/orders/place').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+      expectSignInChallenges(res, 'orders:write');
+      expect(seen.runs).toBe(0);
+    });
+
+    it('should let the same guest through a route that checks only the scopes, which is why the option exists', async () => {
+      const { api } = await makeApp();
+      const token = await guestToken();
+
+      const res = await api.post('/orders').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(seen.auth0?.poppy?.state).toBe('signed_out');
+    });
+
+    it('should answer a guest on a route without scopes as a request with no credentials', async () => {
+      const { api } = await makeApp();
+      const token = await guestToken();
+
+      const res = await api.get('/account').set('Authorization', `Bearer ${token}`);
+
+      expectBareChallenge(res);
+      expect(seen.runs).toBe(0);
+    });
+
+    it('should answer a guest with the sign-in challenges, and not with 403, when the token lacks the scope too', async () => {
+      const { api } = await makeApp();
+      const token = await webAppToken(guestSub, { sub_profile: 'user urn:auth0:anonymous_user', scope: 'orders:read' });
+
+      const res = await api.post('/orders/place').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+      expectSignInChallenges(res, 'orders:write');
+    });
+
+    it('should run the route for a signed-in user whose token has the scope', async () => {
+      const { api } = await makeApp();
+      const token = await webAppToken('user_123');
+
+      const res = await api.post('/orders/place').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(seen.auth0?.poppy).toMatchObject({ state: 'signed_in', source: 'token' });
+      expect(seen.auth0?.user?.sub).toBe('user_123');
+    });
+
+    it('should run the route for an access token with no Session at all', async () => {
+      const { api } = await makeApp();
+      const token = await makeToken({ azp: 'web_app' });
+
+      const res = await api.get('/account').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(200);
+      expect(seen.auth0?.poppy).toBeUndefined();
+    });
+
+    it('should not let a Session without an access token through a route that sets requireSession too', async () => {
+      const { api } = await makeApp();
+      const sessionJwt = await session('GET', apiUrl('/account/cart'));
+
+      const res = await api.get('/account/cart').set(withVersion(sessionJwt));
+
+      expectBareChallenge(res);
+      expect(seen.runs).toBe(0);
+    });
+  });
+
+  describe('Token Session of a linked agent', () => {
+    // The token of an agent that is linked to an Auth0 agent names it by its ID in `act.sub`, and holds the URL of the
+    // agent nowhere. So the key of a Session that arrives in the token is not the key of the same Session in the header.
+    const linkedAct = {
+      sub: 'agt_3Lp9',
+      sub_profile: 'ai_agent',
+      client_id: 'Jf3kPq9Xz2LmN8vTbR5sW1yCdE7hGaUo',
+      iss: issuer,
+      poppy_sid: 'sid_linked',
+      poppy_user_id: 'usr_test',
+    };
+
+    class RecordingStore extends PoppySessionStore {
+      readonly records = new Map<string, PoppySessionRecord>();
+
+      async get(key: string) {
+        return this.records.get(key);
+      }
+
+      async set(key: string, record: PoppySessionRecord) {
+        if (!this.records.has(key)) {
+          this.records.set(key, record);
+        }
+        return this.records.get(key) ?? record;
+      }
+    }
+
+    // This test pins a known limit, not a wish: Auth0 puts no URL of the agent in the token yet. When it does, and
+    // `@auth0/auth0-api-js` keys the token Session by it, the two keys become equal. Flip the assertions then.
+    it('should give the same Session two keys, one from the header and one from the token, and keep two records', async () => {
+      const store = new RecordingStore();
+      const { api } = await makeApp({ sessionStore: store });
+      const sessionJwt = await session('GET', apiUrl('/cart'), { sid: 'sid_linked' });
+      const token = await makeToken({ azp: 'web_app', act: linkedAct });
+
+      await api.get('/cart').set(withVersion(sessionJwt)).expect(200);
+      const fromHeader = seen.auth0?.poppy;
+      await api.get('/cart').set('Authorization', `Bearer ${token}`).expect(200);
+      const fromToken = seen.auth0?.poppy;
+
+      expect(fromHeader).toMatchObject({ source: 'header', agent: { id: agent.cimdUrl }, sessionId: 'sid_linked' });
+      expect(fromToken).toMatchObject({ source: 'token', agent: { id: 'agt_3Lp9' }, sessionId: 'sid_linked' });
+      expect(fromToken?.key).not.toBe(fromHeader?.key);
+      expect([...store.records.keys()].sort()).toEqual([fromHeader?.key, fromToken?.key].sort());
+    });
+  });
+
   describe('Registered agents and verifySession: false', () => {
     it('should refuse the access token of a registered agent that comes without a Poppy-Session header', async () => {
       const { api } = await makeApp({ agents: [agent.cimdUrl] });
@@ -914,7 +1146,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       expect(seen.runs).toBe(0);
     });
 
-    it('should name only the Bearer scheme in the 403 for a DPoP-bound token that lacks a scope', async () => {
+    it('should name the Bearer and the DPoP scheme in the 403 for a DPoP-bound token that lacks a scope', async () => {
       const { api } = await makeApp();
       const key = await makeDpopKey();
       const token = await makeToken({ cnf: { jkt: key.thumbprint }, scope: 'orders:write' });
@@ -925,9 +1157,45 @@ describe('Poppy requests through createAuth0Api()', () => {
       expect(res.status).toBe(403);
       expect(rawHeaders(res, 'www-authenticate')).toEqual([
         'Bearer error="insufficient_scope", error_description="Insufficient scopes", scope="orders:read"',
+        'DPoP error="insufficient_scope", error_description="Insufficient scopes", scope="orders:read", algs="ES256"',
       ]);
       expect(res.body.error).toBe('insufficient_scope');
       expect(seen.runs).toBe(0);
+    });
+
+    it.each([['/claims/equals'], ['/claims/includes'], ['/claims/check']])(
+      'should name the Bearer and the DPoP scheme when the claim middleware of %s refuses the token',
+      async (path) => {
+        const { api } = await makeApp();
+        const token = await makeToken({ azp: 'web_app' });
+
+        const res = await api.get(path).set('Authorization', `Bearer ${token}`);
+
+        expect(res.status).toBe(401);
+        const [bearer, dpop] = expectBearerAndDpopChallenges(res);
+        expect(bearer).toMatch(/^Bearer error="invalid_token", error_description="[^"]+"$/);
+        expect(dpop).toMatch(/^DPoP error="invalid_token", error_description="[^"]+", algs="ES256"$/);
+        expect(res.body.error).toBe('invalid_token');
+        expect(seen.runs).toBe(0);
+      }
+    );
+
+    it('should answer 401 with printable challenges for a JWT whose header holds a CR and an LF', async () => {
+      // jose quotes the `crit` value of the client in its message, and api-js copies the message into the challenge.
+      const { api } = await makeApp();
+      const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+      const header = { alg: 'RS256', typ: 'JWT', crit: ['x\r\nSet-Cookie: a=b'], 'x\r\nSet-Cookie: a=b': true };
+      const token = `${encode(header)}.${encode({ iss: issuer, aud: audience })}.c2ln`;
+
+      const res = await api.get('/profile').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+      expect(res.headers['set-cookie']).toBeUndefined();
+      for (const challenge of rawHeaders(res, 'www-authenticate')) {
+        expect(challenge).toMatch(/^[\x20-\x7e]*$/);
+      }
+      expect(seen.runs).toBe(0);
+      expect(seen.error).toBeUndefined();
     });
 
     describe('an Authorization header that holds no single Bearer or DPoP credential', () => {

@@ -36,7 +36,10 @@ declare global {
          * `undefined` on a request without one, and on any other router. A
          * route that cannot do without it sets `poppy: { requireSession: true }`
          * on `requiresAuth()`, so that a request without a Session never
-         * reaches the route.
+         * reaches the route. Read `poppy.state` on a route that must not serve
+         * a guest: it is `'signed_out'` for the access token of an anonymous
+         * user. A route that needs a signed-in account sets
+         * `poppy: { requireAccount: true }`, and then never runs for a guest.
          *
          * @beta
          */

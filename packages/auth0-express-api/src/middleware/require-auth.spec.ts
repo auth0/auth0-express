@@ -44,6 +44,23 @@ describe('requiresAuth', () => {
     expect(res.status).not.toHaveBeenCalled();
   });
 
+  it('should forward the error to next(), and not reject, when the 401 cannot be written', async () => {
+    // On Express 4 a rejected promise of a handler ends the process. `res.header` can throw, and the promise must not
+    // reject whatever happens.
+    const failure = new Error('res.header failed');
+    verifyAccessToken.mockRejectedValue(Object.assign(new Error('bad token'), { code: 'verify_access_token_error' }));
+    const req = createMockRequest('Bearer a.b.c');
+    const res = createMockResponse();
+    (res.header as ReturnType<typeof vi.fn>).mockImplementation(() => {
+      throw failure;
+    });
+
+    await expect(requiresAuth()(req as Request, res as Response, mockNext as NextFunction)).resolves.toBeUndefined();
+
+    expect(mockNext).toHaveBeenCalledTimes(1);
+    expect(mockNext).toHaveBeenCalledWith(failure);
+  });
+
   it('should return 401 with a bare Bearer challenge when no token is present', async () => {
     const req = createMockRequest();
     const res = createMockResponse();

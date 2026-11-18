@@ -59,7 +59,7 @@ describe('the mark of a Poppy client', () => {
     const client = { verifyPoppyRequest } as unknown as ApiClient;
     markPoppyClient(client);
     const req = { method: 'GET', originalUrl: '/cart', headers: {}, auth0: { client } } as unknown as Request;
-    const res = { status: () => res, header: () => res, end: () => res } as unknown as Response;
+    const res = { status: () => res, header: () => res, set: () => res, end: () => res } as unknown as Response;
     const next = vi.fn<(error?: unknown) => void>();
 
     await requiresAuth()(req, res, next as NextFunction);

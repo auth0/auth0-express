@@ -12,9 +12,9 @@ The example is a small shop API with three routes. The table shows what an agent
 | `POST /api/cart/items` | `201` with the cart, after adding the `sku` of the JSON body (`400` unless the body has a `sku` that is a non-empty string) | The same |
 | `POST /api/orders` | `401`, with challenges that name the `orders:write` scope, so the agent knows what to sign in for | `201` with the account (`sub`) and the items, and the cart is emptied |
 
-Every route sets `poppy: { requireSession: true }` on `requiresAuth()`, so a request needs a verified Session. `POST /api/orders` also sets `scopes: 'orders:write'`, so it needs an access token with that scope too.
+Every route sets `poppy: { requireSession: true }` on `requiresAuth()`, so a request needs a verified Session. `POST /api/orders` also sets `scopes: 'orders:write'`, so it needs an access token with that scope too, and `requireAccount: true`, so that the token must be the one of a signed-in user. A guest is an anonymous user whom the agent joined to a web app before they signed in. Its access token is valid and can hold `orders:write`, because your tenant can grant scopes to guests, but it has no account behind it. With `requireAccount` the guest gets the same `401` as a Session alone (the test `does not let a guest place an order, though its token has the scope`).
 
-The cart belongs to the Session. It is keyed by `req.auth0.poppy.key`. When the user signs in, the agent adds an access token to the same Session, so the key does not change, and the items it added while signed out are still there when it places the order. The key is not the user, because a signed-out request has none. It is also not the Session ID alone, because two agents can pick the same one.
+The cart belongs to the Session. It is keyed by `req.auth0.poppy.key`. When the user signs in, the agent adds an access token to the same Session, so the key does not change, and the items it added while signed out are still there when it places the order. The key is made from the agent, the Session ID and the User ID, which is the pseudonymous ID that the agent gave its user, and not the account. It is not the Session ID alone, because two agents, or two users of one agent, can pick the same one.
 
 The order has the `sub` of the access token, which is the account. `req.auth0.poppy.userId` is not the account: it is the pseudonymous User ID that the agent gave its user for this API, and the example never uses it as one.
 
@@ -54,7 +54,7 @@ This needs an Auth0 tenant that is set up for Poppy, and a Personal Agent to cal
 
    `AUTH0_DOMAIN` and `AUTH0_AUDIENCE` are the domain of your tenant and the identifier of your API. The `aud` of every Session JWT must be the issuer of that domain: `https://`, then the domain, then `/`. The SDK works that out, so you do not set it.
 
-   `POPPY_AGENTS` lists the agents you accept, as URLs separated by commas. Replace the sample URL with the URL of the agent you accept. It is optional, but see [Before you use this in production](#before-you-use-this-in-production).
+   `POPPY_AGENTS` lists the agents you accept, as URLs separated by commas. Replace the sample URL with the URL of the agent you accept. It is required: the app does not start without it, because the carts and the Session store live in memory, and without a list anyone could fill them with Sessions of agents of their own.
 
 2. Set `API_PUBLIC_ORIGIN` to the address that agents call. It must be an `https` origin with no path, and the app does not start without it. It is passed to the SDK as the `publicOrigin` of the `poppy` option. Agents sign each Session for that address and the path they call, and the app checks the Session against `API_PUBLIC_ORIGIN` and the path of the request, never against the `Host` header. The app listens on plain `http`, so to run it on your machine, put a reverse proxy or a tunnel in front of it that ends TLS and forwards to the app, and use its `https` address as `API_PUBLIC_ORIGIN`.
 
@@ -72,10 +72,11 @@ This needs an Auth0 tenant that is set up for Poppy, and a Personal Agent to cal
 
 Before you use this pattern in production:
 
-- **List your agents.** Keep only the agents you accept in `POPPY_AGENTS`. Without a list, any public HTTPS agent URL in a Session makes the app fetch that agent's metadata.
+- **List your agents.** Keep only the agents you accept in `POPPY_AGENTS`. The app needs the list to start. Without one, any public HTTPS agent URL in a Session would make the app fetch that agent's metadata. The list filters the `Poppy-Session` header only. A Session that comes from the access token of a web app names its agent in the token, which the SDK does not compare with the list, so the app does it itself (`listedAgentsOnly` in `src/app.ts`), and a test covers it.
+- **Keep an error handler, and set `NODE_ENV=production`.** `answerError` in `src/app.ts` answers an error with a short JSON body and no detail. Without a handler of your own, the default one of Express shows the stack trace, with the paths of your files, unless `NODE_ENV` is `production`.
 - **Rate limit by agent.** The SDK does no rate limiting. Limit by the verified `req.auth0.poppy.agent.id`, and answer a request over the limit with 429 and a `Retry-After` header ([spec 5.6](https://personalagentprotocol.org/docs/1.0/spec#sending-requests)).
 - **Make the POST routes safe to repeat.** A copied `Poppy-Session` header works again within the `iatWindow` (60 seconds by default), and `POST /api/cart/items` and `POST /api/orders` change state. A real app takes an idempotency key. The SDK keeps no store of used Session JWT `jti`s, although [spec 5.3](https://personalagentprotocol.org/docs/1.0/spec#session-verification) allows refusing a reused one.
-- **Use a database.** The carts and the Session store live in memory, so they are gone when the app stops, they grow without limit, and they are not shared between instances.
+- **Use a database.** The carts and the Session store live in memory, so they are gone when the app stops, they grow with every Session of a listed agent, and they are not shared between instances.
 
 ## More
 

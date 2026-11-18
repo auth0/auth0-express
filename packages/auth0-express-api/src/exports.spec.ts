@@ -1,21 +1,25 @@
-import { describe, it, expect, expectTypeOf } from 'vitest';
+import { describe, it, expect } from 'vitest';
 import * as apiJs from '@auth0/auth0-api-js';
 import * as sdk from './index.js';
 import { getCurrentActor, getDelegationChain, InvalidRequestError } from './index.js';
-import type { HttpErrorResponse, Token } from './index.js';
+import type { Token } from './index.js';
 
 describe('public exports', () => {
   // Values only, since type-only exports leave nothing at runtime.
   it('should export exactly the documented value surface', () => {
     expect(Object.keys(sdk).sort()).toEqual([
       'AuthError',
+      'InvalidConfigurationError',
       'InvalidRequestError',
       'InvalidSessionError',
       'MissingClientAuthError',
       'PoppySessionStore',
+      'PoppyUnavailableError',
       'SessionEndedError',
+      'SignInRequiredError',
       'TokenExchangeError',
       'VerifyAccessTokenError',
+      'VersionUnsupportedError',
       'claimCheck',
       'claimEquals',
       'claimIncludes',
@@ -68,7 +72,16 @@ describe('public exports', () => {
   it('should re-export the Poppy values of @auth0/auth0-api-js', () => {
     // Identity, not just presence: `instanceof` and `extends` only work across the
     // package boundary when these are the very classes and function api-js exports.
-    const names = ['InvalidSessionError', 'PoppySessionStore', 'SessionEndedError', 'toHttpErrorResponse'] as const;
+    const names = [
+      'InvalidConfigurationError',
+      'InvalidSessionError',
+      'PoppySessionStore',
+      'PoppyUnavailableError',
+      'SessionEndedError',
+      'SignInRequiredError',
+      'toHttpErrorResponse',
+      'VersionUnsupportedError',
+    ] as const;
 
     for (const name of names) {
       // Rules out `undefined === undefined`, which a missing export would give.
@@ -77,23 +90,9 @@ describe('public exports', () => {
     }
   });
 
-  it('should re-export the type of the response that toHttpErrorResponse() returns', () => {
-    // A type leaves nothing at runtime, so it is not in the list above. The type check of the specs fails here when the
-    // type is not exported, or is another type than the one the function returns.
-    expectTypeOf(sdk.toHttpErrorResponse).returns.toEqualTypeOf<HttpErrorResponse | undefined>();
-  });
-
-  it('should not export the errors the SDK answers itself, nor the test agent', () => {
-    // The SDK answers these itself, so they are not part of this package's surface.
+  it('should not export the test agent', () => {
     // The test agent is only on the `./testing` entry point.
-    for (const name of [
-      'SignInRequiredError',
-      'PoppyUnavailableError',
-      'InvalidConfigurationError',
-      'createTestAgent',
-    ]) {
-      expect(name in sdk).toBe(false);
-    }
+    expect('createTestAgent' in sdk).toBe(false);
   });
 });
 

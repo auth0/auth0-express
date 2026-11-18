@@ -9,6 +9,7 @@ import { serve } from './test-utils/serve.js';
 
 const domain = 'auth0.local';
 const audience = 'https://api.example.com';
+const publicOrigin = 'https://api.example.com';
 
 function catchError(action: () => unknown): Error {
   try {
@@ -42,10 +43,24 @@ afterEach(() => {
 });
 
 describe('createAuth0Api with the poppy option', () => {
-  it('should build a Poppy client for an empty poppy option', async () => {
-    const client = await clientOf({ poppy: {} });
+  it('should build a Poppy client when only the public origin is set', async () => {
+    const client = await clientOf({ poppy: { publicOrigin } });
 
     expect(isPoppyClient(client)).toBe(true);
+  });
+
+  it.each([
+    ['an empty poppy option', {}],
+    ['verifySession alone', { verifySession: true }],
+    ['agents alone', { agents: ['https://agent.example/agent.json'] }],
+    ['a publicOrigin that is undefined', { publicOrigin: undefined }],
+  ])('should fail startup for %s, as the public origin is required', (_name, poppy) => {
+    const error = catchError(() => createAuth0Api({ domain, audience, poppy }));
+
+    expect(error).toBeInstanceOf(InvalidConfigurationError);
+    expect(error.message).toBe(
+      'Invalid poppy configuration: poppy.publicOrigin is required. Set it to the public origin of your API, such as https://api.example.com.'
+    );
   });
 
   it('should build a Poppy client for the options a developer sets', async () => {
@@ -61,7 +76,7 @@ describe('createAuth0Api with the poppy option', () => {
   });
 
   it('should hand the poppy options to ApiClient, whose own check then reaches the caller', () => {
-    const error = catchError(() => createAuth0Api({ domain, audience, poppy: { iatWindow: -1 } }));
+    const error = catchError(() => createAuth0Api({ domain, audience, poppy: { publicOrigin, iatWindow: -1 } }));
 
     expect(error).toBeInstanceOf(InvalidConfigurationError);
     expect(error.message).toContain('"iatWindow" must be a non-negative number');
@@ -77,11 +92,11 @@ describe('createAuth0Api with the poppy option', () => {
   });
 
   it('should leave the poppy object it was given as it was', async () => {
-    const poppy = { verifySession: true };
+    const poppy = { verifySession: true, publicOrigin };
 
     await clientOf({ poppy });
 
-    expect(poppy).toStrictEqual({ verifySession: true });
+    expect(poppy).toStrictEqual({ verifySession: true, publicOrigin });
   });
 
   it('should build a client that is not a Poppy client without the poppy option', async () => {
@@ -91,7 +106,7 @@ describe('createAuth0Api with the poppy option', () => {
   });
 
   it('should mark only the client that was built with poppy', async () => {
-    const withPoppy = await clientOf({ poppy: {} });
+    const withPoppy = await clientOf({ poppy: { publicOrigin } });
     const withoutPoppy = await clientOf({});
 
     expect(isPoppyClient(withPoppy)).toBe(true);
