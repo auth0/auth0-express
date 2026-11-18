@@ -1,5 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
-import { hasPoppy } from '../poppy/enabled.js';
+import { readUser } from './read-user.js';
 
 /**
  * Options for the requiresAuth middleware.
@@ -65,30 +65,25 @@ export interface RequiresAuthOptions {
 export function requiresAuth(options?: RequiresAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const user = await req.auth0.client.getUser();
+      // A guest cannot sign in here: the login cannot succeed while a guest is in the browser, so a redirect would only
+      // send the guest to Auth0 and back to the `403` of the callback. `readUser()` is one read that tells a guest, a user
+      // and nobody apart, and it looks for the guest first (see there).
+      const { user, guest } = await readUser(req);
 
-      if (!user) {
-        // Check if this is an API request (wants JSON response)
-        const acceptsJson = req.accepts('json') && !req.accepts('html');
+      // Check if this is an API request (wants JSON response)
+      const acceptsJson = req.accepts('json') && !req.accepts('html');
 
-        // A guest cannot sign in here: the login cannot succeed while a guest is in the browser, so a redirect would only
-        // send the guest to Auth0 and back to the `403` of the callback. `getContext()` reads the guest and, when there
-        // is none, the session, and without a user it is the guest that it finds. The switch is read from the client of
-        // the request, not from `req.app.locals`: in a sub-app, `req.app` is not the app that the router is mounted on.
-        if (hasPoppy(req.auth0.client)) {
-          const context = await req.auth0.client.poppy.getContext();
-
-          if (context.kind === 'agent' && context.state === 'guest') {
-            if (options?.onGuest) {
-              return await options.onGuest(req, res, next);
-            }
-
-            return acceptsJson
-              ? res.status(403).json({ error: 'forbidden', message: 'A signed-in user is required' })
-              : res.status(403).type('text/plain').send('A signed-in user is required.');
-          }
+      if (guest) {
+        if (options?.onGuest) {
+          return await options.onGuest(req, res, next);
         }
 
+        return acceptsJson
+          ? res.status(403).json({ error: 'forbidden', message: 'A signed-in user is required' })
+          : res.status(403).type('text/plain').send('A signed-in user is required.');
+      }
+
+      if (!user) {
         if (acceptsJson) {
           return res.status(401).json({
             error: 'unauthorized',

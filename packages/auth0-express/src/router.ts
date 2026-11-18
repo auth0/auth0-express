@@ -20,7 +20,8 @@ import './types/express.js';
  *
  * With the `poppy` option, it reads `poppy.json` once, here, and throws `InvalidConfigurationError` when the
  * file cannot be read or the Poppy config is invalid. The discovery files are served at `/.well-known/...` of the
- * router's mount point, so with `poppy` set, mount the router at the root of the site.
+ * router's mount point, so with `poppy` set, mount the router at the root of the site. The router logs one warning, on
+ * the first request through a sub-path that is not for one of the two files.
  *
  * @param opts - Configuration options for Auth0 authentication
  * @returns Express Router configured with Auth0 authentication
@@ -70,8 +71,21 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
     runWithContext({ request, response }, () => next());
   });
 
+  // Agents fetch the discovery files at the root of the host. The router cannot know its mount path when it is created,
+  // but a request can tell it, so it warns once, on the first request that comes through a sub-path. The text is fixed
+  // and holds no value of the request, because the mount path can hold route parameters.
+  let warnedAboutSubPath = false;
+
   // Attach to request
   router.use((req: Request, res: Response, next: NextFunction) => {
+    if (options.poppy && shouldMountRoutes && req.baseUrl && !warnedAboutSubPath) {
+      warnedAboutSubPath = true;
+      console.warn(
+        '[Auth0] Poppy: the router is mounted under a sub-path, so it serves the discovery files under that path. ' +
+          'Agents fetch them at the root of the host. Mount the router at the root of the site.'
+      );
+    }
+
     req.auth0 = { client: auth0Client };
     req.app.locals.auth0Client = auth0Client;
     req.app.locals.auth0ClientOptions = options;

@@ -36,6 +36,7 @@
   - [What changes when you turn on Poppy](#what-changes-when-you-turn-on-poppy)
   - [Set up Auth0 and the config file](#set-up-auth0-and-the-config-file)
   - [Scopes](#scopes)
+  - [The audience of your login route](#the-audience-of-your-login-route)
   - [Serve the discovery files](#serve-the-discovery-files)
   - [Read who is driving the browser](#read-who-is-driving-the-browser)
   - [Guard pages from guests](#guard-pages-from-guests)
@@ -906,18 +907,18 @@ app.use(createAuth0({
 
 ## Personal Agent Protocol (Poppy)
 
-With the `poppy` option, your Express website can take part in [Poppy (Personal Agent Protocol) 1.0](https://personalagentprotocol.org/docs/1.0/spec#web-browsing) web browsing. A Personal Agent is software that acts for a user. It drives a browser of its own, and that browser joins the agent's Session before it visits your website. A runnable example is in [`examples/example-express-web-poppy`](../../examples/example-express-web-poppy).
+With the `poppy` option, your Express website can take part in [Poppy (Personal Agent Protocol)](https://personalagentprotocol.org/docs/spec#web-browsing) web browsing. The support is in beta, and it is not tied to one protocol version: the package serves your `poppy.json` as written. A Personal Agent is software that acts for a user. It drives a browser of its own, and that browser joins the agent's Session before it visits your website. A runnable example is in [`examples/example-express-web-poppy`](../../examples/example-express-web-poppy).
 
 ### What changes when you turn on Poppy
 
 Turn it on with `poppy: true`. When an agent's browser joins your website, this happens:
 
 1. The agent's browser opens the Auth0 page at `web.browser_session_endpoint` of your config file.
-2. Auth0 sends it to your Application Login URI, `https://<site>/auth/login`, as a [third-party initiated login](https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin), with `iss` and `target_link_uri` in the query.
-3. The login route reads them and starts a normal login. It uses `target_link_uri` as the landing page only when `iss` is your issuer and the target is a page of your site.
+2. Auth0 sends it to your Application Login URI, `https://<site>/auth/login`, as a [third-party initiated login](https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin). The query can carry `iss` and `target_link_uri`.
+3. The login route reads them when they are there, and starts a normal login. It uses `target_link_uri` as the landing page only when `iss` is your issuer and the target is a page of your site.
 4. The callback turns the result into a guest or a signed-in agent. A guest has not signed in, and is kept in its own encrypted `__Host-a0_poppy` cookie. A signed-in agent is a normal session whose `act` claim names the agent.
 
-Auth0 is expected to send both parameters. Today's builds add neither. The login route works with or without them: without a usable `target_link_uri`, the browser lands on the home page of your site.
+The login route works whether or not Auth0 sends `iss` and `target_link_uri`. Without a usable `target_link_uri`, the browser lands on the home page of your site. When the browser already has a login that a join may not replace, Auth0 shows its own `session_conflict` page, and nothing reaches your app.
 
 Without the option, nothing changes. This is what `poppy` changes:
 
@@ -925,8 +926,8 @@ Without the option, nothing changes. This is what `poppy` changes:
 | --- | --- | --- |
 | `/.well-known/poppy.json` and `/.well-known/oauth-protected-resource` | Not served by the router | Served on `GET` and `HEAD`, before any cookie or session handling |
 | `/auth/login` | Sends `iss` and `target_link_uri` on to `/authorize`, like any other parameter | Ignores an `iss` that is not your issuer, and never refuses a request for it. Sends neither `iss` nor `target_link_uri` on. Lands on a valid `returnTo`, or else on the `target_link_uri` of your site when `iss` is your issuer |
-| `/auth/callback` | Any failure answers `500` | Turns an agent's join into a guest or a signed-in agent. A refused login and an ended session get their own status (see [Poppy errors](#poppy-errors)) |
-| `/auth/logout` | Ends the session | Also drops the guest. When the browser held a guest, it redirects to `/v2/logout` of your tenant, because the OIDC logout endpoint fails for a guest (see [Sign out a guest](#sign-out-a-guest)) |
+| `/auth/callback` | Any failure answers `500` | Turns an agent's join into a guest or a signed-in agent. A refused login and an ended session get `403` (see [Poppy errors](#poppy-errors)) |
+| `/auth/logout` | Ends the session | Also drops the guest. When the browser held a guest, or holds no session at all, it redirects to `/v2/logout` of your tenant, because the OIDC logout endpoint fails for a guest (see [Sign out a guest](#sign-out-a-guest)) |
 | `getUser()` and `requiresAuth()` | See the signed-in user | The same for a user. A guest is not a user, so `requiresAuth()` answers a guest with `403` (or calls `onGuest`) and never redirects it. The SDK never writes a guest and a person's session together (see [Guard pages from guests](#guard-pages-from-guests)) |
 | `req.auth0.client.poppy` | Throws `InvalidConfigurationError` | Is there |
 
@@ -937,21 +938,20 @@ Without the option, nothing changes. This is what `poppy` changes:
 
 A custom `sessionStore`, `legacyCompatibility`, `anonymousSessions` and `pushedAuthorizationRequests` work with `poppy`.
 
-**What a join does to an anonymous session.** A guest join leaves the anonymous session alone, because a guest is not a user. A signed-in agent's join clears it, as a normal login does, unless `anonymousSessions.clearOnLogin` is `false`. A guest that has ended brings the anonymous visitor back. If you merge what a visitor did before they logged in, see [Merging what the visitor did before they logged in](#merging-what-the-visitor-did-before-they-logged-in): it applies to a signed-in agent's join in the same way.
+**What a join does to an anonymous session.** Every join of an agent clears the regular anonymous session of the browser, a guest's join too, as a normal login does, unless `anonymousSessions.clearOnLogin` is `false`. A guest is not a user, but the browser is the agent's now, and a leftover anonymous session would answer for it and would be linked to the next person's account. So a guest that has ended does not bring the anonymous visitor back. If you merge what a visitor did before they logged in, see [Merging what the visitor did before they logged in](#merging-what-the-visitor-did-before-they-logged-in): it applies to a signed-in agent's join. With `clearOnLogin: false` a guest join keeps the anonymous session too, and the merge sample does not run for a guest, because `requiresAuth()` stops it, so clear that session yourself.
 
 ### Set up Auth0 and the config file
 
-**Auth0.** The application of your site is a Regular Web Application and a first-party application, which is the default for the applications that you create in the Dashboard. Set its **Application Login URI** to `https://<site>/auth/login`, and keep `https://<site>/auth/callback` in its **Allowed Callback URLs**. Turn `poppy` on in your app before you set the Application Login URI. Without it, the login route sends `iss` and `target_link_uri` on to `/authorize`, and a join makes an ordinary session.
+**Auth0.** Poppy is in beta on Auth0, so your tenant needs it enabled. The application of your site is a Regular Web Application and a first-party application, which is the default for the applications that you create in the Dashboard. Turn `poppy` on in your app before you run the setup below. Without it, the login route sends `iss` and `target_link_uri` on to `/authorize`, and a join makes an ordinary session. A session that such a join made stays an ordinary session when you turn `poppy` on later, and it passes as a user, so turn `poppy` on first.
 
-The application needs a few more settings. Auth0 checks them when an agent's browser joins, and it refuses the join with an error page when one is missing:
+Set up the application with the Auth0 CLI:
 
-- It is a first-party application.
-- It has an HTTPS Application Login URI, as above.
-- It allows the browser join of a Personal Agent: `allow_personal_agent_browser_join` in the Management API (only a first-party application can have it).
-- It accepts session transfer tokens by cookie: `session_transfer.allowed_authentication_methods` includes `"cookie"`.
-- It keeps device binding for delegated session transfer: `session_transfer.delegation.enforce_device_binding` is `"ip"`, which is the default.
+```sh
+auth0 poppy setup --company-domain <your-domain>
+auth0 poppy config
+```
 
-These are Auth0's beta settings, so their names may change. The technical details of the error page say which one is missing, for example `target client does not accept session transfer tokens by cookie`.
+`auth0 poppy setup` configures your application for the browser join of an agent, asks you for its Application Login URI (give it `https://<site>/auth/login`, and it must be HTTPS), and writes `poppy.json`. `auth0 poppy config` writes the file again from the tenant. Keep `https://<site>/auth/callback` in the **Allowed Callback URLs** of the application. When the application is not set up for the join, Auth0 refuses it with an error page.
 
 **The file.** Your website describes itself to agents in `poppy.json`, the file that `auth0 poppy config` writes. Pass it as it is: this package serves it as written, and it needs no change or cast. You can also write it by hand. `PoppyConfig`, the type of the parsed file, names the two members that this package reads. Every other member is kept and served as it is, so a member that a later version of the protocol or of the CLI adds needs no change here.
 
@@ -959,7 +959,7 @@ These are Auth0's beta settings, so their names may change. The technical detail
 | --- | --- | --- |
 | `protocol_version` | The Poppy version that the file is written for, such as `"1.0"` | No |
 | `organization.name` | The name of your organization | No |
-| `organization.domain` | The host that serves `poppy.json`: lowercase, with its port when the port is not 443 (`localhost:3000`, `shop.example.com:8443`), and with no scheme or path ([spec 3.1](https://personalagentprotocol.org/docs/1.0/spec#fields)) | Yes |
+| `organization.domain` | The host that serves `poppy.json`: lowercase, with its port when the port is not 443 (`localhost:3000`, `shop.example.com:8443`), and with no scheme or path ([spec 3.1](https://personalagentprotocol.org/docs/spec#fields)) | Yes |
 | `auth.issuer` | Your Auth0 issuer. It must be exactly `https://<AUTH0_DOMAIN>/`, with the trailing slash | Yes |
 | `auth.scopes`, `auth.scope_hints` | The scopes of your website, and for each scope whether it `changes` data (`none`, `reversible` or `irreversible`) and uses `personal_data` | Only by `verifyConfig()`, which reads the names of the scopes (see [Serve the discovery files](#serve-the-discovery-files)) |
 | `apis` | Your APIs: each has a `type`, a `url` and a `description` | No |
@@ -1034,7 +1034,7 @@ app.use(createAuth0({
 | `config` | none | The parsed `poppy.json` that `auth0 poppy config` writes, as it is. When set, no file is read and `configPath` is ignored |
 | `configPath` | `'poppy.json'` | Where to read the file: a path, or a `file:` URL object. A relative path is resolved against `process.cwd()` |
 | `guestStore` | the built-in `StatelessPoppyGuestStore`, which keeps the guest in an encrypted cookie | Your own store for guests, such as one backed by Redis. When set, `cookie` is ignored. It must tell one browser from another (see [Custom guest store](#custom-guest-store)) |
-| `cookie` | `{ sameSite: 'lax', secure: true, path: '/' }` | Attributes of the guest cookie. It does not follow `sessionConfiguration.cookie`, and it is ignored with `guestStore`. With these defaults the cookie is named `__Host-a0_poppy`: the `__Host-` prefix makes a browser refuse it from a sibling host, from a `Domain` attribute and from a plain HTTP page, so another site on your domain cannot plant a guest in a visitor's browser. With `secure: false` or another `path` (local development), a browser would refuse the prefix, so the cookie is named `__a0_poppy` and has no such protection. The name cannot be changed, so do not set `sessionConfiguration.cookie.name` or `anonymousSessions.identifier` to a prefix of it, such as `__a0_pop` |
+| `cookie` | `{ sameSite: 'lax', secure: true, path: '/' }` | Attributes of the guest cookie. It does not follow `sessionConfiguration.cookie`, and it is ignored with `guestStore`. With these defaults the cookie is named `__Host-a0_poppy`: the `__Host-` prefix makes a browser refuse it from a sibling host, from a `Domain` attribute and from a plain HTTP page, so another site on your domain cannot plant a guest in a visitor's browser. With `secure: false` or another `path` (local development), a browser would refuse the prefix, so the cookie is named `__a0_poppy` and has no such protection. The name cannot be changed. `createAuth0()` throws `InvalidConfigurationError` at startup when `sessionConfiguration.cookie.name` or `anonymousSessions.identifier` is the same as the name, the start of it (such as `__a0_pop`), or starts with the name and a dot, because the cookie-backed stores find their cookies by the start of the name. The message calls the options `stateIdentifier` and `anonymousSessionIdentifier` |
 | `agentSessionMaxAge` | `7200` | The longest one login of an agent on your website lasts, in seconds (a new login starts a new deadline): a whole number above 30, because a session ends 30 seconds before its deadline. It can end sooner because of the `exp` or the `session_expiry` of the ID token. This package does not see the end of the agent's Poppy Session |
 | `protectedResource` | inferred from the config | Your own members for the `oauth-protected-resource` document ([RFC 9728, section 2](https://www.rfc-editor.org/rfc/rfc9728#section-2)). A member you give is served as it is, and a member you leave out is inferred |
 
@@ -1044,7 +1044,7 @@ A custom `guestStore` gets the Express request and response in every call, as `{
 
 ### Scopes
 
-`requiresAuth()` and the claim checks do not look at the scopes of an agent's join. A signed-in agent passes them as the user, with the full access of the account, whatever scopes the user approved. The specification says a website must either apply the scopes of the file or say that it does not, with `web.unscoped: true`, because agents and users read that member before they approve a scope. So decide once:
+`requiresAuth()` and the claim checks do not look at the scopes of an agent's join. A signed-in agent passes them as the user, with the full access of the account, whatever scopes the user approved. On a signed-in join, Auth0 does narrow the **access token** that your web app gets, to the scopes of the agent, when your login route asks for the audience of the token of the join (see [The audience of your login route](#the-audience-of-your-login-route)). It does not narrow the ID token, `/userinfo` or the claims of the session, and this package applies no scopes to your routes. The specification says a website must either apply the scopes of the file or say that it does not, with `web.unscoped: true`, because agents and users read that member before they approve a scope. So decide once:
 
 - **Your routes use only `requiresAuth()`:** set `web.unscoped` to `true` in the `poppy.json` that you deploy. This package serves the file as written, so the change is served as it is. The sample file above is the file as the CLI writes it, with `unscoped` at `false`, and it says that scopes apply, which would not be true for such a site.
 - **You apply scopes:** check them in your routes, as this middleware does. A person who logged in on their own has no agent, and the check lets them through.
@@ -1052,6 +1052,7 @@ A custom `guestStore` gets the Express request and response in every call, as `{
 ```ts
 import type { NextFunction, Request, Response } from 'express';
 
+// Put `requiresAuth()` in front of it: a visitor with no session is a `human` context too, and would pass this check.
 function requiresScope(scope: string) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
@@ -1075,16 +1076,31 @@ app.post('/orders/cancel', requiresAuth(), requiresScope('orders:cancel'), (req,
 });
 ```
 
+### The audience of your login route
+
+On a signed-in join, Auth0 ties the session of the browser to the **audience** and the scopes of the access token that the agent used to join. Every login that your login route then starts over that session has to ask for that audience:
+
+- **Set `audience` to the identifier of the API of the agent's token, character for character.** A trailing slash makes it another value. Otherwise Auth0 sends the browser back to your callback with `error=access_denied`, nothing is stored, and the callback answers `500`. The original error is on `error.cause`. The check runs on every login over that session, a login for `openid` only too.
+- **No `audience` means the default audience of your tenant.** That works only when the default audience is the API of the agent's token. A tenant with no default audience always fails.
+
+```ts
+app.use(createAuth0({
+  // ...
+  audience: 'https://shop.example.com', // the identifier of the API that the agent's token is for
+  poppy: true,
+}));
+```
+
 ### Serve the discovery files
 
-With `poppy` set, and `mountRoutes` not `false`, the router serves the two files that agents read, at the paths that the specification fixes ([section 3](https://personalagentprotocol.org/docs/1.0/spec#discovery), [section 3.2](https://personalagentprotocol.org/docs/1.0/spec#oauth-server) and [RFC 9728, section 3](https://www.rfc-editor.org/rfc/rfc9728#section-3)):
+With `poppy` set, and `mountRoutes` not `false`, the router serves the two files that agents read, at the paths that the specification fixes ([section 3](https://personalagentprotocol.org/docs/spec#discovery), [section 3.2](https://personalagentprotocol.org/docs/spec#oauth-server) and [RFC 9728, section 3](https://www.rfc-editor.org/rfc/rfc9728#section-3)):
 
 - `/.well-known/poppy.json`, which is your config file as written.
 - `/.well-known/oauth-protected-resource`, which names your website as the resource and your Auth0 issuer as its authorization server.
 
-Both answer `GET` and `HEAD` with `200`, `content-type: application/json` and `cache-control: public, max-age=300`. For these two methods the router answers before it reads or sets a cookie, so a `GET` or `HEAD` request for a file never touches a session. Other methods such as `POST`, a different case, a trailing slash or an encoded path fall through to the rest of your app, which answers `404` by default.
+Both answer `GET` and `HEAD` with `200`, `content-type: application/json`, `cache-control: public, max-age=300` and `x-content-type-options: nosniff`. For these two methods the router answers before it reads or sets a cookie, so a `GET` or `HEAD` request for a file never touches a session. Other methods such as `POST`, a different case, a trailing slash or an encoded path fall through to the rest of your app, which answers `404` by default.
 
-Mount `createAuth0()` at the root of the site at `https://<organization.domain>`, and before any middleware that sets cookies, such as a session middleware. Middleware that runs first also runs for these two files. A cookie that it sets rides on the answer. The answer carries `cache-control: public, max-age=300`, so a shared cache could keep the cookie. The router does not remove it.
+Mount `createAuth0()` at the root of the site at `https://<organization.domain>`, and before any middleware that sets cookies, such as a session middleware. Middleware that runs first also runs for these two files. The answer carries `cache-control: public, max-age=300`, so a shared cache could keep a cookie that rides on it. The router removes a `Set-Cookie` that such middleware has already set, but not one that is added when the response ends (for example `express-session`).
 
 With the sample file above, the two files look like this as the app sends them. The `Date` and other standard headers are left out:
 
@@ -1093,6 +1109,7 @@ $ curl -i https://shop.example.com/.well-known/poppy.json
 HTTP/1.1 200 OK
 content-type: application/json
 cache-control: public, max-age=300
+x-content-type-options: nosniff
 Content-Length: 596
 
 {"protocol_version":"1.0","organization":{"name":"Shop","domain":"shop.example.com"},"auth":{"issuer":"https://login.shop.example.com/","scopes":{"orders:read":"orders:read","poppy:browser-sign-in":"poppy:browser-sign-in"},"scope_hints":{"orders:read":{"changes":"none","personal_data":true},"poppy:browser-sign-in":{"changes":"none","personal_data":false}}},"apis":[{"type":"openapi","url":"https://shop.example.com/openapi.json","description":"https://shop.example.com"}],"web":{"browser_session_endpoint":"https://login.shop.example.com/poppy/web_app_client/browser-session","unscoped":false}}
@@ -1103,6 +1120,7 @@ $ curl -i https://shop.example.com/.well-known/oauth-protected-resource
 HTTP/1.1 200 OK
 content-type: application/json
 cache-control: public, max-age=300
+x-content-type-options: nosniff
 Content-Length: 99
 
 {"resource":"https://shop.example.com","authorization_servers":["https://login.shop.example.com/"]}
@@ -1110,7 +1128,7 @@ Content-Length: 99
 
 A `HEAD` request gets the same status and headers, with no `Content-Length` and no body.
 
-**Under a sub-path.** If you mount the router under a sub-path (`app.use('/shop', createAuth0({ ... }))`), or a proxy strips a prefix, the files are served under that prefix, for example at `/shop/.well-known/poppy.json`. Agents ask only the root of `organization.domain`, so they do not find them there.
+**Under a sub-path.** If you mount the router under a sub-path (`app.use('/shop', createAuth0({ ... }))`), or a proxy strips a prefix, the files are served under that prefix, for example at `/shop/.well-known/poppy.json`. Agents ask only the root of `organization.domain`, so they do not find them there. The router logs one warning, on the first request through a sub-path that is not for one of the two files. It sees the mount path of Express only, so it cannot see a proxy that strips a prefix.
 
 **With `mountRoutes: false`.** The router then serves neither file. Serve them from a route of your own, after the router:
 
@@ -1139,23 +1157,30 @@ app.get(['/.well-known/poppy.json', '/.well-known/oauth-protected-resource'], (r
   // Not res.send() or res.json(): both add `; charset=utf-8` to the content-type and an ETag,
   // because res.json() calls res.send().
   res.status(document.status);
+  // The files are public and a cache may keep them, so they carry no cookie that earlier middleware set.
+  res.removeHeader('Set-Cookie');
   for (const [name, value] of Object.entries(document.headers)) {
     res.setHeader(name, value);
   }
+  res.setHeader('X-Content-Type-Options', 'nosniff');
   res.end(document.body);
 });
 ```
 
-**Mounting the routes yourself.** With `mountRoutes: false`, the login and callback routes are yours too. Your login route calls `parseLoginInitiation()` first, before anything writes a cookie. It never refuses a request. It gives back `returnTo`, which is the `target_link_uri` when `iss` is your issuer once and the target is a page of your site, and otherwise nothing. A request with an `iss` that cannot be used gets no `returnTo`, one warning with no value of the request is logged, and the login goes on as a normal login. It also gives back `authorizationParams`, which are the other query parameters, and never `iss` or `target_link_uri`. They come from a browser, so pass on only the ones you choose:
+**Mounting the routes yourself.** With `mountRoutes: false`, the login and callback routes are yours too. Your login route calls `parseLoginInitiation()` first, before anything writes a cookie. It never refuses a request. It gives back `returnTo`, which is the `target_link_uri` when `iss` is your issuer once and the target is a page of your site, and otherwise nothing. A request with an `iss` that cannot be used gets no `returnTo`, nothing of the request is logged, and the login goes on as a normal login. It also gives back `authorizationParams`, which are the other query parameters, and never `iss` or `target_link_uri`. They come from a browser, so pass on only the ones you choose:
 
 ```ts
 const APP_BASE_URL = 'https://shop.example.com';
 
 app.get('/custom/login', async (req, res, next) => {
   try {
-    const { returnTo } = req.auth0.client.poppy.parseLoginInitiation(new URL(req.originalUrl, APP_BASE_URL), {
-      appOrigin: APP_BASE_URL,
-    });
+    // Build the URL from the query alone. `req.originalUrl` is the whole URL when a client sends a request target in
+    // absolute form (`GET http://host/path`), and `new URL()` throws for a host that the URL parser refuses.
+    const loginUrl = new URL(APP_BASE_URL);
+    const queryStart = req.originalUrl.indexOf('?');
+    loginUrl.search = queryStart === -1 ? '' : req.originalUrl.slice(queryStart);
+
+    const { returnTo } = req.auth0.client.poppy.parseLoginInitiation(loginUrl, { appOrigin: APP_BASE_URL });
 
     const authorizationUrl = await req.auth0.client.startInteractiveLogin({
       appState: { returnTo: returnTo ?? `${APP_BASE_URL}/` },
@@ -1169,7 +1194,7 @@ app.get('/custom/login', async (req, res, next) => {
 });
 ```
 
-Your callback route finishes the login with `req.auth0.client.completeInteractiveLogin(url)`, where `url` is the full URL of the callback request. This call turns the join into a guest or a signed-in agent. It throws `PoppyError`, `InvalidPoppySessionError` or `SessionExpiredError` for the callback failures in [Poppy errors](#poppy-errors), and you choose the status.
+Your callback route finishes the login with `req.auth0.client.completeInteractiveLogin(url)`, where `url` is the full URL of the callback request. This call turns the join into a guest or a signed-in agent. It throws `PoppyError` or `SessionExpiredError` for the callback failures in [Poppy errors](#poppy-errors), and you choose the status.
 
 **Checking the config against Auth0.** `createAuth0()` does not call `verifyConfig()`. That method compares your config with the metadata of your Auth0 tenant the way an agent does, and returns the problems it finds. An agent that finds a mismatch in the resource or the scopes does not use your discovery files, and it does not say so. The client is reachable through a request, so this middleware, which goes after the router, checks once per process, on the first request, and logs what it finds. It does not make the request wait:
 
@@ -1247,7 +1272,9 @@ app.get('/', async (req, res, next) => {
 
 **The context.** `visitor.poppy` is a `PoppyAgentContext`. It mirrors the ID token of the join: `sub` (the guest, or the user the agent acts for), `sub_profile` when the token has one, the whole `act` claim, and `scopes` (empty for a guest, and the scope of the access token of the join for a signed-in agent). `state` is `'guest'` or `'signed_in'`. `act.sub` is the agent: the URL of its metadata, or the Auth0 id of the agent (`agt_...`) when its client is linked to an agent in the Auth0 dashboard, and then it is not a URL. The Session is named by `act.poppy_sid` and `act.poppy_user_id`, and `act.poppy_agent_id` names the agent inside its Personal Agent. The names of the claims are kept as the token writes them (`sub_profile`, `poppy_sid`).
 
-**Keys.** Keep data that belongs to an agent, such as a cart, under `visitor.poppy.key`. It is an opaque key for this agent, Session and User, and it stays the same when the guest signs in, so the data stays with the agent. It is not the user, because a guest has none. It is not `act.poppy_sid` alone either, because each agent chooses its own Session IDs, so two agents can pick the same one, and one agent can use the same one for two Users (each of them is a Session of its own, with its own key). An API that gets the same agent through its `Poppy-Session` header sees the URL of the agent in both cases, so for a linked agent the key of the API can differ from the key here.
+**Keys.** Keep data that belongs to an agent, such as a cart, under `visitor.poppy.key`. It is an opaque key for this agent, Session and User: a hash of `act.sub`, `act.poppy_sid` and `act.poppy_user_id`. It is not the user, because a guest has none. It is not `act.poppy_sid` alone either, because each agent chooses its own Session IDs, so two agents can pick the same one, and one agent can use the same one for two Users (each of them is a Session of its own, with its own key). An API that gets the same agent through its `Poppy-Session` header sees the URL of the agent in both cases, so for a linked agent the key of the API can differ from the key here.
+
+**The key can change when a guest signs in.** The key stays the same only while those three claims are equal in the guest's join and in the join that signs in. This package does not compare the two joins, because Auth0 issues the Poppy Session, and its members can differ from those of the guest's join. When one of them differs, the key is another one, and what you kept under the key of the guest is not found under the new key. So treat the key as the key of one join. Keep under it data that you can afford to lose when the agent signs in, such as the cart of a guest, which ends at its deadline in any case. The built-in callback deletes the guest as it signs in the agent, so the old key cannot be read afterwards. Only a callback route of your own (`mountRoutes: false`) can read the key with `getVisitor()` before it calls `completeInteractiveLogin()`, and move the data to the new key.
 
 ```ts
 import type { PoppyVisitor } from '@auth0/auth0-express';
@@ -1259,7 +1286,8 @@ function cartKey(visitor: PoppyVisitor): string | undefined {
   }
 
   if (visitor.kind === 'user') {
-    // A signed-in agent keeps the key it had as a guest. A person has no `poppy`, so the account is the key.
+    // A signed-in agent has the key of its own join, which is the key of its guest only when the `act` is the same. A person
+    // has no `poppy`, so the account is the key.
     return visitor.poppy?.key ?? visitor.user.sub;
   }
 
@@ -1269,7 +1297,7 @@ function cartKey(visitor: PoppyVisitor): string | undefined {
 
 **Tokens.** Neither a guest nor a signed-in agent has a refresh token. Each has the access token of its join, and that token is never refreshed.
 
-A guest reads its token with `req.auth0.client.poppy.getGuestAccessToken()`. It gives `undefined` once the token has expired, even while the guest goes on.
+A guest reads its token with `req.auth0.client.poppy.getGuestAccessToken()`. It gives `undefined` once the token has expired, even while the guest goes on. Once the token has expired, the same guest (the same `sub` and the same `act.poppy_sid`) may log in again, for example with a silent login (`/auth/login?prompt=none`), and it gets a new token. A renewal keeps the creation time and the deadline of the first join, so it does not move the end of the guest (the deadline can only get earlier). That holds while the stored guest is still there and more than 30 seconds from its end: a login in the last 30 seconds, after the deadline, or after the guest cookie was cleared is a new guest with a new deadline. Auth0's own session ends two hours after the join, so a silent login after that fails with `login_required`, the callback answers `500`, and the agent has to join again. Do not start a silent login for a guest whose token is still valid: the SDK refuses the same guest then.
 
 A signed-in agent calls `getAccessToken()`, as a person does. When its token has expired, which can be before the session ends, the call rejects with `TokenByRefreshTokenError`. The error comes from the SDK, and this package does not export its class. It is a normal token error, so let it reach your error handler with `next(error)`:
 
@@ -1295,7 +1323,9 @@ app.get('/api/orders', requiresAuth(), async (req, res, next) => {
 
 ### Guard pages from guests
 
-`requiresAuth()` does not let a guest pass, and it does not send a guest to the login route. A guest cannot sign in on your website: the person the agent acts for signs in through the agent, and the agent then joins again. Auth0 can keep the anonymous session of the join for single sign-on, so the login route can bring back the same guest, and the SDK refuses a person's login and the same guest coming back while a guest is in the browser (`poppy_sign_in_required`). A redirect to the login route would only send the guest to Auth0 and back to that `403` of the callback. So a guest gets `403` with a short text, or with a JSON body for an API client. A visitor with no login at all is redirected to `/auth/login` or gets `401`, as before.
+`requiresAuth()` does not let a guest pass, and it does not send a guest to the login route. A guest cannot sign in on your website: the person the agent acts for signs in through the agent, and the agent then joins again. Auth0 can keep the anonymous session of the join for single sign-on, so the login route can bring back the same guest, and the SDK refuses a person's login, and the same guest coming back while its access token is valid (`poppy_sign_in_required`). A redirect to the login route would only send the guest to Auth0 and back to that `403` of the callback. So a guest gets `403` with a short text, or with a JSON body for an API client. A visitor with no login at all is redirected to `/auth/login` or gets `401`, as before.
+
+`requiresAuth()` and the claim checks read the guest store on every request, before the session, so a guest store that fails answers `500` there, signed-in users included.
 
 To answer a guest in your own way, pass `onGuest`. It receives `req`, `res` and `next`. Answer the request, or call `next()` to let the route run. It is called only for a guest, and only with the `poppy` option.
 
@@ -1315,7 +1345,7 @@ app.get(
 );
 ```
 
-**The SDK never writes a guest and a person's session together.** The specification says that a join without an access token should not end or change a login that the browser has ([section 6](https://personalagentprotocol.org/docs/1.0/spec#web-browsing)). This package ends it on purpose: a guest join deletes the session of a person, so an agent never acts with an account that it was not approved for. While a guest is in the browser, a person's login is refused with a `PoppyError` (`poppy_sign_in_required`), and a signed-in agent's join replaces the guest. So `getUser()` and `requiresAuth()` do not see a person next to a guest, except after two logins that race in one browser. The specification also says that an agent joins only a browser it controls, never the user's own browser, but your site cannot verify that. Where an agent must not act as the person, for example for an irreversible action, check `getVisitor()`. This middleware lets only a user through. With `personOnly`, it also refuses a signed-in agent, for the pages where the person alone may act:
+**The SDK never writes a guest and a person's session together.** The specification says that a join without an access token should not end or change a login that the browser has ([section 6](https://personalagentprotocol.org/docs/spec#web-browsing)). This package ends it on purpose: a guest join deletes the session of a person (it first revokes the refresh token of that session, best effort), so an agent never acts with an account that it was not approved for. While a guest is in the browser, a person's login is refused with a `PoppyError` (`poppy_sign_in_required`), and a signed-in agent's join, or a new guest join, replaces the guest. So `getUser()` and `requiresAuth()` do not see a person next to a guest, except after two logins that race in one browser. The specification also says that an agent joins only a browser it controls, never the user's own browser, but your site cannot verify that. Where an agent must not act as the person, for example for an irreversible action, check `getVisitor()`. This middleware lets only a user through. With `personOnly`, it also refuses a signed-in agent, for the pages where the person alone may act:
 
 ```ts
 import type { NextFunction, Request, Response } from 'express';
@@ -1350,40 +1380,45 @@ app.post('/account/delete', requiresAuth(), requiresUser({ personOnly: true }), 
 });
 ```
 
-**A guard that you write yourself must not redirect a guest either.** A middleware such as `hasUserMiddleware` in [Using custom middleware](#using-custom-middleware) redirects every visitor without a user to `/auth/login`, a guest too. The guest then goes to Auth0 and back to the `403` of the callback. Put `requiresAuth()` in front of it, or answer a guest in your own code: `req.auth0.client.poppy.getContext()` tells you whether the visitor is a guest (`context.kind === 'agent' && context.state === 'guest'`). The claim checks (`claimEquals()`, `claimIncludes()` and `claimCheck()`) answer a guest with `401` and never redirect, so a guest gets `401` there and `403` from `requiresAuth()`.
+**A guard that you write yourself must not redirect a guest either.** A middleware such as `hasUserMiddleware` in [Using custom middleware](#using-custom-middleware) redirects every visitor without a user to `/auth/login`, a guest too. The guest then goes to Auth0 and back to the `403` of the callback. Put `requiresAuth()` in front of it, or answer a guest in your own code: `req.auth0.client.poppy.getContext()` tells you whether the visitor is a guest (`context.kind === 'agent' && context.state === 'guest'`). The claim checks (`claimEquals()`, `claimIncludes()` and `claimCheck()`) answer a guest with `401` and never redirect, so a guest gets `401` there and `403` from `requiresAuth()`. Both look for the guest first, so a guest cookie next to a session cookie is a guest to them as well.
 
 ### Sign out a guest
 
 `/auth/logout` clears the guest cookie and the session, as it does for any logout, and then redirects the browser to Auth0. Where it redirects depends on the visitor:
 
-- When the browser held a guest, the redirect goes to the `/v2/logout` endpoint of your tenant. The OIDC logout endpoint that the tenant advertises (`/oidc/logout`) does not work for a guest today, because it looks up a user and a guest has none.
+- When the browser held a guest, or holds no user session at all (the guest may have ended, and Auth0 may still hold the anonymous session of the join), the redirect goes to the `/v2/logout` endpoint of your tenant. The OIDC logout endpoint that the tenant advertises (`/oidc/logout`) does not work for that session on Auth0 today, because it looks up a user and a guest has none.
 - For a person or a signed-in agent, the redirect goes to the end session endpoint of the tenant, as before.
+
+`/auth/logout` is a `GET` route, and `/v2/logout` ends the Auth0 session with no confirmation page, so a link on another site can send a browser that has no session on your site there and end its single sign-on session (with `?federated=true`, the session of the identity provider too). For a person or a signed-in agent the OIDC logout endpoint asks the visitor to confirm. If that matters to you, write your own logout route that answers a `POST`.
 
 If you write your own logout route, redirect to the URL that `req.auth0.client.logout()` returns, and do not build the logout URL yourself. As for any logout, `returnTo` has to be in the Allowed Logout URLs of the application. This may change when Auth0 supports guests on the OIDC logout endpoint.
 
 ### Poppy errors
 
-With `poppy` set, some failures of the callback route get their own status in place of `500`. Each error has a fixed text, goes to Express with `next(error)`, and keeps the original error on `error.cause`. A refused or failed callback writes no session and no guest, and leaves what the browser had. The login route never refuses a request for `iss` or `target_link_uri`: it ignores what it cannot use, and the login goes on as a normal login.
+With `poppy` set, some failures of the callback route get `403` in place of `500`. Each error has a fixed text and a fixed `code`, goes to Express with `next(error)`, and keeps the original error on `error.cause`. A refused or failed callback writes no session and no guest, and leaves what the browser had. The login route never refuses a request for `iss` or `target_link_uri`: it ignores what it cannot use, and the login goes on as a normal login.
 
-| Status | Route | When | `error.message` |
-| --- | --- | --- | --- |
-| `403` | `/auth/callback` | A guest is in the browser, and the login is neither a signed-in agent's nor a new guest's (`poppy_sign_in_required`) | `An agent's guest is in this browser, so only a signed-in agent or a new guest join can replace it. Log out to sign in as a person.` |
-| `403` | `/auth/callback` | The ID token looks like a guest's but is not valid (`invalid_poppy_guest`) | `The ID token looks like the login of a Poppy guest but is not a valid one, so it is neither a guest nor a user.` |
-| `400` | `/auth/callback` | The ID token holds a Poppy Session that is not well formed, or an agent's token has no valid `sub` or `exp` | `The Poppy Session of this login is not valid.` |
-| `401` | `/auth/callback` | The session has already ended | `The session of this login has already ended.` |
-| `500` | login, callback and logout | Everything else, as today | `Authentication request could not be completed.` |
+| Status | `error.code` | Route | When | `error.message` |
+| --- | --- | --- | --- | --- |
+| `403` | `poppy_sign_in_required` | `/auth/callback` | A guest is in the browser, and the login is none of these: a signed-in agent's, a new guest's, or the same guest renewing an expired access token | `An agent's guest is in this browser, so only a signed-in agent, a new guest join, or the same guest renewing an expired access token can replace it. Log out to sign in as a person.` |
+| `403` | `invalid_poppy_guest` | `/auth/callback` | The ID token looks like a guest's but is not valid | `The ID token looks like the login of a Poppy guest but is not a valid one, so it is neither a guest nor a user.` |
+| `403` | `invalid_poppy_agent` | `/auth/callback` | The ID token holds a Poppy Session that is not well formed, or an agent's token has no valid `sub` or `exp` | `The ID token holds a Poppy Session that is not well formed, so it is neither a signed-in agent nor a user.` |
+| `403` | `session_expired` | `/auth/callback` | The session has already ended | `The session of this login has already ended.` |
+| `500` | none | login, callback and logout | Everything else, as today | `Authentication request could not be completed.` |
 
-The two `403` errors are a `PoppyError` of server-js, which this package exports with `PoppyErrorCode`. Tell them apart with `error.cause instanceof PoppyError` and `error.cause.code`: `poppy_sign_in_required` means a person has to log out first, and `invalid_poppy_guest` is a problem with the setup of Auth0 or of the agent, so log it. The text of each is fixed for its `code`, holds no value of a token, and is safe to show. `error.cause.reason` is for logs only. A login whose ID token has a `session_expiry` that has already passed also gets the `401`.
+The first three are a `PoppyError` of server-js, and the code is the `code` of that error. Compare `error.code` with `PoppyErrorCode`, which this package exports, and do not use `instanceof` for it: the check also works when your app has its own copy of server-js. `poppy_sign_in_required` means a person has to log out first, and `invalid_poppy_guest` and `invalid_poppy_agent` are a problem with the setup of Auth0 or of the agent, so log them. The text of each is fixed for its code, holds no value of a token, and is safe to show. `error.cause.reason` is for logs only. A login whose ID token has a `session_expiry` that has already passed also gets the `session_expired` error, a person's login too, and it is `403` and not `401` because a `401` needs a `WWW-Authenticate` challenge, and a login has none.
 
-Express writes the body. In production it is the status text, such as `Forbidden` or `Unauthorized`. Otherwise it is the stack of the error, which holds the fixed text and nothing from the request. It never includes `cause`. Add an error handler to choose what the browser sees and to log the original error:
+The error handler that you have decides what the browser sees. The default handler of Express writes the body: in production it is the status text, such as `Forbidden`, and otherwise it is the stack of the error, which holds the fixed text and nothing from the request. It never includes `cause`. So the default handler gives a person who is refused with `poppy_sign_in_required` no link to log out: in production the page says only `Forbidden`, and outside production it shows the stack with the fixed text. Add an error handler to choose what the browser sees and to log the original error:
 
 ```ts
-import { PoppyError, PoppyErrorCode } from '@auth0/auth0-express';
+import { PoppyErrorCode } from '@auth0/auth0-express';
 import type { NextFunction, Request, Response } from 'express';
 
+// The SDK gives each of these codes a fixed text with no value of a token or a request in it, so it is safe to show.
+const SHOWN_CODES = new Set<string>([...Object.values(PoppyErrorCode), 'session_expired']);
+
 // After the router and your routes. Express treats a function with four parameters as an error handler.
-// This sample maps every error other than 400, 401 and 403 to 500. Keep your own mapping for other statuses.
-app.use((error: Error & { status?: number }, _req: Request, res: Response, next: NextFunction) => {
+// This sample maps every error other than a refusal of the SDK to 500. Keep your own mapping for other statuses.
+app.use((error: Error & { status?: number; code?: string }, _req: Request, res: Response, next: NextFunction) => {
   if (res.headersSent) {
     next(error);
     return;
@@ -1394,13 +1429,19 @@ app.use((error: Error & { status?: number }, _req: Request, res: Response, next:
 
   // A guest is in the browser. Tell the person what to do, and do not send the browser to the login route: the same
   // login would be refused again.
-  if (error.cause instanceof PoppyError && error.cause.code === PoppyErrorCode.SIGN_IN_REQUIRED) {
-    res.status(403).send('An agent is using this browser. Log out first, and then sign in.');
+  if (error.code === PoppyErrorCode.SIGN_IN_REQUIRED) {
+    res.status(403).send('An agent is using this browser. <a href="/auth/logout">Log out</a> first, and then sign in.');
     return;
   }
 
-  const status = error.status === 400 || error.status === 401 || error.status === 403 ? error.status : 500;
-  res.status(status).send(status === 500 ? 'Something went wrong.' : error.message);
+  // Send the message only for a code of the SDK, and as plain text. The message of any other error may hold a value
+  // from a request, and `res.send()` of a string would send it as HTML.
+  if (error.status === 403 && error.code && SHOWN_CODES.has(error.code)) {
+    res.status(403).type('text/plain').send(error.message);
+    return;
+  }
+
+  res.status(500).type('text/plain').send('Something went wrong.');
 });
 ```
 
@@ -1517,9 +1558,10 @@ The rules for the store:
 - **Serve the site over HTTPS, at the root of `organization.domain`.** The guest cookie is `Secure`. For local development over plain HTTP, set `poppy.cookie.secure` to `false`.
 - **Trust the other hosts of your domain.** The guest cookie has the `__Host-` prefix, so a sibling host cannot plant one. The cookies of the login transaction and of the session have no such prefix, so a host on a sibling subdomain, or an attacker on plain HTTP, can plant one of them in a visitor's browser and finish a login of the attacker's own there. Serve every subdomain over HTTPS, and send `Strict-Transport-Security` with `includeSubDomains`.
 - **Mount the router before any middleware that sets cookies.** The two discovery files carry `cache-control: public, max-age=300`, so a shared cache could keep a cookie that rides on them. The router removes a `Set-Cookie` header that earlier middleware has already set on these two responses. It cannot remove a cookie that a middleware adds when the response ends, as `express-session` does, so keep such middleware behind the router.
+- **Do not let a shared cache keep an answer for one visitor.** The two discovery files are public. Every other answer depends on the cookies of the visitor, so send `Cache-Control: no-store` for them, as the [example](../../examples/example-express-web-poppy) does, or a CDN with a default time to live could give the page of one visitor to another.
 - **Deploy `poppy.json` with the app,** or point `configPath` at it. It is read once, at startup.
 - **Plan for secret rotation.** Guests are encrypted with `sessionSecret`. A secret array such as `[newSecret, oldSecret]` rotates them as it does sessions. When you drop the old secret, the guests that it encrypted are gone.
-- **Know the limits of the beta.** The support in this package is a beta that follows Poppy 1.0. The join has not been proven end to end against a live Auth0 tenant, so test it on your tenant before you rely on it.
+- **Know the limits of the beta.** The support in this package is a beta. The join has not been proven end to end against a live Auth0 tenant, so test it on your tenant before you rely on it.
 - **A sign-out or a disconnect on the Auth0 side is not seen.** The SDK does not see a sign-out or a disconnect on Auth0's side, whichever store you use. A guest, or the session of a signed-in agent, lasts until its deadline: at most `agentSessionMaxAge` seconds after the login, which is two hours by default. No read extends it, but a new login starts a new deadline, so after a session has ended the same Session can sign in again through the login route while Auth0's own session for the agent still lives.
-- **A signed-in agent's token is your web app's token.** It is not narrowed to the scopes that the user granted the agent, and `requiresAuth()` does not check them, so either set `web.unscoped` to `true` or check the scopes in your routes (see [Scopes](#scopes)).
+- **A signed-in agent's token is your web app's token.** Auth0 narrows its access token to the scopes of the agent when your login route asks for the right audience (see [The audience of your login route](#the-audience-of-your-login-route)), and an Action can still add scopes to it. The ID token and the claims of the session are not narrowed, and `requiresAuth()` checks no scopes, so either set `web.unscoped` to `true` or check the scopes in your routes (see [Scopes](#scopes)).
 - **Neither a guest nor a signed-in agent has a refresh token.** The access token is never refreshed.

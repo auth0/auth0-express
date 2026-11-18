@@ -188,7 +188,23 @@ describe('example-express-web-poppy', () => {
     expect(resource.body).toMatchObject({ resource: APP_BASE_URL, authorization_servers: [ISSUER] });
   });
 
-  test('keeps the cart of a guest when the agent signs in', async () => {
+  test('tells a shared cache to keep no answer for one visitor, and the discovery files stay public', async () => {
+    const site = await start();
+    const jar = cookieJar();
+    await join(site, jar, guestIdToken());
+
+    for (const path of ['/', '/api/visitor', '/api/cart', '/orders']) {
+      const res = await site.get(path).set('Cookie', jar.header());
+      expect(res.get('Cache-Control'), path).toBe('no-store');
+    }
+    const login = await site.get('/auth/login').query(AGENT_LINK);
+    expect(login.get('Cache-Control')).toBe('no-store');
+
+    const discovery = await site.get('/.well-known/poppy.json');
+    expect(discovery.get('Cache-Control')).toBe('public, max-age=300');
+  });
+
+  test('keeps the cart of a guest when the agent signs in with the same act', async () => {
     const site = await start();
     const jar = cookieJar();
 
@@ -200,7 +216,7 @@ describe('example-express-web-poppy', () => {
     expect(added.status).toBe(201);
     expect(added.body).toEqual({ items: ['tea'] });
 
-    // The user signs in, and the agent joins the same Poppy Session again.
+    // The user signs in, and the agent joins the same Poppy Session again, with the same `act`, so the key is the same.
     await join(site, jar, agentIdToken());
 
     const cart = await site.get('/api/cart').set('Cookie', jar.header());

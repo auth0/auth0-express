@@ -233,7 +233,7 @@ describe('Poppy discovery routes', () => {
       expect(resource.status).toBe(200);
       expect(resource.text).toBe(PROTECTED_RESOURCE_BODY);
 
-      // Agents ask the root of the domain only (https://personalagentprotocol.org/docs/1.0/spec#discovery).
+      // Agents ask the root of the domain only (https://personalagentprotocol.org/docs/spec#discovery).
       expect((await agent.get(POPPY_JSON)).status).toBe(404);
       expect((await agent.get(PROTECTED_RESOURCE)).status).toBe(404);
     });

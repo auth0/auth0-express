@@ -14,9 +14,11 @@ const SENTENCES: Record<PoppyVisitor['kind'], string> = {
 };
 
 // The key of the cart of a visitor, or `undefined` when the visitor has no cart.
-// - An agent's browser uses `poppy.key`, as a guest and after its user signs in. The key is the same in both states, so
-//   the cart survives the sign-in. It is not the user, because a guest has none. It is not the id of the Poppy Session
-//   alone either, because two agents can pick the same id.
+// - An agent's browser uses `poppy.key`, as a guest and after its user signs in. The key comes from `act.sub`,
+//   `act.poppy_sid` and `act.poppy_user_id`, so it is the same in both states while the sign-in join has the same `act`,
+//   and then the cart survives the sign-in. When a member differs, the key is another one and the cart of the guest is
+//   not found: keep under it only what you can afford to lose. It is not the user, because a guest has none. It is not
+//   the id of the Poppy Session alone either, because two agents can pick the same id.
 // - A person who logged in on their own has no `poppy`, so the cart is under the account (`sub`).
 // - Nobody, and an anonymous session, have no cart.
 function cartKey(visitor: PoppyVisitor): string | undefined {
@@ -104,6 +106,14 @@ function sessionSection(visitor: PoppyVisitor): string {
 // and APP_BASE_URL. The tests use them to run the app with no tenant and with no poppy.json.
 export function createApp(options: Partial<Auth0Options> = {}): Express {
   const app = express();
+
+  // Every answer of this app, except the two discovery files, depends on the cookies of the visitor. Without this, a shared
+  // cache such as a CDN could keep the answer for one visitor and give it to another. The router sets its own
+  // `cache-control: public, max-age=300` on the two discovery files, which replaces this header there.
+  app.use((_req, res, next) => {
+    res.set('Cache-Control', 'no-store');
+    next();
+  });
 
   // The cart route reads a JSON body.
   app.use(express.json());

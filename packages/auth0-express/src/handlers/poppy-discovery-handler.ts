@@ -4,8 +4,8 @@ import type { StoreOptions } from '../types.js';
 
 /**
  * The paths of the two discovery files of a website with Poppy. Agents ask for them at the root of the domain
- * ({@link https://personalagentprotocol.org/docs/1.0/spec#discovery section 3},
- * {@link https://personalagentprotocol.org/docs/1.0/spec#oauth-server section 3.2} and
+ * ({@link https://personalagentprotocol.org/docs/spec#discovery section 3},
+ * {@link https://personalagentprotocol.org/docs/spec#oauth-server section 3.2} and
  * {@link https://www.rfc-editor.org/rfc/rfc9728#section-3 RFC 9728, section 3}).
  */
 export const POPPY_DISCOVERY_PATHS = ['/.well-known/poppy.json', '/.well-known/oauth-protected-resource'];

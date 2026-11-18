@@ -20,7 +20,6 @@ import type {
 describe('exports', () => {
   test('should re-export the Poppy values of server-js', () => {
     expect(sdk.AbstractPoppyGuestStore).toBe(serverJs.AbstractPoppyGuestStore);
-    expect(sdk.InvalidPoppySessionError).toBe(serverJs.InvalidPoppySessionError);
     expect(sdk.PoppyError).toBe(serverJs.PoppyError);
     expect(sdk.PoppyErrorCode).toBe(serverJs.PoppyErrorCode);
     expect(sdk.SessionExpiredError).toBe(serverJs.SessionExpiredError);
@@ -34,7 +33,6 @@ describe('exports', () => {
       'AnonymousSessionExpiredError',
       'EnterpriseConnectNotSupportedError',
       'InvalidConfigurationError',
-      'InvalidPoppySessionError',
       'MissingAnonymousSessionError',
       'PoppyError',
       'PoppyErrorCode',

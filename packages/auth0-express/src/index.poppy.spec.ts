@@ -2,7 +2,7 @@ import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vite
 import express from 'express';
 import type { Express, Response } from 'express';
 import type { SessionStore, StateData } from '@auth0/auth0-server-js';
-import { SessionExpiredError, requiresAuth } from './index.js';
+import { SessionExpiredError, claimCheck, claimEquals, claimIncludes, requiresAuth } from './index.js';
 import type { Auth0Options, PoppyAgentContext, PoppyVisitor, RequiresAuthOptions, StoreOptions } from './index.js';
 import {
   AGENT_ID,
@@ -18,6 +18,7 @@ import {
   act,
   agentIdToken,
   browserAccepts,
+  clearsCookie,
   cookieJar,
   guestIdToken,
   humanIdToken,
@@ -59,7 +60,8 @@ const SESSION_COOKIE = '__a0_session.0';
 const ANONYMOUS_COOKIE = '__a0_anon.0';
 
 // The context of a guest mirrors its ID token: `sub`, `sub_profile` and the whole `act`. A guest has no scopes. A join that
-// signs in keeps the same key, because the key comes from the agent and the Session, and not from the state.
+// signs in has the same key only when its `act` is the same, because the key comes from `act.sub`, `act.poppy_sid` and
+// `act.poppy_user_id`, and not from the state.
 const GUEST_CONTEXT: PoppyAgentContext = {
   kind: 'agent',
   state: 'guest',
@@ -141,12 +143,12 @@ async function visitorOf(agent: Agent, jar: CookieJar): Promise<PoppyVisitor> {
 }
 
 /**
- * Whether the response removes the cookie: it sets an empty value that ended in 1970, as a server does, and a browser
- * accepts the header (a `__Host-` cookie is cleared only by a header with `Secure`).
+ * Whether the response removes the cookie: it sets an empty value that has expired (`Max-Age=0` or an `Expires` in
+ * 1970), and a browser accepts the header (a `__Host-` cookie is cleared only by a header with `Secure`).
  */
 function removes(res: Parameters<typeof setCookieLines>[0], name: string) {
   return setCookieLines(res).some(
-    (line) => line.startsWith(`${name}=;`) && /expires=[^;]*\b1970\b/i.test(line) && browserAccepts(line)
+    (line) => line.startsWith(`${name}=;`) && clearsCookie(line) && browserAccepts(line)
   );
 }
 
@@ -369,7 +371,7 @@ describe('Guest join', () => {
 });
 
 describe('Sign-in', () => {
-  test('a signed-in join after a guest join replaces the guest with a user, and the key stays', async () => {
+  test('a signed-in join with the same act replaces the guest with a user, and the key stays', async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
     await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
@@ -383,6 +385,146 @@ describe('Sign-in', () => {
     expect(await visitorOf(agent, jar)).toEqual(userVisitor('auth0|ana', SIGNED_IN));
     expect((await visit(agent, jar, '/private')).status).toBe(200);
   });
+
+  // The key is a hash of `act.sub`, `act.poppy_sid` and `act.poppy_user_id`. The SDK does not compare the join that signs in
+  // with the guest, because Auth0 issues the Poppy Session and its members can differ. A member that differs gives another
+  // key, so data kept under the key of the guest is not found.
+  test.each([
+    ['act.poppy_user_id', { ...act, poppy_user_id: 'usr_Z9wQ2e' }],
+    ['act.poppy_sid', { ...act, poppy_sid: 'Zk3pL9sA_x7VbN2cQ8wTdE' }],
+    ['act.sub', { ...act, sub: 'https://other-agent.example/agent.json' }],
+  ])('a signed-in join with another %s replaces the guest, and the key is another one', async (_member, otherAct) => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    expect((await visitorOf(agent, jar)).kind).toBe('guest');
+
+    const { callback } = await join(agent, jar, tenant, agentIdToken('auth0|ana', { act: otherAct }), AGENT_LINK);
+
+    expect(callback.status).toBe(302);
+    expect(removes(callback, GUEST_COOKIE)).toBe(true);
+    expect(jar.names()).toEqual([SESSION_COOKIE]);
+    const visitor = (await visitorOf(agent, jar)) as Extract<PoppyVisitor, { kind: 'user' }>;
+    expect(visitor).toEqual(userVisitor('auth0|ana', expect.objectContaining({ state: 'signed_in', act: otherAct })));
+    expect(visitor.poppy?.key).toEqual(expect.any(String));
+    expect(visitor.poppy?.key).not.toBe(SESSION_KEY);
+  });
+});
+
+describe('requiresAuth() with poppy', () => {
+  /**
+   * A browser with a person's session cookie and a guest cookie together. The SDK never writes the two, but two logins that
+   * race in one browser can leave them, and the app has to answer for the guest then.
+   */
+  async function guestAndSession(agent: Agent) {
+    const person = cookieJar();
+    await join(agent, person, tenant, humanIdToken('auth0|ana'));
+    const guest = cookieJar();
+    await join(agent, guest, tenant, guestIdToken(), AGENT_LINK);
+
+    const both = cookieJar();
+    both.set(SESSION_COOKIE, person.get(SESSION_COOKIE) as string);
+    both.set(GUEST_COOKIE, guest.get(GUEST_COOKIE) as string);
+    return both;
+  }
+
+  test('with a guest and a session cookie, the guest comes first: a 403, and never a pass as the person', async () => {
+    const agent = await serve(testApp());
+    const both = await guestAndSession(agent);
+
+    expect(await visitorOf(agent, both)).toEqual(GUEST);
+    // The session is still there for `getUser()`, which is why a read of the user first would have let the request pass.
+    expect((await visit(agent, both, '/user')).body).toEqual({ user: expect.objectContaining({ sub: 'auth0|ana' }) });
+
+    const page = await visit(agent, both, '/private').set('Accept', 'text/html');
+    expect(page.status).toBe(403);
+    expect(page.headers['location']).toBeUndefined();
+    const api = await visit(agent, both, '/private').set('Accept', 'application/json');
+    expect(api.status).toBe(403);
+    expect(api.body).toEqual({ error: 'forbidden', message: 'A signed-in user is required' });
+  });
+
+  test('with a guest and a session cookie, onGuest runs', async () => {
+    const onGuest = vi.fn((_req: unknown, res: Response) => {
+      res.status(200).send('Ask your agent to sign in.');
+    });
+    const app = testApp();
+    app.get('/members', requiresAuth({ onGuest }), (_req, res) => {
+      res.send('members');
+    });
+    const agent = await serve(app);
+    const both = await guestAndSession(agent);
+
+    const res = await visit(agent, both, '/members');
+
+    expect(res.text).toBe('Ask your agent to sign in.');
+    expect(onGuest).toHaveBeenCalledTimes(1);
+  });
+
+  // The claim checks are guards too. A guest has no user, so a claim check refuses it with 401 and never lets it pass as
+  // the person whose session cookie is next to it.
+  test('with a guest and a session cookie, the claim checks answer 401 as well', async () => {
+    const app = testApp();
+    app.get('/check', claimCheck(() => true), (_req, res) => {
+      res.send('check');
+    });
+    app.get('/equals', claimEquals('sub', 'auth0|ana'), (_req, res) => {
+      res.send('equals');
+    });
+    app.get('/includes', claimIncludes('sub', ['auth0|ana']), (_req, res) => {
+      res.send('includes');
+    });
+    const agent = await serve(app);
+    const both = await guestAndSession(agent);
+
+    for (const path of ['/check', '/equals', '/includes']) {
+      const res = await visit(agent, both, path);
+      expect(res.status, path).toBe(401);
+      expect(res.body, path).toEqual({ error: 'unauthorized', message: 'Authentication required' });
+    }
+
+    // The person alone, with the same session cookie, passes all three.
+    const person = cookieJar();
+    person.set(SESSION_COOKIE, both.get(SESSION_COOKIE) as string);
+    for (const path of ['/check', '/equals', '/includes']) {
+      expect((await visit(agent, person, path)).status, path).toBe(200);
+    }
+  });
+
+  test('one request reads the session store once, for nobody and for a user alike', async () => {
+    const sessions = new Map<string, StateData>();
+    const store = mapSessionStore(sessions);
+    const get = vi.spyOn(store, 'get');
+    const agent = await serve(testApp({ sessionStore: store }));
+    const jar = cookieJar();
+    await join(agent, jar, tenant, humanIdToken('auth0|ana'));
+    expect(sessions.size).toBe(1);
+
+    // A session cookie whose record is gone: nobody is signed in, and the page redirects.
+    const kept = new Map(sessions);
+    sessions.clear();
+    get.mockClear();
+    const nobody = await visit(agent, jar, '/private').set('Accept', 'text/html');
+    expect(nobody.status).toBe(302);
+    expect(get).toHaveBeenCalledTimes(1);
+
+    sessions.set(...([...kept][0] as [string, StateData]));
+    get.mockClear();
+    expect((await visit(agent, jar, '/private')).status).toBe(200);
+    expect(get).toHaveBeenCalledTimes(1);
+  });
+
+  test('a failure of the session store reaches the error handler, and nobody is let through', async () => {
+    const store = mapSessionStore(new Map());
+    const agent = await serve(testApp({ sessionStore: store }));
+    const jar = cookieJar();
+    await join(agent, jar, tenant, humanIdToken('auth0|ana'));
+    vi.spyOn(store, 'get').mockRejectedValue(new Error('store down'));
+
+    const res = await visit(agent, jar, '/private');
+
+    expect(res.status).toBe(500);
+  });
 });
 
 describe('Session changes', () => {
@@ -395,7 +537,7 @@ describe('Session changes', () => {
     const { callback } = await join(agent, jar, tenant, guestIdToken());
 
     // A rejoin without an access token ends the sign-in of a Session:
-    // https://personalagentprotocol.org/docs/1.0/spec#web-browsing
+    // https://personalagentprotocol.org/docs/spec#web-browsing
     expect(removes(callback, SESSION_COOKIE)).toBe(true);
     expect(jar.names()).toEqual([GUEST_COOKIE]);
     expect(await visitorOf(agent, jar)).toEqual(GUEST);
@@ -414,7 +556,7 @@ describe('Session changes', () => {
   });
 
   // A join with an access token signs the browser in "in place of any login it had, and an earlier login doesn't come
-  // back": https://personalagentprotocol.org/docs/1.0/spec#web-browsing
+  // back": https://personalagentprotocol.org/docs/spec#web-browsing
   test("a signed-in join over a person's login replaces it, and the login does not come back", async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
@@ -439,7 +581,7 @@ describe('Session changes', () => {
 
 describe("A guest join ends a person's login", () => {
   // The specification says that a join without an access token should not end or change the login of the browser
-  // (https://personalagentprotocol.org/docs/1.0/spec#web-browsing). This SDK ends it on purpose, so that an agent's
+  // (https://personalagentprotocol.org/docs/spec#web-browsing). This SDK ends it on purpose, so that an agent's
   // browser never acts with an account that the agent was not approved for. The guest is then the only login, and the
   // person's session is gone with its cookie.
   test('the guest replaces the session of the person, and the cookie of the session is removed', async () => {
@@ -465,7 +607,7 @@ describe("A guest join ends a person's login", () => {
 
     expect(callback.status).toBe(403);
     // The callback spends its transaction cookie first, as for any login. Nothing of the session or the guest is set.
-    expect(setCookieLines(callback).filter((line) => /^__a0_(session|poppy|anon)/.test(line))).toEqual([]);
+    expect(setCookieLines(callback).filter((line) => /^(__a0_(session|anon)|__a0_poppy|__Host-a0_poppy)/.test(line))).toEqual([]);
     expect(jar.names()).toEqual([GUEST_COOKIE]);
     expect(await visitorOf(agent, jar)).toEqual(GUEST);
   });
@@ -559,6 +701,31 @@ describe('Logout', () => {
     expect(signedIn.callback.status).toBe(302);
     expect(jar.names()).toEqual([SESSION_COOKIE]);
     expect((await visitorOf(agent, jar)).kind).toBe('user');
+  });
+
+  // The guest may have ended, and Auth0 may still hold the anonymous session of the join, so a browser with no session
+  // at all goes to the same endpoint as a guest.
+  test('a browser with no session is sent to /v2/logout too', async () => {
+    const agent = await serve(testApp());
+
+    const logout = await visit(agent, cookieJar(), '/auth/logout');
+
+    expect(logout.status).toBe(302);
+    const location = new URL(String(logout.headers['location']));
+    expect(location.origin + location.pathname).toBe('https://auth.zepto.example/v2/logout');
+  });
+
+  test('after a guest has ended, its logout goes to /v2/logout and clears the cookie', async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    fakeDate(Date.now())(TWO_HOURS);
+
+    const logout = await visit(agent, jar, '/auth/logout');
+
+    const location = new URL(String(logout.headers['location']));
+    expect(location.origin + location.pathname).toBe('https://auth.zepto.example/v2/logout');
+    expect(removes(logout, GUEST_COOKIE)).toBe(true);
   });
 
   test('after a signed-in join, it clears the session and the visitor is none', async () => {
@@ -688,6 +855,57 @@ describe('Deadlines', () => {
   });
 });
 
+describe('Renewal of a guest', () => {
+  // The token endpoint of the tests gives a token for an hour. The guest lasts two hours.
+  test('the same guest renews its expired access token with a silent login, and keeps its deadline', async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    const setDate = fakeDate(Date.now());
+
+    setDate(3700);
+    expect((await visit(agent, jar, '/guest-token')).body).toEqual({ accessToken: null });
+    expect(await visitorOf(agent, jar)).toEqual(GUEST);
+
+    // The silent login is the login route with `prompt=none`. Auth0 gives the same guest back.
+    const renewed = await join(agent, jar, tenant, guestIdToken(), '?prompt=none');
+
+    expect(renewed.login.headers['location']).toContain('prompt=none');
+    expect(renewed.callback.status).toBe(302);
+    expect(jar.names()).toEqual([GUEST_COOKIE]);
+    expect((await visit(agent, jar, '/guest-token')).body).toEqual({ accessToken: JOIN_ACCESS_TOKEN });
+    expect(await visitorOf(agent, jar)).toEqual(GUEST);
+
+    // The renewal did not move the end of the guest.
+    setDate(TWO_HOURS);
+    expect(await visitorOf(agent, jar)).toEqual(NONE);
+  });
+
+  test('the same guest is refused while its access token is still good', async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    fakeDate(Date.now())(1800);
+
+    const again = await join(agent, jar, tenant, guestIdToken(), '?prompt=none');
+
+    expect(again.callback.status).toBe(403);
+    expect(await visitorOf(agent, jar)).toEqual(GUEST);
+  });
+
+  test("a person's login is still refused after the token of the guest has expired", async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    fakeDate(Date.now())(3700);
+
+    const person = await join(agent, jar, tenant, humanIdToken('auth0|ana'));
+
+    expect(person.callback.status).toBe(403);
+    expect(await visitorOf(agent, jar)).toEqual(GUEST);
+  });
+});
+
 /** A `sessionStore` that keeps the sessions in a `Map`, as a server-side store such as Redis keeps them in its own. */
 function mapSessionStore(sessions: Map<string, StateData>): SessionStore<StoreOptions> {
   return {
@@ -807,8 +1025,8 @@ describe('Stores', () => {
 
 describe('Anonymous sessions', () => {
   /** A browser that has started an anonymous session. */
-  async function anonymousBrowser() {
-    const agent = await serve(testApp({ anonymousSessions: true }));
+  async function anonymousBrowser(anonymousSessions: Auth0Options['anonymousSessions'] = true) {
+    const agent = await serve(testApp({ anonymousSessions }));
     const jar = cookieJar();
 
     const created = await agent.post('/anonymous').set('Cookie', jar.header());
@@ -830,13 +1048,15 @@ describe('Anonymous sessions', () => {
     expect(await visitorOf(agent, jar)).toEqual(ANONYMOUS);
   });
 
-  test('a guest join keeps the anonymous cookie, and the visitor is the guest', async () => {
+  // The browser is the agent's now, and a leftover anonymous session would answer for it and would be linked to the next
+  // person's account, so a guest join ends it, as a signed-in join does.
+  test('a guest join clears the anonymous cookie, and the visitor is the guest', async () => {
     const { agent, jar } = await anonymousBrowser();
 
     const { callback } = await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
 
-    expect(removes(callback, ANONYMOUS_COOKIE)).toBe(false);
-    expect(sortedNames(jar)).toEqual([GUEST_COOKIE, ANONYMOUS_COOKIE]);
+    expect(removes(callback, ANONYMOUS_COOKIE)).toBe(true);
+    expect(jar.names()).toEqual([GUEST_COOKIE]);
     expect(await visitorOf(agent, jar)).toEqual(GUEST);
   });
 
@@ -850,15 +1070,38 @@ describe('Anonymous sessions', () => {
     expect(await visitorOf(agent, jar)).toEqual(userVisitor('auth0|ana', SIGNED_IN));
   });
 
-  test('when the guest ends, the anonymous visitor is back', async () => {
+  test('when the guest ends, the anonymous visitor does not come back', async () => {
     const { agent, jar } = await anonymousBrowser();
     await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
     fakeDate(Date.now())(TWO_HOURS);
 
     const visitor = await visit(agent, jar, '/visitor');
 
-    expect(visitor.body).toEqual(ANONYMOUS);
+    expect(visitor.body).toEqual(NONE);
     expect(removes(visitor, GUEST_COOKIE)).toBe(true);
-    expect(removes(visitor, ANONYMOUS_COOKIE)).toBe(false);
+  });
+
+  describe('with clearOnLogin: false', () => {
+    test('a guest join keeps the anonymous cookie, and the visitor is the guest', async () => {
+      const { agent, jar } = await anonymousBrowser({ clearOnLogin: false });
+
+      const { callback } = await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+
+      expect(removes(callback, ANONYMOUS_COOKIE)).toBe(false);
+      expect(sortedNames(jar)).toEqual([GUEST_COOKIE, ANONYMOUS_COOKIE]);
+      expect(await visitorOf(agent, jar)).toEqual(GUEST);
+    });
+
+    test('when the guest ends, the anonymous visitor is back', async () => {
+      const { agent, jar } = await anonymousBrowser({ clearOnLogin: false });
+      await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+      fakeDate(Date.now())(TWO_HOURS);
+
+      const visitor = await visit(agent, jar, '/visitor');
+
+      expect(visitor.body).toEqual(ANONYMOUS);
+      expect(removes(visitor, GUEST_COOKIE)).toBe(true);
+      expect(removes(visitor, ANONYMOUS_COOKIE)).toBe(false);
+    });
   });
 });

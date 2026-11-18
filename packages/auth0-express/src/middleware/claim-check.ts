@@ -1,4 +1,5 @@
 import { Request, Response, NextFunction } from 'express';
+import { readUser } from './read-user.js';
 import { ClaimAuthOptions, ClaimCheckFunction } from './claim-auth.js';
 
 /**
@@ -41,7 +42,8 @@ import { ClaimAuthOptions, ClaimCheckFunction } from './claim-auth.js';
 export function claimCheck(checkFn: ClaimCheckFunction, options?: ClaimAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      const user = await req.auth0.client.getUser();
+      // With `poppy`, a guest is never a user, even next to a session cookie: it gets the same 401 as nobody.
+      const { user } = await readUser(req);
 
       if (!user) {
         return res.status(401).json({

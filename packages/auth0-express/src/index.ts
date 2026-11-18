@@ -14,7 +14,6 @@ export {
   AnonymousSessionExpiredError,
   isFederatedDomain,
   EnterpriseConnectNotSupportedError,
-  InvalidPoppySessionError,
   PoppyError,
   PoppyErrorCode,
   MissingAnonymousSessionError,

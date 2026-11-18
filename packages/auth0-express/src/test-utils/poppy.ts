@@ -217,6 +217,22 @@ export function browserAccepts(line: string): boolean {
 }
 
 /**
+ * Whether a `Set-Cookie` line removes the cookie from a browser that accepts it: a `Max-Age` of zero or less, or an
+ * `Expires` in 1970, as `res.clearCookie()` writes it. An empty value alone does not remove a cookie. A line that a
+ * browser does not accept (see `browserAccepts`) removes nothing, so check that as well.
+ */
+export function clearsCookie(line: string): boolean {
+  const attributes = line.split(';').slice(1);
+  const maxAge = attributes.map((attribute) => /^\s*max-age\s*=\s*(-?\d+)\s*$/i.exec(attribute)).find(Boolean);
+
+  if (maxAge) {
+    return Number(maxAge[1]) <= 0;
+  }
+
+  return attributes.some((attribute) => /^\s*expires\s*=.*\b1970\b/i.test(attribute));
+}
+
+/**
  * The cookies a browser would keep, by name. It ignores `Path` and `Domain`, but it applies the rules for the `__Host-`
  * and `__Secure-` prefixes (see `browserAccepts`). `names()` lists them in the order they were first set.
  */
@@ -224,20 +240,19 @@ export function cookieJar() {
   const cookies = new Map<string, string>();
 
   return {
-    /** Adds each cookie that the response sets, and removes one that it empties or expires in 1970. */
+    /** Adds each cookie that the response sets, and removes one that the response expires (see `clearsCookie`). */
     take(res: ResponseWithHeaders) {
       for (const line of setCookieLines(res)) {
         if (!browserAccepts(line)) {
           continue;
         }
 
-        const [pair = '', ...attributes] = line.split(';');
+        const [pair = ''] = line.split(';');
         const equals = pair.indexOf('=');
         const name = pair.slice(0, equals).trim();
         const value = pair.slice(equals + 1).trim();
-        const expired = attributes.some((attribute) => /^\s*expires\s*=.*\b1970\b/i.test(attribute));
 
-        if (value === '' || expired) {
+        if (clearsCookie(line)) {
           cookies.delete(name);
         } else {
           cookies.set(name, value);

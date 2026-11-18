@@ -1,4 +1,5 @@
 import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import type { NextFunction, Request, Response } from 'express';
 import { http, HttpResponse } from 'msw';
 import { withNodeEnv } from '../test-utils/env.js';
 import {
@@ -37,7 +38,7 @@ function errorPage(env: Env, production: string, development: string) {
 
 /** The session and guest cookies that a response sets. */
 function keptCookies(res: Joined['callback']) {
-  return setCookieLines(res).filter((line) => /^__a0_(session|poppy)/.test(line));
+  return setCookieLines(res).filter((line) => /^(__a0_session|__a0_poppy|__Host-a0_poppy)/.test(line));
 }
 
 /** A callback that failed leaves nothing behind: no cookie is set, and the visitor is still `none`. */
@@ -50,19 +51,23 @@ async function expectNothingKept(agent: Agent, jar: CookieJar, { callback }: Joi
 
 // Express reads NODE_ENV when it builds the app, so each test builds its app inside withNodeEnv().
 describe.each(['production', 'development'] as const)('callback errors on a Poppy app, NODE_ENV=%s', (env) => {
-  test('a Poppy Session that is not well formed gets 400', async () => {
+  test('a Poppy Session that is not well formed gets 403, and the page shows no claim', async () => {
     await withNodeEnv(env, async () => {
       const agent = await serve(poppyApp());
       const jar = cookieJar();
 
       const joined = await join(agent, jar, tenant, agentIdToken('auth0|ana', { act: { ...act, poppy_sid: 42 } }));
 
-      expect(joined.callback.status).toBe(400);
+      expect(joined.callback.status).toBe(403);
       expect(joined.callback.text).toContain(
-        errorPage(env, 'Bad Request', 'The Poppy Session of this login is not valid.')
+        errorPage(
+          env,
+          'Forbidden',
+          'The ID token holds a Poppy Session that is not well formed, so it is neither a signed-in agent nor a user.'
+        )
       );
+      // The reason names the claim, and it is for logs only.
       expect(joined.callback.text).not.toContain('act.poppy_sid');
-      expect(joined.callback.text).not.toContain('well-formed');
       await expectNothingKept(agent, jar, joined);
     });
   });
@@ -107,7 +112,7 @@ describe.each(['production', 'development'] as const)('callback errors on a Popp
           env,
           'Forbidden',
           // The page of Express escapes the apostrophe, so the text starts after it.
-          's guest is in this browser, so only a signed-in agent or a new guest join can replace it. Log out to sign in as a person.'
+          's guest is in this browser, so only a signed-in agent, a new guest join, or the same guest renewing an expired access token can replace it. Log out to sign in as a person.'
         )
       );
       expect(keptCookies(second.callback)).toEqual([]);
@@ -117,7 +122,7 @@ describe.each(['production', 'development'] as const)('callback errors on a Popp
     });
   });
 
-  test('a Poppy Session that is born expired gets 401', async () => {
+  test('a Poppy Session that is born expired gets 403', async () => {
     await withNodeEnv(env, async () => {
       const agent = await serve(poppyApp());
       const jar = cookieJar();
@@ -125,16 +130,16 @@ describe.each(['production', 'development'] as const)('callback errors on a Popp
 
       const joined = await join(agent, jar, tenant, guestIdToken({}, now + 20));
 
-      expect(joined.callback.status).toBe(401);
+      expect(joined.callback.status).toBe(403);
       expect(joined.callback.text).toContain(
-        errorPage(env, 'Unauthorized', 'The session of this login has already ended.')
+        errorPage(env, 'Forbidden', 'The session of this login has already ended.')
       );
       expect(joined.callback.text).not.toContain('refusing');
       await expectNothingKept(agent, jar, joined);
     });
   });
 
-  test('a login whose session_expiry has already passed gets 401', async () => {
+  test('a login whose session_expiry has already passed gets 403, and no WWW-Authenticate is needed', async () => {
     await withNodeEnv(env, async () => {
       const agent = await serve(poppyApp());
       const jar = cookieJar();
@@ -142,12 +147,55 @@ describe.each(['production', 'development'] as const)('callback errors on a Popp
 
       const joined = await join(agent, jar, tenant, humanIdToken('auth0|person', { session_expiry: now }));
 
-      expect(joined.callback.status).toBe(401);
+      expect(joined.callback.status).toBe(403);
       expect(joined.callback.text).toContain(
-        errorPage(env, 'Unauthorized', 'The session of this login has already ended.')
+        errorPage(env, 'Forbidden', 'The session of this login has already ended.')
       );
       expect(joined.callback.text).not.toContain('refusing');
       await expectNothingKept(agent, jar, joined);
+    });
+  });
+
+  test('the error that reaches the handler of the app has the code of the refusal, and no cause on the page', async () => {
+    await withNodeEnv(env, async () => {
+      const app = poppyApp();
+      // The handler that EXAMPLES.md shows: it tells the refusals apart by `error.code`, with no `instanceof`.
+      // Express treats a function with four parameters as an error handler, so `next` has to be there.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      app.use((error: Error & { status?: number; code?: string }, _req: Request, res: Response, next: NextFunction) => {
+        res.status(error.status ?? 500).json({ code: error.code ?? null, hasCause: error.cause !== undefined });
+      });
+      const agent = await serve(app);
+      const jar = cookieJar();
+      await join(agent, jar, tenant, guestIdToken());
+
+      const person = await join(agent, jar, tenant, humanIdToken('auth0|ana'));
+      expect(person.callback.status).toBe(403);
+      expect(person.callback.body).toEqual({ code: 'poppy_sign_in_required', hasCause: true });
+
+      const invalidGuest = await join(
+        agent,
+        cookieJar(),
+        tenant,
+        guestIdToken({ sub_profile: 'something else' })
+      );
+      expect(invalidGuest.callback.body).toEqual({ code: 'invalid_poppy_guest', hasCause: true });
+
+      const invalidAgent = await join(
+        agent,
+        cookieJar(),
+        tenant,
+        agentIdToken('auth0|ana', { act: { ...act, poppy_sid: 42 } })
+      );
+      expect(invalidAgent.callback.body).toEqual({ code: 'invalid_poppy_agent', hasCause: true });
+
+      const ended = await join(
+        agent,
+        cookieJar(),
+        tenant,
+        humanIdToken('auth0|person', { session_expiry: Math.floor(Date.now() / 1000) })
+      );
+      expect(ended.callback.body).toEqual({ code: 'session_expired', hasCause: true });
     });
   });
 

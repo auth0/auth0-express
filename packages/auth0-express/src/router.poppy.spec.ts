@@ -179,6 +179,28 @@ describe('createAuth0 with poppy', () => {
     });
   });
 
+  describe('the name of the guest cookie', () => {
+    // The cookie-backed stores find their cookies by the start of the name, and the guest identifier is the salt of its
+    // encryption, so another store may not share it. server-js refuses these at startup.
+    test.each([
+      ['sessionConfiguration.cookie.name', { sessionConfiguration: { cookie: { name: '__a0_pop' } } }],
+      ['sessionConfiguration.cookie.name', { sessionConfiguration: { cookie: { name: '__a0_poppy' } } }],
+      ['anonymousSessions.identifier', { anonymousSessions: { identifier: '__a0_poppy.x' } }],
+      ['anonymousSessions.identifier', { anonymousSessions: { identifier: '__Host-a0_poppy' } }],
+    ] as const)('%s that collides with it is a startup error', (_option, extra) => {
+      expect(() => poppyApp(extra as Partial<Auth0Options>)).toThrow(/must not be the same as, the start of, or start with the name of the guest cookie/);
+    });
+
+    test('other names are fine', () => {
+      expect(() =>
+        poppyApp({
+          sessionConfiguration: { cookie: { name: '__a0_shop' } },
+          anonymousSessions: { identifier: '__a0_visitor' },
+        })
+      ).not.toThrow();
+    });
+  });
+
   describe('options passed to server-js', () => {
     test('agentSessionMaxAge: 30', () => {
       expectInvalidConfig(
@@ -392,6 +414,57 @@ describe('createAuth0 with poppy', () => {
       // The guest is still the guest of its own browser.
       const first = await agent.get('/visitor').set('Cookie', guestBrowser.header());
       expect(first.body.kind).toBe('guest');
+    });
+  });
+  describe('the mount path', () => {
+    const WARNING = /^\[Auth0\] Poppy: the router is mounted under a sub-path/;
+
+    afterEach(() => vi.restoreAllMocks());
+
+    test('a router at the root of the site logs no warning', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const agent = await serve(poppyApp());
+
+      expect((await agent.get('/.well-known/poppy.json')).status).toBe(200);
+      expect((await agent.get('/visitor')).status).toBe(200);
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    test('a router under a sub-path logs one fixed warning for the process, and still serves the files there', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const agent = await serve(poppyApp({}, '/shop'));
+
+      // The discovery files are served before the middleware that warns, so a request for the app is the one that warns.
+      expect((await agent.get('/shop/.well-known/poppy.json')).status).toBe(200);
+      expect(warn).not.toHaveBeenCalled();
+      expect((await agent.get('/shop/visitor')).status).toBe(200);
+      await agent.get('/shop/visitor');
+
+      expect(warn).toHaveBeenCalledTimes(1);
+      const message = String(warn.mock.calls[0]?.[0]);
+      expect(message).toMatch(WARNING);
+      // The text is fixed: it holds no part of the request or of the mount path.
+      expect(message).not.toContain('/shop');
+      expect(message).not.toContain('poppy.json');
+    });
+
+    test('without the routes there are no discovery files, so there is no warning either', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const agent = await serve(poppyApp({ mountRoutes: false }, '/shop'));
+
+      await agent.get('/shop/visitor');
+
+      expect(warn).not.toHaveBeenCalled();
+    });
+
+    test('an app without poppy logs no warning', async () => {
+      const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+      const agent = await serve(poppyApp({ poppy: undefined }, '/shop'));
+
+      await agent.get('/shop/visitor');
+
+      expect(warn).not.toHaveBeenCalled();
     });
   });
 });

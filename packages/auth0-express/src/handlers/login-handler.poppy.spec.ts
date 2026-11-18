@@ -239,24 +239,24 @@ describe('the login route of an app with the poppy option', () => {
   });
 
   describe('hostile queries', () => {
-    // The SDK ignores an `iss` that is not the issuer: the login goes on as a normal login, without the target, and it
-    // logs one warning that holds no value of the request.
+    // The SDK ignores an `iss` that is not the issuer: the login goes on as a normal login, without the target. Anyone can
+    // send a browser to this route with any query, so nothing of it is logged.
     describe('an iss that is not the issuer', () => {
-      test.each(BAD_ISS)('%s: a normal login with no returnTo, and one warning', async (_name, query) => {
+      test.each(BAD_ISS)('%s: a normal login with no returnTo, and nothing logged', async (_name, query) => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
+        const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const agent = await serve(poppyApp());
 
         const result = await login(agent, `${query}&target_link_uri=${enc(CART)}`);
 
         expectHome(result);
-        expect(warn).toHaveBeenCalledTimes(1);
-        expect(String(warn.mock.calls[0]?.[0])).not.toContain('other-tenant');
-        expect(String(warn.mock.calls[0]?.[0])).not.toContain('evil');
+        expect(warn).not.toHaveBeenCalled();
+        expect(error).not.toHaveBeenCalled();
         warn.mockRestore();
+        error.mockRestore();
       });
 
       test('an accepted returnTo still works', async () => {
-        const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const agent = await serve(poppyApp());
         const query = `?iss=${enc(OTHER_ISS)}&target_link_uri=${enc(CART)}&returnTo=${enc('/orders')}`;
 
@@ -265,7 +265,6 @@ describe('the login route of an app with the poppy option', () => {
         expect(result.status).toBe(302);
         expect(result.keys).toEqual(TODAY_KEYS);
         expect(result.returnTo).toBe(`${APP_BASE_URL}/orders`);
-        warn.mockRestore();
       });
     });
 

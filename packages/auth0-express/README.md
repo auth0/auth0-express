@@ -242,10 +242,10 @@ console.log(accessTokenResult.accessToken);
 
 ## Personal Agents (Poppy, beta)
 
-A Personal Agent is software that acts for a user, and its browser can join your website as a guest or as a signed-in user. `poppy: true` turns this on, as described in [Poppy (Personal Agent Protocol) 1.0](https://personalagentprotocol.org/docs/1.0/spec#web-browsing). The router then serves the two discovery files that agents read and accepts the join. Without the option, nothing changes.
+A Personal Agent is software that acts for a user, and its browser can join your website as a guest or as a signed-in user. `poppy: true` turns this on, as described in [Poppy (Personal Agent Protocol)](https://personalagentprotocol.org/docs/spec#web-browsing). The router then serves the two discovery files that agents read and accepts the join. Without the option, nothing changes.
 
 > [!NOTE]
-> The support in this package is a beta that follows Poppy 1.0. The join has not been proven end to end against a live Auth0 tenant, so test it on your tenant before you rely on it.
+> The support in this package is a beta. The join has not been proven end to end against a live Auth0 tenant, so test it on your tenant before you rely on it.
 
 ```ts
 import express from 'express';
@@ -291,7 +291,7 @@ The browser-facing auth routes (login, callback, and logout) forward failures to
 - No internal detail (an OAuth `error_description`, a token-endpoint failure reason, stack traces, file paths) reaches the client, regardless of `NODE_ENV`. The original error is preserved on `error.cause`, so your own logging can still inspect it.
 - The failure status is a stable `500` instead of mirroring whatever status an upstream call happened to return (for example a `400` from the token endpoint).
 
-With the `poppy` option, some callback failures get their own status instead: `403` for a login that Poppy refuses (a `PoppyError`), `400` for a malformed Poppy Session and `401` for a session that has already ended. The login route never refuses a request for `iss` or `target_link_uri`. These errors are sanitized the same way, with the original error on `error.cause` (see [Poppy errors](./EXAMPLES.md#poppy-errors)).
+With the `poppy` option, some callback failures get `403` instead of `500`: a login that Poppy refuses, a Poppy Session that is not well formed, and a session that has already ended. Each error has a fixed `error.code` (`poppy_sign_in_required`, `invalid_poppy_guest`, `invalid_poppy_agent` or `session_expired`). The login route never refuses a request for `iss` or `target_link_uri`. These errors are sanitized the same way, with the original error on `error.cause` (see [Poppy errors](./EXAMPLES.md#poppy-errors)).
 
 Express still produces the final response. Its built-in error handler writes the (now generic) error stack into the response body unless `NODE_ENV` is set to `production`. For full control over what clients see, you can:
 
