@@ -358,11 +358,14 @@ describe('example-express-web-poppy', () => {
     const signedIn = await site.get('/').set('Cookie', jar.header());
 
     expect(nobody.text).toContain('Nobody has joined or signed in from this browser.');
-    expect(nobody.text).toContain('Items in the cart: 0.');
+    // Nobody has no cart, so there is nothing to add to.
+    expect(nobody.text).toContain('Log in to start a cart.');
+    expect(nobody.text).not.toContain('data-sku');
     expect(guest.text).toContain('An agent is browsing for a user who has not signed in.');
-    expect(guest.text).toContain('Items in the cart: 1.');
+    expect(guest.text).toContain('<h2>Cart (1)</h2><ul><li>tea</li></ul>');
+    expect(guest.text).toContain('data-sku="tea"');
     expect(signedIn.text).toContain('A signed-in user is browsing.');
-    expect(signedIn.text).toContain('Items in the cart: 1.');
+    expect(signedIn.text).toContain('<h2>Cart (1)</h2><ul><li>tea</li></ul>');
     for (const page of [nobody, guest, signedIn]) {
       expect(page.status).toBe(200);
       expect(page.type).toBe('text/html');
@@ -424,15 +427,22 @@ describe('example-express-web-poppy', () => {
     expect(person.text).not.toContain('Poppy Session ID');
   });
 
-  test('escapes the values of the session on the home page', async () => {
+  test('escapes the values of the session and the items of the cart on the home page', async () => {
     const site = await start();
     const jar = cookieJar();
     const name = '<script>alert("x")</script>';
+    const sku = '<img src=x onerror=alert(1)>';
 
     await join(site, jar, idToken('auth0|person', { name }), {});
+    await site.post('/api/cart/items').set('Cookie', jar.header()).send({ sku });
     const res = await site.get('/').set('Cookie', jar.header());
 
-    expect(res.text).not.toContain('<script>');
+    // The page has a script of its own (the add buttons), so look for what the visitor chose, not for any tag.
+    expect(res.text).not.toContain('<script>alert');
+    // The only script tag is the one of the page (the add buttons).
+    expect(res.text.match(/<script/g)).toHaveLength(1);
     expect(res.text).toContain('&#60;script&#62;alert(&#34;x&#34;)&#60;/script&#62;');
+    expect(res.text).not.toContain('<img');
+    expect(res.text).toContain('&#60;img src=x onerror=alert(1)&#62;');
   });
 });

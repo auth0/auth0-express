@@ -1,106 +1,15 @@
 import express from 'express';
 import type { Express } from 'express';
 import { createAuth0, requiresAuth } from '@auth0/auth0-express';
-import type { Auth0Options, PoppyAgentContext, PoppyVisitor } from '@auth0/auth0-express';
+import type { Auth0Options, PoppyVisitor } from '@auth0/auth0-express';
+import { homePage, ordersPage } from './views.js';
 
-// One fixed sentence for each kind of visitor. The `Record` needs a key for every kind, so the build of this app stops
-// when a later version of the SDK adds a kind that is not described here. This app does not turn on anonymous sessions,
-// so it never sees `anonymous`.
-const SENTENCES: Record<PoppyVisitor['kind'], string> = {
-  none: 'Nobody has joined or signed in from this browser.',
-  anonymous: 'This browser has an anonymous session.',
-  guest: 'An agent is browsing for a user who has not signed in.',
-  user: 'A signed-in user is browsing.',
-};
-
-// The key of the cart of a visitor, or `undefined` when the visitor has no cart.
-// - An agent's browser uses `poppy.key`, as a guest and after its user signs in. The key comes from `act.sub`,
-//   `act.poppy_sid` and `act.poppy_user_id`, so it is the same in both states while the sign-in join has the same `act`,
-//   and then the cart survives the sign-in. When a member differs, the key is another one and the cart of the guest is
-//   not found: keep under it only what you can afford to lose. It is not the user, because a guest has none. It is not
-//   the id of the Poppy Session alone either, because two agents can pick the same id.
-// - A person who logged in on their own has no `poppy`, so the cart is under the account (`sub`).
-// - Nobody, and an anonymous session, have no cart.
-function cartKey(visitor: PoppyVisitor): string | undefined {
-  switch (visitor.kind) {
-    case 'guest':
-      return visitor.poppy.key;
-    case 'user':
-      return visitor.poppy?.key ?? visitor.user.sub;
-    case 'none':
-    case 'anonymous':
-      return undefined;
-    default: {
-      // This does not compile when a later version of the SDK adds a kind that the switch does not handle.
-      const unhandled: never = visitor;
-      return unhandled;
-    }
-  }
-}
-
-const page = (body: string) =>
-  `<!doctype html><html lang="en"><head><meta charset="utf-8"><title>Shop</title></head><body>${body}</body></html>`;
-
-// Escapes a value for HTML text. The session section shows values from tokens (`sub`, the URL of the agent, and so on),
-// and a person or an agent chooses some of them, so no such value goes into the page without this.
-const escapeHtml = (value: string) => value.replace(/[&<>"']/g, (char) => `&#${char.charCodeAt(0)};`);
-
-type Row = [label: string, value: string | undefined];
-
-// The rows for an agent's browser. A guest has a `poppy`, and so has a user whose session an agent joined. `act` is the
-// `act` claim of the ID token as Auth0 sent it: `act.sub` is the agent (the URL of its metadata, or the Auth0 id of the
-// agent when its client is linked), and the Poppy Session is named by `act.poppy_sid` and `act.poppy_user_id`.
-const agentRows = (poppy: PoppyAgentContext): Row[] => [
-  ['Poppy Session state', poppy.state],
-  ['Poppy Session ID', poppy.act.poppy_sid],
-  ['Poppy user ID', poppy.act.poppy_user_id],
-  ['Agent', poppy.act.sub],
-  ['Cart key', poppy.key],
-];
-
-// What the session section shows for each kind of visitor.
-function sessionRows(visitor: PoppyVisitor): Row[] {
-  switch (visitor.kind) {
-    case 'none':
-    case 'anonymous':
-      return [];
-    case 'guest':
-      return agentRows(visitor.poppy);
-    case 'user':
-      return [
-        ['Subject (sub)', visitor.user.sub],
-        ['Name', visitor.user.name],
-        ['Email', visitor.user.email],
-        ...(visitor.poppy ? agentRows(visitor.poppy) : []),
-      ];
-    default: {
-      // This does not compile when a later version of the SDK adds a kind that the switch does not handle.
-      const unhandled: never = visitor;
-      return unhandled;
-    }
-  }
-}
-
-// The buttons of the page. A visitor with a session can log out. Nobody who has a session can log in, and neither can a
-// guest: a guest cannot sign in on the website, because the person the agent acts for signs in through the agent. A
-// person's login while a guest is there is refused, so the page does not offer it. The login button goes to the normal
-// login route, without `iss` or `target_link_uri`, so it is the login of a person and not the join of an agent.
-function buttons(visitor: PoppyVisitor): string {
-  const login =
-    visitor.kind === 'none' || visitor.kind === 'anonymous' ? '<a class="button" href="/auth/login">Log in</a>' : '';
-  const logout = visitor.kind === 'none' ? '' : '<a class="button" href="/auth/logout">Log out</a>';
-
-  return `<p>${login} ${logout}</p>`;
-}
-
-// The section with the information of the current session.
-function sessionSection(visitor: PoppyVisitor): string {
-  const rows: Row[] = [['Visitor', visitor.kind], ...sessionRows(visitor)];
-  const shown = rows.filter((row): row is [string, string] => row[1] !== undefined && row[1] !== '');
-  const list = shown.map(([label, value]) => `<dt>${label}</dt><dd>${escapeHtml(value)}</dd>`).join('');
-
-  return `<section id="session"><h2>Current session</h2><dl>${list}</dl></section>`;
-}
+// This file is the SDK part of the example. There are four steps:
+//   1. `createAuth0({ poppy: true })` turns on support for Personal Agents.
+//   2. `getVisitor()` tells a route who is browsing: nobody, a guest, or a signed-in user.
+//   3. `cartKey()` uses `poppy.key` as the key of the cart of an agent's browser.
+//   4. `requiresAuth()` keeps a page for signed-in users.
+// The page itself is in `views.ts`.
 
 // `options` replace what the SDK reads from AUTH0_DOMAIN, AUTH0_CLIENT_ID, AUTH0_CLIENT_SECRET, AUTH0_SESSION_SECRET
 // and APP_BASE_URL. The tests use them to run the app with no tenant and with no poppy.json.
@@ -118,32 +27,27 @@ export function createApp(options: Partial<Auth0Options> = {}): Express {
   // The cart route reads a JSON body.
   app.use(express.json());
 
-  // The `poppy` option turns on support for Personal Agents. The router then:
+  // Step 1. The `poppy` option turns on support for Personal Agents. The router then:
   // - serves /.well-known/poppy.json and /.well-known/oauth-protected-resource from poppy.json, the file that
   //   `auth0 poppy config` writes. It reads the file once, at startup, from the working directory. Agents look for both
   //   documents at the root of the site.
   // - reads `iss` on the login route. After the login it sends the browser to `target_link_uri` only when `iss` is the
   //   issuer and the target is a page of this site, and it never sends `iss` or `target_link_uri` on to Auth0. A request
   //   whose `iss` it cannot use is a normal login.
-  // - turns the join of an agent's browser into a guest or a signed-in user, and tells a route who drives the browser
-  //   with `getVisitor()`.
+  // - turns the join of an agent's browser into a guest or a signed-in user.
   app.use(createAuth0({ poppy: true, ...options }));
 
   // Carts live in memory, one for each key. A real app keeps them in its database.
   const carts = new Map<string, string[]>();
 
   app.get('/', async (req, res) => {
+    // Step 2. Who is browsing?
     const visitor = await req.auth0.client.poppy.getVisitor();
+    // Step 3. Which cart is theirs?
     const key = cartKey(visitor);
-    const count = key === undefined ? 0 : (carts.get(key)?.length ?? 0);
 
-    // The sentence is fixed text. The values in the session section come from tokens, and `escapeHtml` escapes each one.
-    res.send(
-      page(
-        `<h1>Shop</h1><p>${SENTENCES[visitor.kind]}</p><p>Items in the cart: ${count}.</p>${buttons(visitor)}` +
-          sessionSection(visitor)
-      )
-    );
+    // The page escapes every value that comes from a token or from a visitor.
+    res.send(homePage(visitor, key === undefined ? undefined : (carts.get(key) ?? [])));
   });
 
   app.get('/api/visitor', async (req, res) => {
@@ -184,14 +88,39 @@ export function createApp(options: Partial<Auth0Options> = {}): Express {
     res.status(201).json({ items });
   });
 
-  // `requiresAuth()` looks for a user, and a guest is not a user, so it answers a guest with 403. It does not send a guest
-  // to the login page: a guest cannot sign in there, and the login cannot succeed while a guest is in the browser, so
+  // Step 4. `requiresAuth()` looks for a user, and a guest is not a user, so it answers a guest with 403. It does not send a
+  // guest to the login page: a guest cannot sign in there, and the login cannot succeed while a guest is in the browser, so
   // the guest would only go to Auth0 and come back to a 403. The SDK never writes a guest and a person's session
   // together: a guest join ends the session of a person, and while a guest is there, a person's login is refused with
   // a 403 (see the README of this example).
   app.get('/orders', requiresAuth(), (_req, res) => {
-    res.send(page('<p>Your orders are shown here, because you are signed in.</p>'));
+    res.send(ordersPage());
   });
 
   return app;
+}
+
+// The key of the cart of a visitor, or `undefined` when the visitor has no cart.
+// - An agent's browser uses `poppy.key`, as a guest and after its user signs in. The key comes from `act.sub`,
+//   `act.poppy_sid` and `act.poppy_user_id`, so it is the same in both states while the sign-in join has the same `act`,
+//   and then the cart survives the sign-in. When a member differs, the key is another one and the cart of the guest is
+//   not found: keep under it only what you can afford to lose. It is not the user, because a guest has none. It is not
+//   the id of the Poppy Session alone either, because two agents can pick the same id.
+// - A person who logged in on their own has no `poppy`, so the cart is under the account (`sub`).
+// - Nobody, and an anonymous session, have no cart.
+function cartKey(visitor: PoppyVisitor): string | undefined {
+  switch (visitor.kind) {
+    case 'guest':
+      return visitor.poppy.key;
+    case 'user':
+      return visitor.poppy?.key ?? visitor.user.sub;
+    case 'none':
+    case 'anonymous':
+      return undefined;
+    default: {
+      // This does not compile when a later version of the SDK adds a kind that the switch does not handle.
+      const unhandled: never = visitor;
+      return unhandled;
+    }
+  }
 }

@@ -1,10 +1,57 @@
 # Express Web Example with Personal Agents (Poppy)
 
-This example shows how a website that uses [`@auth0/auth0-express`](../../packages/auth0-express) lets a Personal Agent browse it. A Personal Agent is software that acts for a user. It drives its own browser, and that browser joins the agent's Poppy Session before it visits your site. The [Poppy (Personal Agent Protocol) specification](https://personalagentprotocol.org/docs/spec#web-browsing) describes this. The support in the SDK is in beta.
+A small shop that lets a Personal Agent browse it, built with [`@auth0/auth0-express`](../../packages/auth0-express).
 
-## What it shows
+A Personal Agent is software that acts for a user. It drives its own browser, and that browser joins the agent's Poppy Session before it visits your site. The [Poppy (Personal Agent Protocol) specification](https://personalagentprotocol.org/docs/spec#web-browsing) describes this. The support in the SDK is in beta.
 
-The example is a small shop. A route asks `req.auth0.client.poppy.getVisitor()` who is behind the request:
+The home page shows who is browsing, what is in their cart, and what the SDK knows about them. Use it to see the SDK at work.
+
+## Quick start: install, build and run the tests
+
+From the repository root:
+
+```bash
+npm install
+npm run build
+```
+
+Then, from `examples/example-express-web-poppy`:
+
+```bash
+npm test
+```
+
+The tests need no Auth0 tenant and no network. `msw` plays the tenant, and each test plays the browser of an agent through the real login and callback routes. [`src/app.spec.ts`](./src/app.spec.ts) is a good place to see what an agent's join looks like.
+
+## Where to look
+
+| File | What is in it |
+| --- | --- |
+| [`src/app.ts`](./src/app.ts) | All the SDK code, in four steps. Start here. |
+| [`src/views.ts`](./src/views.ts) | The HTML and CSS of the pages. No SDK code. |
+| [`src/index.ts`](./src/index.ts) | Reads `.env` and starts the server. |
+
+The four steps are in `src/app.ts`:
+
+```ts
+// 1. Turn on support for Personal Agents.
+app.use(createAuth0({ poppy: true }));
+
+app.get('/', async (req, res) => {
+  // 2. Who is browsing?
+  const visitor = await req.auth0.client.poppy.getVisitor();
+  // 3. Which cart is theirs?
+  const key = cartKey(visitor);
+  // ...
+});
+
+// 4. Keep a page for signed-in users.
+app.get('/orders', requiresAuth(), (req, res) => { /* ... */ });
+```
+
+## Who is browsing
+
+`getVisitor()` answers with a `kind`:
 
 | `kind` | Who is browsing | Cart |
 | --- | --- | --- |
@@ -14,50 +61,21 @@ The example is a small shop. A route asks `req.auth0.client.poppy.getVisitor()` 
 
 `getVisitor()` can also say `anonymous`. This app does not turn on anonymous sessions, so it never does.
 
+## Routes
+
 | Route | Answer |
 | --- | --- |
-| `GET /` | A page with one fixed sentence for the kind of visitor, the number of items in the cart, a **Log in** button (`/auth/login`) for a visitor with no session, a **Log out** button (`/auth/logout`) for a visitor with a session, and a **Current session** section |
+| `GET /` | The home page: the kind of visitor, the cart (with buttons to add items when the visitor has one), and the **Current session** card. **Log in** is shown when nobody has joined or signed in, and **Log out** to a visitor with a session |
 | `GET /api/visitor` | `{ kind }`, and `state` when an agent drives the browser |
 | `GET /api/cart` | `200` with the items, or `401` when the visitor has no cart |
-| `POST /api/cart/items` | `201` with the items, after adding the `sku` of the JSON body. `400` unless the `sku` is a non-empty string, and `401` when the visitor has no cart |
-| `GET /orders` | A page for signed-in users. A guest gets `403` and is not sent to the login page. A visitor with no login is sent to it |
-
-The **Current session** section lists what the SDK knows about the visitor: the `kind`, and then the `sub`, name and email of a user, and the state, the ID of the Poppy Session (`act.poppy_sid`), the ID of the user (`act.poppy_user_id`), the agent (`act.sub`: the URL of its metadata, or the Auth0 id of the agent when its client is linked) and the cart key when an agent drives the browser. The page escapes every value, because a person or an agent chooses some of them. The **Log in** button is the normal login of a person, without `iss` or `target_link_uri`. It is not offered to a guest, because a guest cannot sign in on the website, and the login route could bring back the same guest, which the callback refuses. A person's login while a guest is in the browser is refused with `403`, so try the button in a browser that has no guest.
-
-The cart is keyed by `poppy.key`. When the user of the agent signs in, the agent joins again. The key is a hash of `act.sub`, `act.poppy_sid` and `act.poppy_user_id`, so it does not change while the join that signs in has the same values for these three, and the items that the agent added as a guest are still in the cart. When one of them differs, the key is another one and the cart of the guest is not found, so keep under it only what you can afford to lose. The key is not the user, because a guest has none. It is also not the ID of the Poppy Session alone, because two agents can pick the same one.
-
-Every answer of the app except the two discovery files carries `Cache-Control: no-store`, because what it answers depends on the cookies of the visitor, and a shared cache such as a CDN must not give the answer for one visitor to another. The router sets `public, max-age=300` on the discovery files, which replaces that header there.
-
-`/orders` is closed to guests, because `requiresAuth()` looks for a user and a guest is not a user. It answers a guest with `403` and does not send it to the login page, because the login cannot succeed while a guest is in the browser: the redirect would only send the guest to Auth0 and back to a `403` (`poppy_sign_in_required`). Pass `onGuest` to `requiresAuth()` to answer a guest in your own way. The SDK never writes a guest and a person's session together: a guest join ends the session of a person. A page that must stay closed to a signed-in agent checks `getVisitor()` as well.
-
-The example applies no scopes: `/orders` is open to any signed-in agent with the full access of the account. So the `poppy.json` that you run it with must say `"unscoped": true` in its `web` member. See [Scopes](../../packages/auth0-express/EXAMPLES.md#scopes).
-
-The router also serves `/.well-known/poppy.json` and `/.well-known/oauth-protected-resource` from `poppy.json`. Agents read them to find out how to join. The router touches no cookie to serve them.
-
-## Install dependencies
-
-From the repository root:
-
-```bash
-npm install
-npm run build
-```
-
-## Test
-
-From `examples/example-express-web-poppy`:
-
-```bash
-npm test
-```
-
-The tests need no Auth0 tenant and no network. `msw` plays the tenant, and each test plays the browser of an agent through the real login and callback routes of the app. They check the discovery files, that a guest keeps its cart when the agent signs in, that a guest gets `403` at the orders page and is not sent to the login page (a visitor with no login is), and that a login link from another issuer is ignored and lands on the home page.
+| `POST /api/cart/items` | Adds the `sku` of the JSON body. `201` with the items, `400` unless the `sku` is a non-empty string, `401` when the visitor has no cart |
+| `GET /orders` | A page for signed-in users. A guest gets `403` and is not sent to the login page. A visitor with no login is sent to it. The **Orders** link in the page header goes here, so you can see both |
 
 ## Run it for real
 
-This needs an Auth0 tenant that is set up for Poppy, and a Personal Agent to browse the site. To try the example without them, run the tests above.
+This needs an Auth0 tenant that is set up for Poppy (it is in beta, so your tenant needs it enabled), and a Personal Agent to browse the site. Do the install and build from the quick start first.
 
-1. Set up the application with the Auth0 CLI, from this folder. Poppy is in beta on Auth0, so your tenant needs it enabled:
+1. Set up the application with the Auth0 CLI, from this folder:
 
    ```bash
    auth0 poppy setup --company-domain <your-domain>
@@ -76,19 +94,29 @@ This needs an Auth0 tenant that is set up for Poppy, and a Personal Agent to bro
    APP_BASE_URL=https://shop.example.com
    ```
 
-   `AUTH0_CLIENT_ID` and `AUTH0_CLIENT_SECRET` are those of the Regular Web Application of the site. `APP_BASE_URL` is the https address of the site: `https://` and the `organization.domain` of `poppy.json`.
+   `AUTH0_CLIENT_ID` and `AUTH0_CLIENT_SECRET` are those of the Regular Web Application of the site. `AUTH0_SESSION_SECRET` encrypts the session cookie: make one with `openssl rand -hex 64`. `APP_BASE_URL` is the https address of the site: `https://` and the `organization.domain` of `poppy.json`.
 
 3. Serve the site over HTTPS, at the root of the `organization.domain`. Agents look for the two discovery files at the root of that domain, so the site cannot sit under a path. The cookie of a guest is `Secure`, so it needs HTTPS too. The app listens on plain `http`, so put a reverse proxy or a tunnel in front of it that ends TLS and forwards to the app.
 
-4. Start the app, from `examples/example-express-web-poppy`:
+4. Start the app, from this folder:
 
    ```bash
    npm start
    ```
 
-   It listens on port 3000. Set `PORT` to use another port, and forward to that port.
+   It listens on port 3000. Set `PORT` to use another port, and forward to that port. If a setting of `.env`, or `poppy.json`, is missing, it says so and stops.
 
-5. Use a Personal Agent to browse the site.
+5. Use a Personal Agent to browse the site, and look at the home page in the same browser to see what the SDK knows.
+
+## Good to know
+
+- **The cart survives the sign-in.** The cart is keyed by `poppy.key`, a hash of `act.sub`, `act.poppy_sid` and `act.poppy_user_id`. When the user of the agent signs in, the agent joins again, and while the three values are the same, the key is the same, so the items that the agent added as a guest are still there. When one of them differs, the key is another one and the cart of the guest is not found, so keep under it only what you can afford to lose. The key is not the user, because a guest has none. It is also not the ID of the Poppy Session alone, because two agents can pick the same one.
+- **Guests cannot use `/orders`.** `requiresAuth()` looks for a user, and a guest is not a user, so it answers a guest with `403`. It does not send the guest to the login page, because the login cannot succeed while a guest is in the browser: the redirect would only send the guest to Auth0 and back to a `403` (`poppy_sign_in_required`). Pass `onGuest` to `requiresAuth()` to answer a guest in your own way. A page that must stay closed to a signed-in agent checks `getVisitor()` as well.
+- **A guest has no `Log in` button.** A guest cannot sign in on the website. The person the agent acts for signs in through the agent. A person's login while a guest is in the browser is refused with `403`, so try **Log in** in a browser that has no guest. The button is the normal login of a person, without `iss` or `target_link_uri`.
+- **No answer is cached.** Every answer except the two discovery files carries `Cache-Control: no-store`, because what it says depends on the cookies of the visitor, and a shared cache such as a CDN must not give the answer for one visitor to another. The router sets `public, max-age=300` on the discovery files.
+- **Every value is escaped.** The page shows values that a person or an agent chooses (the `sub`, the URL of the agent, the items of the cart), so `src/views.ts` escapes each one.
+- **No scopes.** The example applies no scopes: `/orders` is open to any signed-in agent with the full access of the account. So the `poppy.json` that you run it with must say `"unscoped": true` in its `web` member. See [Scopes](../../packages/auth0-express/EXAMPLES.md#scopes).
+- **Discovery files.** The router serves `/.well-known/poppy.json` and `/.well-known/oauth-protected-resource` from `poppy.json`. Agents read them to find out how to join. The router touches no cookie to serve them.
 
 ## Before you use this in production
 
