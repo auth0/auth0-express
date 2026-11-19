@@ -4,5 +4,5 @@
   "files": {
     ".version": []
   },
-  "postbump": "npm run docs"
+  "postbump": "npm run docs && git add ../../docs/auth0-express"
 }
