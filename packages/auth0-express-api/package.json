@@ -15,7 +15,8 @@
     "lint": "eslint \"./**/*.ts*\"",
     "test": "vitest run",
     "test:ci": "vitest --watch false --coverage",
-    "test:express4": "vitest run --config vitest.express4.config.ts"
+    "test:express4": "vitest run --config vitest.express4.config.ts",
+    "docs": "typedoc"
   },
   "types": "./dist/index.d.ts",
   "main": "./dist/index.js",
