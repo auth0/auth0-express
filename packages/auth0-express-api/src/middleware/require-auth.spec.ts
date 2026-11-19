@@ -261,6 +261,10 @@ describe('requiresAuth', () => {
       ['a backslash', 'C:\\keys\\jwks', 'C:\\keys\\jwks'],
       ['a trailing backslash', 'ends with \\', 'ends with \\'],
       ['a backslash before a double quote', 'a\\"b', 'a\\"b'],
+      ['more than 256 characters', 'a'.repeat(300), 'a'.repeat(256)],
+      ['a backslash as the 256th character', `${'a'.repeat(255)}\\${'b'.repeat(40)}`, `${'a'.repeat(255)}\\`],
+      ['a double quote as the 256th character', `${'a'.repeat(255)}"${'b'.repeat(40)}`, `${'a'.repeat(255)}"`],
+      ['256 characters of non-ASCII text', '\u20ac'.repeat(300), '?'.repeat(256)],
     ])('should write a header that parses for a message with %s', async (_label, message, decoded) => {
       verifyAccessToken.mockRejectedValue(new VerifyAccessTokenError(message));
       const req = createMockRequest('Bearer <token>');
@@ -284,6 +288,30 @@ describe('requiresAuth', () => {
       // JSON can carry any text, so the body keeps the message as it was.
       expect(res.json).toHaveBeenCalledWith({ error: 'invalid_token', error_description: message });
       expect(mockNext).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('when next() throws on a verified request', () => {
+    // Express's own `next()` never throws, so this is for a middleware that is called by hand.
+    it('should pass the error to next() and not answer it as a failed token', async () => {
+      const failure = new Error('<a middleware further down failed>');
+      verifyAccessToken.mockResolvedValue({ sub: 'user_123' });
+      mockNext.mockImplementationOnce(() => {
+        throw failure;
+      });
+      const req = createMockRequest('Bearer <token>');
+      const res = createMockResponse();
+
+      await expect(
+        requiresAuth()(req as Request, res as Response, mockNext as NextFunction)
+      ).resolves.toBeUndefined();
+
+      expect(res.status).not.toHaveBeenCalled();
+      expect(res.header).not.toHaveBeenCalled();
+      expect(res.json).not.toHaveBeenCalled();
+      expect(mockNext).toHaveBeenCalledTimes(2);
+      expect(mockNext).toHaveBeenNthCalledWith(1);
+      expect(mockNext).toHaveBeenNthCalledWith(2, failure);
     });
   });
 

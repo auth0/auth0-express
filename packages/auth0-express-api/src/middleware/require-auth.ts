@@ -45,31 +45,36 @@ export function requiresAuth(options: RequiresAuthOptions = {}) {
         return res.status(401).header('WWW-Authenticate', 'Bearer').end();
       }
 
+      let token: Token;
+
       try {
-        const token = (await apiClient.verifyAccessToken({ accessToken })) as Token;
-
-        if (options.scopes && !validateScopes(token, options.scopes)) {
-          return sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes');
-        }
-
-        req.auth0.user = token;
-        // Non-enumerable, so logging or serialising `req.auth0` cannot leak it.
-        Object.defineProperty(req.auth0, 'token', {
-          value: accessToken,
-          enumerable: false,
-          writable: true,
-          configurable: true,
-        });
-        next();
+        token = (await apiClient.verifyAccessToken({ accessToken })) as Token;
       } catch (error) {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
         if ((error as any).code === 'verify_access_token_error') {
+          // The message can hold text from the request, such as the name of an unknown `crit` entry of the token.
           // eslint-disable-next-line @typescript-eslint/no-explicit-any
-          return sendBearerError(res, 401, 'invalid_token', (error as any).message, undefined, true);
+          return sendBearerError(res, 401, 'invalid_token', (error as any).message, undefined, { fromRequest: true });
         }
 
         return sendBearerError(res, 401, 'invalid_token', 'Invalid token');
       }
+
+      if (options.scopes && !validateScopes(token, options.scopes)) {
+        return sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes');
+      }
+
+      req.auth0.user = token;
+      // Non-enumerable, so logging or serialising `req.auth0` cannot leak it.
+      Object.defineProperty(req.auth0, 'token', {
+        value: accessToken,
+        enumerable: false,
+        writable: true,
+        configurable: true,
+      });
+      // Outside the verification `try`, so that an error thrown from here is not answered as a failed token. It goes to
+      // the outer catch, and so to `next(error)`.
+      next();
     } catch (error) {
       next(error);
     }

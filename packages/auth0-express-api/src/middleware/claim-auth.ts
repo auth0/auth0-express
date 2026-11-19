@@ -19,8 +19,39 @@ export interface ClaimAuthOptions {
   /**
    * Custom error message to send when authorization fails.
    * This will be used as the error_description in the WWW-Authenticate header.
+   *
+   * The JSON body carries the message as it is. In the header, `"` and `\` are escaped, and a character that Node
+   * refuses in a header value (anything above U+00FF, or a control character other than a tab) is written as `?`.
    */
   errorMessage?: string;
+}
+
+/**
+ * Options of {@link sendBearerError}.
+ */
+export interface BearerErrorOptions {
+  /**
+   * Set it when the description holds text that can come from the request, such as the message of a failed token
+   * verification. In the header, the text is then cut down to printable ASCII (anything else becomes `?`) and to 256
+   * characters. The JSON body is not changed.
+   */
+  fromRequest?: boolean;
+}
+
+/** The most characters of text from the request that the header carries. */
+const MAX_REQUEST_TEXT_IN_HEADER = 256;
+
+/**
+ * The text as the inside of a quoted-string for the header (RFC 9110, section 5.6.4). Every character that Node
+ * refuses in a header value becomes `?`, and `\` and `"` get a backslash. The cut comes before the escaping, so that it
+ * never leaves a backslash on its own.
+ */
+function quotedStringText(text: string, fromRequest: boolean): string {
+  const safe = fromRequest
+    ? text.replace(/[^\x20-\x7e]/gu, '?').slice(0, MAX_REQUEST_TEXT_IN_HEADER)
+    : text.replace(/[^\t\x20-\x7e\x80-\xff]/gu, '?');
+
+  return safe.replace(/["\\]/g, '\\$&');
 }
 
 /**
@@ -31,8 +62,7 @@ export interface ClaimAuthOptions {
  * @param error - OAuth error code
  * @param errorDescription - Human-readable error description
  * @param scopes - Optional array of required scopes (for insufficient_scope errors)
- * @param headerSafe - Whether to write the description into the header as a
- *   quoted-string of printable ASCII, for text that can come from the request
+ * @param options - See {@link BearerErrorOptions}
  * @returns Response object
  */
 export function sendBearerError(
@@ -41,15 +71,10 @@ export function sendBearerError(
   error: string,
   errorDescription: string,
   scopes?: string[],
-  headerSafe = false
+  options: BearerErrorOptions = {}
 ): Response {
   const scopeHeader = scopes ? `, scope="${scopes.join(' ')}"` : '';
-  // With `headerSafe` the text can come from the request, so it is cut down to
-  // printable ASCII (anything else becomes `?`), and `\` and `"` are escaped so
-  // that it stays inside the quoted-string.
-  const headerDescription = headerSafe
-    ? errorDescription.replace(/[^\x20-\x7e]/gu, '?').replace(/["\\]/g, '\\$&')
-    : errorDescription.replaceAll('"', '\\"');
+  const headerDescription = quotedStringText(errorDescription, options.fromRequest === true);
   return res
     .status(statusCode)
     .header(

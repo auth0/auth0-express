@@ -1504,6 +1504,12 @@ describe('the WWW-Authenticate header for a failed verification', () => {
       token: validToken,
       message: 'multiple matching keys found in the JSON Web Key Set',
     },
+  ];
+
+  // Failures that are not about the token. api-js gives them the same error as a bad token, so 1.0.0 answers them with
+  // a 401 and the raw message. These tests record what is sent today, not what is right: an answer of 503, or a
+  // message that is not echoed, should change them.
+  const outages: typeof rejections = [
     {
       reason: 'a JWKS request that fails',
       handlers: () => [http.get(jwksUri, () => new HttpResponse(null, { status: 500 }))],
@@ -1552,7 +1558,7 @@ describe('the WWW-Authenticate header for a failed verification', () => {
     },
   ];
 
-  test.each(rejections)('should send what 1.0.0 sent for $reason', async ({ token, handlers, message }) => {
+  const expectWhatWasSentBy1_0_0 = async ({ token, handlers, message }: (typeof rejections)[number]) => {
     if (handlers) {
       server.use(...(await handlers()));
     }
@@ -1580,7 +1586,22 @@ describe('the WWW-Authenticate header for a failed verification', () => {
     // Printable ASCII with no backslash, the text for which both must agree.
     expect(message).toMatch(/^[\x20-\x5b\x5d-\x7e]+$/);
     expect(res.headers['www-authenticate']).toBe(asSentBy1_0_0(message));
+  };
+
+  test.each(rejections)('should send what 1.0.0 sent for $reason', expectWhatWasSentBy1_0_0);
+
+  describe('known 1.0.0 behaviour for failures that are not about the token', () => {
+    test.each(outages)('should still send what 1.0.0 sent for $reason', expectWhatWasSentBy1_0_0);
   });
+});
+
+// What `parseChallenge()` gives for the `Bearer` challenge of an invalid token.
+const challengeOf = (description: string) => ({
+  scheme: 'Bearer',
+  params: [
+    ['error', 'invalid_token'],
+    ['error_description', description],
+  ],
 });
 
 // Node writes and reads header values as Latin-1, so comparing the strings
@@ -1636,29 +1657,68 @@ describe('the answers that app-supplied text goes into', () => {
     expect(res.body).toEqual({ error: 'insufficient_scope', error_description: 'Insufficient scopes' });
   });
 
-  // 1.0.0 escapes only `"` in this text, and that is unchanged.
+  // Latin-1 text stays as it was. `\` is escaped now (1.0.0 sent it as it was, which dropped it or left the string open),
+  // so the header decodes to the same text as the JSON body.
   const errorMessage = 'Réservé aux "administrateurs" (voir C:\\équipe)';
 
-  test.each([
-    ['claimEquals()', claimEquals('rôle', 'administrateur', { errorMessage })],
-    ['claimIncludes()', claimIncludes('rôles', ['administrateur'], { errorMessage })],
-    ['claimCheck()', claimCheck(() => false, { errorMessage })],
-  ])('should keep the 401 from %s with a non-ASCII error message', async (_name, middleware) => {
-    const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+  const middlewares = (message: string) =>
+    [
+      ['claimEquals()', claimEquals('rôle', 'administrateur', { errorMessage: message })],
+      ['claimIncludes()', claimIncludes('rôles', ['administrateur'], { errorMessage: message })],
+      ['claimCheck()', claimCheck(() => false, { errorMessage: message })],
+    ] as const;
+
+  const lecteur = () =>
+    generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
       rôle: 'lecteur',
       rôles: ['lecteur'],
     });
 
-    const res = await request(appWith(requiresAuth(), middleware))
+  test.each(middlewares(errorMessage))(
+    'should keep the 401 from %s with a Latin-1 error message, and escape its backslash',
+    async (_name, middleware) => {
+      const res = await request(appWith(requiresAuth(), middleware))
+        .get('/test')
+        .set('authorization', `Bearer ${await lecteur()}`);
+
+      expect(res.status).toBe(401);
+      expect(res.headers['www-authenticate']).toBe(
+        'Bearer error="invalid_token", error_description="Réservé aux \\"administrateurs\\" (voir C:\\\\équipe)"'
+      );
+      expect(parseChallenge(res.headers['www-authenticate']!)).toEqual(challengeOf(errorMessage));
+      expect(res.body).toEqual({ error: 'invalid_token', error_description: errorMessage });
+    }
+  );
+
+  // Node refuses a character above U+00FF in a header value, so the header gets a `?` and the JSON body keeps the text.
+  test.each([
+    ['a trailing backslash', 'Admins only \\', 'Admins only \\'],
+    ['a character above U+00FF', '管理者のみ', '?????'],
+    ['a character outside the BMP', 'Admins \u{1F600}', 'Admins ?'],
+    ['a euro sign', 'costs \u20ac5', 'costs ?5'],
+    ['a carriage return and a line feed', 'one\r\ntwo', 'one??two'],
+  ])('should send a 401 with a header that parses for an error message with %s', async (_label, message, decoded) => {
+    const res = await request(appWith(requiresAuth(), claimEquals('rôle', 'administrateur', { errorMessage: message })))
       .get('/test')
-      .set('authorization', `Bearer ${accessToken}`);
+      .set('authorization', `Bearer ${await lecteur()}`);
 
     expect(res.status).toBe(401);
-    expect(res.headers['www-authenticate']).toBe(
-      'Bearer error="invalid_token", error_description="Réservé aux \\"administrateurs\\" (voir C:\\équipe)"'
-    );
-    expect(res.body).toEqual({ error: 'invalid_token', error_description: errorMessage });
+    expect(parseChallenge(res.headers['www-authenticate']!)).toEqual(challengeOf(decoded));
+    expect(res.body).toEqual({ error: 'invalid_token', error_description: message });
   });
+
+  test.each(middlewares('管理者のみ \\'))(
+    'should send a 401 with a header that parses from %s for text above U+00FF and a trailing backslash',
+    async (_name, middleware) => {
+      const res = await request(appWith(requiresAuth(), middleware))
+        .get('/test')
+        .set('authorization', `Bearer ${await lecteur()}`);
+
+      expect(res.status).toBe(401);
+      expect(parseChallenge(res.headers['www-authenticate']!)).toEqual(challengeOf('????? \\'));
+      expect(res.body).toEqual({ error: 'invalid_token', error_description: '管理者のみ \\' });
+    }
+  );
 
   test('should keep the 401 from claimEquals() with a default message naming a non-ASCII claim', async () => {
     const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
@@ -1726,9 +1786,26 @@ describe('in a router mounted on a path', () => {
     });
   });
 
-  // CI installs Express 5 only. This test also passes against the 1.0.0 source there,
-  // and only fails on Express 4. The mock-based tests in require-auth.spec.ts are the
-  // ones that guard the Express 4 process exit in CI.
+  test('should cut the text from the token in the header, and not in the body', async () => {
+    const { app, errors } = mountedApp();
+    // The message starts with 28 characters (`Extension Header Parameter "`), so the backslash is the 256th character,
+    // the last one that the header keeps. It has to be escaped as a whole, or the header does not parse.
+    const name = `${'x'.repeat(227)}\\${'y'.repeat(100)}`;
+    const message = `Extension Header Parameter "${name}" is not recognized`;
+
+    const res = await request(app)
+      .get('/api/me')
+      .set('authorization', `Bearer ${craftToken({ alg: 'RS256', crit: [name] })}`);
+
+    expect(errors).toEqual([]);
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']!.length).toBeLessThan(600);
+    expect(parseChallenge(res.headers['www-authenticate']!)).toEqual(challengeOf(message.slice(0, 256)));
+    expect(res.body).toEqual({ error: 'invalid_token', error_description: message });
+  });
+
+  // This fails against the 1.0.0 source on Express 4 only. On Express 5 it passes either way, so it guards the
+  // process exit when the tests run on Express 4 (the `Express 4` job of `.github/workflows/test.yml`).
   test('should pass an error thrown while answering to the app error handler', async () => {
     // Stands in for a middleware, such as a timeout, that answered first.
     const { app, errors } = mountedApp((req, res, next) => {
