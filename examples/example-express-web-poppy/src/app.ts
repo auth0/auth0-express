@@ -33,7 +33,7 @@ export function createApp(options: Partial<Auth0Options> = {}): Express {
   //   documents at the root of the site.
   // - reads `iss` on the login route. After the login it sends the browser to `target_link_uri` only when `iss` is the
   //   issuer and the target is a page of this site, and it never sends `iss` or `target_link_uri` on to Auth0. A request
-  //   whose `iss` it cannot use is a normal login.
+  //   with an `iss` that is not the issuer is refused with a 400, and a request with no `iss` is a normal login.
   // - turns the join of an agent's browser into a guest or a signed-in user.
   app.use(createAuth0({ poppy: true, ...options }));
 

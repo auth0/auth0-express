@@ -1,4 +1,4 @@
-import { PoppyError, SessionExpiredError } from '@auth0/auth0-server-js';
+import { PoppyError, SessionExpiredError, type IssuerValidationError } from '@auth0/auth0-server-js';
 
 /**
  * Normalizes an error thrown by a browser-facing auth handler (login, callback,
@@ -42,8 +42,8 @@ export function sanitizeHandlerError(cause: unknown): Error {
  *   fixed text that holds no value, so it is safe to show.
  * - `SessionExpiredError`: "The session of this login has already ended." (`session_expired`)
  *
- * Any other error goes to `sanitizeHandlerError` and gets `500` and no `code`. The login route never throws for `iss` or
- * `target_link_uri`: the SDK ignores a request that it cannot use and the login goes on as a normal login.
+ * Any other error goes to `sanitizeHandlerError` and gets `500` and no `code`. A login request with an `iss` that is not
+ * the issuer is refused by the login handler with `refusedIssuerError`, and this function does not map that error.
  */
 export function sanitizePoppyHandlerError(cause: unknown): Error {
   if (cause instanceof PoppyError) {
@@ -57,4 +57,21 @@ export function sanitizePoppyHandlerError(cause: unknown): Error {
 
 function errorWithStatus(message: string, status: number, cause: unknown, code: string): Error {
   return Object.assign(new Error(message, { cause }), { status, code });
+}
+
+/**
+ * The error for a login request whose `iss` is empty, repeated or not the issuer of the config. The request says that
+ * it comes from another issuer, so the SDK refuses it and the login does not start. The error is a `400` with the `code`
+ * of the cause, `issuer_validation_error`, and the original error stays on `cause`.
+ *
+ * The text is fixed here, and holds no value from the request: anyone can put any `iss` in the query, and Express's
+ * default error handler writes the text into the page.
+ */
+export function refusedIssuerError(cause: IssuerValidationError): Error {
+  return errorWithStatus(
+    'Invalid iss query parameter: it is not the Auth0 issuer this app uses.',
+    400,
+    cause,
+    cause.code
+  );
 }

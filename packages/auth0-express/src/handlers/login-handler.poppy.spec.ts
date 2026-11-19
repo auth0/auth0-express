@@ -1,15 +1,19 @@
-import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, test, vi } from 'vitest';
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, onTestFinished, test, vi } from 'vitest';
+import { ServerClient } from '@auth0/auth0-server-js';
+import type { NextFunction, Request, Response } from 'express';
 import { request as httpRequest } from 'node:http';
 import type { IncomingHttpHeaders } from 'node:http';
 import { decrypt } from '../test-utils/encryption.js';
+import { withNodeEnv } from '../test-utils/env.js';
 import { APP_BASE_URL, POPPY_SECRET, poppyApp, poppyConfig, poppyTenant, setCookieLines } from '../test-utils/poppy.js';
 import { serve } from '../test-utils/serve.js';
 
 // With the poppy option, the login route is also where an agent's browser is expected to arrive, with `iss` and
 // `target_link_uri` (OpenID Connect Core 1.0, section 4:
 // https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin). Today's Auth0 builds add neither.
-// Anyone can send a browser to the login route with any query, so the tests below send hostile ones too. The route never
-// refuses a request for its `iss`: a request that cannot be used is a normal login without `iss` and `target_link_uri`.
+// Anyone can send a browser to the login route with any query, so the tests below send hostile ones too. A request with
+// no `iss` is a normal login. A request with an `iss` that is not the issuer says that it comes from another issuer, so
+// the route refuses it with a `400`, before it writes a cookie. A `target_link_uri` that cannot be used is ignored.
 
 const tenant = poppyTenant();
 
@@ -239,32 +243,115 @@ describe('the login route of an app with the poppy option', () => {
   });
 
   describe('hostile queries', () => {
-    // The SDK ignores an `iss` that is not the issuer: the login goes on as a normal login, without the target. Anyone can
-    // send a browser to this route with any query, so nothing of it is logged.
+    // An `iss` that is not the issuer says that the login comes from another issuer, so the SDK refuses it: the route
+    // answers `400` and starts no login, so it sends no redirect and sets no cookie. Anyone can send a browser to this
+    // route with any query, so nothing of it is logged.
     describe('an iss that is not the issuer', () => {
-      test.each(BAD_ISS)('%s: a normal login with no returnTo, and nothing logged', async (_name, query) => {
+      test.each(BAD_ISS)('%s: a 400, no login, no cookie, and nothing logged', async (_name, query) => {
         const warn = vi.spyOn(console, 'warn').mockImplementation(() => undefined);
         const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
         const agent = await serve(poppyApp());
 
         const result = await login(agent, `${query}&target_link_uri=${enc(CART)}`);
 
-        expectHome(result);
+        expect(result.status).toBe(400);
+        expect(result.location).toBeUndefined();
+        expect(result.setCookie).toEqual([]);
         expect(warn).not.toHaveBeenCalled();
         expect(error).not.toHaveBeenCalled();
         warn.mockRestore();
         error.mockRestore();
       });
 
-      test('an accepted returnTo still works', async () => {
+      test('a 400 even with no target_link_uri, and with a returnTo', async () => {
         const agent = await serve(poppyApp());
-        const query = `?iss=${enc(OTHER_ISS)}&target_link_uri=${enc(CART)}&returnTo=${enc('/orders')}`;
 
-        const result = await login(agent, query);
+        for (const query of [`?iss=${enc(OTHER_ISS)}`, `?iss=${enc(OTHER_ISS)}&returnTo=${enc('/orders')}`]) {
+          const result = await login(agent, query);
+
+          expect(result.status).toBe(400);
+          expect(result.setCookie).toEqual([]);
+        }
+      });
+
+      test('the same request is a normal login without an iss, and the returnTo is kept', async () => {
+        const agent = await serve(poppyApp());
+
+        const result = await login(agent, `?target_link_uri=${enc(CART)}&returnTo=${enc('/orders')}`);
 
         expect(result.status).toBe(302);
         expect(result.keys).toEqual(TODAY_KEYS);
         expect(result.returnTo).toBe(`${APP_BASE_URL}/orders`);
+      });
+
+      // The page is the one of Express: the status text in production, `err.stack` in any other environment. It has the
+      // fixed text of the error and no value of the request, whatever `NODE_ENV` is.
+      test.each(['production', 'development'] as const)('NODE_ENV=%s: the page has a fixed text', async (env) => {
+        const error = vi.spyOn(console, 'error').mockImplementation(() => undefined);
+
+        await withNodeEnv(env, async () => {
+          const agent = await serve(poppyApp());
+
+          const result = await login(
+            agent,
+            `?iss=${enc('https://leak-check-iss.example/')}&target_link_uri=${enc('https://leak-check-target.example/')}`
+          );
+
+          expect(result.status).toBe(400);
+          expect(result.text).toContain(
+            env === 'production'
+              ? 'Bad Request'
+              : 'Invalid iss query parameter: it is not the Auth0 issuer this app uses.'
+          );
+          expect(result.text).not.toContain('leak-check');
+        });
+
+        error.mockRestore();
+      });
+
+      test('the error that reaches the handler of the app is a 400 with a code, a fixed text and the cause', async () => {
+        const app = poppyApp();
+        type AppError = Error & { status?: number; code?: string };
+        // Express treats a function with four parameters as an error handler, so `next` has to be there.
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        app.use((error: AppError, _req: Request, res: Response, next: NextFunction) => {
+          res.status(error.status ?? 500).json({
+            message: error.message,
+            code: error.code ?? null,
+            causeCode: (error.cause as { code?: string } | undefined)?.code ?? null,
+          });
+        });
+        const agent = await serve(app);
+
+        const result = await agent.get(`/auth/login?iss=${enc('https://leak-check-iss.example/')}`);
+
+        expect(result.status).toBe(400);
+        expect(result.body).toEqual({
+          message: 'Invalid iss query parameter: it is not the Auth0 issuer this app uses.',
+          code: 'issuer_validation_error',
+          causeCode: 'issuer_validation_error',
+        });
+      });
+
+      // Only the refusal of an `iss` is a 400. Any other error of the check, such as a bad `appOrigin`, is still a 500,
+      // with the generic text, and the login does not start.
+      test('an error of the check that is not a refusal of the iss is still a 500, and starts no login', async () => {
+        // The mocks are undone when the test ends, also when an expectation fails.
+        onTestFinished(() => vi.restoreAllMocks());
+        vi.spyOn(console, 'error').mockImplementation(() => undefined);
+        vi.spyOn(ServerClient.prototype, 'poppy', 'get').mockReturnValue({
+          parseLoginInitiation: () => {
+            throw new TypeError('leak-check-appOrigin');
+          },
+        } as never);
+        const agent = await serve(poppyApp());
+
+        const result = await login(agent, `?iss=${enc(ISS)}`);
+
+        expect(result.status).toBe(500);
+        expect(result.location).toBeUndefined();
+        expect(result.setCookie).toEqual([]);
+        expect(result.text).not.toContain('leak-check');
       });
     });
 
@@ -349,10 +436,7 @@ describe('the login route of an app with the poppy option', () => {
         app.set('query parser', parser);
         const agent = await serve(app);
 
-        const result = await login(
-          agent,
-          `?iss[]=${enc(ISS)}&target_link_uri[]=${enc(CART)}&a[b]=c`
-        );
+        const result = await login(agent, `?iss[]=${enc(ISS)}&target_link_uri[]=${enc(CART)}&a[b]=c`);
 
         // The values are the real issuer and a page of the site, so only the name decides. Neither is read as the issuer or
         // as the target: the landing page is the home page, not the cart.
@@ -429,11 +513,19 @@ describe('the login route of an app with the poppy option', () => {
         const agent = await serve(poppyApp({ appBaseUrl: undefined }));
         const headers = { Host: 'shop.example' };
 
-        const onHost = await login(agent, `?iss=${enc(ISS)}&target_link_uri=${enc('http://shop.example/cart')}`, headers);
+        const onHost = await login(
+          agent,
+          `?iss=${enc(ISS)}&target_link_uri=${enc('http://shop.example/cart')}`,
+          headers
+        );
         expect(onHost.status).toBe(302);
         expect(onHost.returnTo).toBe('http://shop.example/cart');
 
-        const onZepto = await login(agent, `?iss=${enc(ISS)}&target_link_uri=${enc('https://zepto.example/cart')}`, headers);
+        const onZepto = await login(
+          agent,
+          `?iss=${enc(ISS)}&target_link_uri=${enc('https://zepto.example/cart')}`,
+          headers
+        );
         expect(onZepto.status).toBe(302);
         expect(onZepto.returnTo).toBe('http://shop.example/');
       });

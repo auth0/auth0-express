@@ -915,17 +915,17 @@ Turn it on with `poppy: true`. When an agent's browser joins your website, this 
 
 1. The agent's browser opens the Auth0 page at `web.browser_session_endpoint` of your config file.
 2. Auth0 sends it to your Application Login URI, `https://<site>/auth/login`, as a [third-party initiated login](https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin). The query can carry `iss` and `target_link_uri`.
-3. The login route reads them when they are there, and starts a normal login. It uses `target_link_uri` as the landing page only when `iss` is your issuer and the target is a page of your site.
+3. The login route reads them when they are there, and starts a normal login. It uses `target_link_uri` as the landing page only when `iss` is your issuer and the target is a page of your site. A request with an `iss` that is not your issuer is refused with `400`, and no login starts.
 4. The callback turns the result into a guest or a signed-in agent. A guest has not signed in, and is kept in its own encrypted `__Host-a0_poppy` cookie. A signed-in agent is a normal session whose `act` claim names the agent.
 
-The login route works whether or not Auth0 sends `iss` and `target_link_uri`. Without a usable `target_link_uri`, the browser lands on the home page of your site. When the browser already has a login that a join may not replace, Auth0 shows its own `session_conflict` page, and nothing reaches your app.
+The login route works whether or not Auth0 sends `iss` and `target_link_uri`. Without an `iss`, it is a normal login. Without a usable `target_link_uri`, the browser lands on the home page of your site. When the browser already has a login that a join may not replace, Auth0 shows its own `session_conflict` page, and nothing reaches your app.
 
 Without the option, nothing changes. This is what `poppy` changes:
 
 | | Without `poppy` | With `poppy` |
 | --- | --- | --- |
 | `/.well-known/poppy.json` and `/.well-known/oauth-protected-resource` | Not served by the router | Served on `GET` and `HEAD`, before any cookie or session handling |
-| `/auth/login` | Sends `iss` and `target_link_uri` on to `/authorize`, like any other parameter | Ignores an `iss` that is not your issuer, and never refuses a request for it. Sends neither `iss` nor `target_link_uri` on. Lands on a valid `returnTo`, or else on the `target_link_uri` of your site when `iss` is your issuer |
+| `/auth/login` | Sends `iss` and `target_link_uri` on to `/authorize`, like any other parameter | Refuses an `iss` that is empty, repeated or not your issuer with `400`, before it writes a cookie (see [Poppy errors](#poppy-errors)). Sends neither `iss` nor `target_link_uri` on. Lands on a valid `returnTo`, or else on the `target_link_uri` of your site when `iss` is your issuer |
 | `/auth/callback` | Any failure answers `500` | Turns an agent's join into a guest or a signed-in agent. A refused login and an ended session get `403` (see [Poppy errors](#poppy-errors)) |
 | `/auth/logout` | Ends the session | Also drops the guest. When the browser held a guest, or holds no session at all, it redirects to `/v2/logout` of your tenant, because the OIDC logout endpoint is for a user, and a guest has none (see [Sign out a guest](#sign-out-a-guest)) |
 | `getUser()` and `requiresAuth()` | See the signed-in user | The same for a user. A guest is not a user, so `requiresAuth()` answers a guest with `403` (or calls `onGuest`) and never redirects it. The SDK never writes a guest and a person's session together (see [Guard pages from guests](#guard-pages-from-guests)) |
@@ -1167,7 +1167,7 @@ app.get(['/.well-known/poppy.json', '/.well-known/oauth-protected-resource'], (r
 });
 ```
 
-**Mounting the routes yourself.** With `mountRoutes: false`, the login and callback routes are yours too. Your login route calls `parseLoginInitiation()` first, before anything writes a cookie. It never refuses a request. It gives back `returnTo`, which is the `target_link_uri` when `iss` is your issuer once and the target is a page of your site, and otherwise nothing. A request with an `iss` that cannot be used gets no `returnTo`, nothing of the request is logged, and the login goes on as a normal login. It also gives back `authorizationParams`, which are the other query parameters, and never `iss` or `target_link_uri`. They come from a browser, so pass on only the ones you choose:
+**Mounting the routes yourself.** With `mountRoutes: false`, the login and callback routes are yours too. Your login route calls `parseLoginInitiation()` first, before anything writes a cookie. It gives back `returnTo`, which is the `target_link_uri` when `iss` is your issuer once and the target is a page of your site, and otherwise nothing. A request with no `iss` is a normal login. A request with an `iss` that is empty, repeated or not your issuer is refused: the method throws an `IssuerValidationError`, with a fixed text, and nothing of the request is logged. Answer `400` and start no login. It also gives back `authorizationParams`, which are the other query parameters, and never `iss` or `target_link_uri`. They come from a browser, so pass on only the ones you choose:
 
 ```ts
 const APP_BASE_URL = 'https://shop.example.com';
@@ -1180,7 +1180,20 @@ app.get('/custom/login', async (req, res, next) => {
     const queryStart = req.originalUrl.indexOf('?');
     loginUrl.search = queryStart === -1 ? '' : req.originalUrl.slice(queryStart);
 
-    const { returnTo } = req.auth0.client.poppy.parseLoginInitiation(loginUrl, { appOrigin: APP_BASE_URL });
+    let returnTo: string | undefined;
+
+    try {
+      ({ returnTo } = req.auth0.client.poppy.parseLoginInitiation(loginUrl, { appOrigin: APP_BASE_URL }));
+    } catch (error) {
+      // An `iss` that is not your issuer: the request says that it comes from another issuer, so start no login.
+      // Compare the `code`. `instanceof` can be false when your app has its own copy of server-js.
+      if ((error as { code?: string }).code === 'issuer_validation_error') {
+        res.status(400).send('Invalid iss query parameter: it is not the Auth0 issuer this app uses.');
+        return;
+      }
+
+      throw error;
+    }
 
     const authorizationUrl = await req.auth0.client.startInteractiveLogin({
       appState: { returnTo: returnTo ?? `${APP_BASE_URL}/` },
@@ -1399,7 +1412,7 @@ If you write your own logout route, redirect to the URL that `req.auth0.client.l
 
 ### Poppy errors
 
-With `poppy` set, some failures of the callback route get `403` in place of `500`. Each error has a fixed text and a fixed `code`, goes to Express with `next(error)`, and keeps the original error on `error.cause`. A refused or failed callback writes no session and no guest, and leaves what the browser had. The login route never refuses a request for `iss` or `target_link_uri`: it ignores what it cannot use, and the login goes on as a normal login.
+With `poppy` set, some failures of the callback route get `403` in place of `500`. Each error has a fixed text and a fixed `code`, goes to Express with `next(error)`, and keeps the original error on `error.cause`. A refused or failed callback writes no session and no guest, and leaves what the browser had. The login route refuses a request whose `iss` is not your issuer with `400` (below). A `target_link_uri` that it cannot use is ignored, and the login goes on as a normal login.
 
 | Status | `error.code` | Route | When | `error.message` |
 | --- | --- | --- | --- | --- |
@@ -1407,11 +1420,12 @@ With `poppy` set, some failures of the callback route get `403` in place of `500
 | `403` | `invalid_poppy_guest` | `/auth/callback` | The ID token looks like a guest's but is not valid | `The ID token looks like the login of a Poppy guest but is not a valid one, so it is neither a guest nor a user.` |
 | `403` | `invalid_poppy_agent` | `/auth/callback` | The ID token holds a Poppy Session that is not well formed, or an agent's token has no valid `sub` or `exp` | `The ID token holds a Poppy Session that is not well formed, so it is neither a signed-in agent nor a user.` |
 | `403` | `session_expired` | `/auth/callback` | The session has already ended | `The session of this login has already ended.` |
+| `400` | `issuer_validation_error` | `/auth/login` | The query has an `iss` that is empty, repeated or not your issuer, character for character. Another case and a missing trailing slash are other values. No login starts and no cookie is set | `Invalid iss query parameter: it is not the Auth0 issuer this app uses.` |
 | `500` | none | login, callback and logout | Everything else, as today | `Authentication request could not be completed.` |
 
 The first three are a `PoppyError` of server-js, and the code is the `code` of that error. Compare `error.code` with `PoppyErrorCode`, which this package exports, and do not use `instanceof` for it: the check also works when your app has its own copy of server-js. `poppy_sign_in_required` means a person has to log out first, and `invalid_poppy_guest` and `invalid_poppy_agent` are a problem with the setup of Auth0 or of the agent, so log them. The text of each is fixed for its code, holds no value of a token, and is safe to show. `error.cause.reason` is for logs only. A login whose ID token has a `session_expiry` that has already passed also gets the `session_expired` error, a person's login too, and it is `403` and not `401` because a `401` needs a `WWW-Authenticate` challenge, and a login has none.
 
-The error handler that you have decides what the browser sees. The default handler of Express writes the body: in production it is the status text, such as `Forbidden`, and otherwise it is the stack of the error, which holds the fixed text and nothing from the request. It never includes `cause`. So the default handler gives a person who is refused with `poppy_sign_in_required` no link to log out: in production the page says only `Forbidden`, and outside production it shows the stack with the fixed text. Add an error handler to choose what the browser sees and to log the original error:
+The error handler that you have decides what the browser sees. The default handler of Express writes the body: in production it is the status text, such as `Forbidden`, and otherwise it is the stack of the error, which holds the fixed text and nothing from the request. It never includes `cause`. So the default handler gives a person who is refused with `poppy_sign_in_required` no link to log out: in production the page says only `Forbidden`, and outside production it shows the stack with the fixed text. Express also logs the stack of every error that reaches its default handler when `NODE_ENV` is not `test`, a `400` for a wrong `iss` too, and anyone can send such a request. Add an error handler to choose what the browser sees and what is logged, and to log the original error:
 
 ```ts
 import { PoppyErrorCode } from '@auth0/auth0-express';
@@ -1421,7 +1435,8 @@ import type { NextFunction, Request, Response } from 'express';
 const SHOWN_CODES = new Set<string>([...Object.values(PoppyErrorCode), 'session_expired']);
 
 // After the router and your routes. Express treats a function with four parameters as an error handler.
-// This sample maps every error other than a refusal of the SDK to 500. Keep your own mapping for other statuses.
+// This sample maps every error other than a refusal of the SDK (a `403`, or the `400` of the login route) to 500.
+// Keep your own mapping for other statuses.
 app.use((error: Error & { status?: number; code?: string }, _req: Request, res: Response, next: NextFunction) => {
   if (res.headersSent) {
     next(error);
@@ -1435,6 +1450,12 @@ app.use((error: Error & { status?: number; code?: string }, _req: Request, res: 
   // login would be refused again.
   if (error.code === PoppyErrorCode.SIGN_IN_REQUIRED) {
     res.status(403).send('An agent is using this browser. <a href="/auth/logout">Log out</a> first, and then sign in.');
+    return;
+  }
+
+  // A login link that names another issuer. The SDK gives it a fixed text, so it is safe to show.
+  if (error.status === 400 && error.code === 'issuer_validation_error') {
+    res.status(400).type('text/plain').send(error.message);
     return;
   }
 

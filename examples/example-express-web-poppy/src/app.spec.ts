@@ -249,20 +249,26 @@ describe('example-express-web-poppy', () => {
     expect(nobody.get('Location')).toBe('/auth/login?returnTo=%2Forders');
   });
 
-  // The login route never refuses a request for its `iss`. A link that is not for this site is a normal login: the
-  // target is not used, so the browser lands on the home page, and `iss` never goes on to Auth0.
-  test('ignores a login link from another issuer, and lands on the home page', async () => {
+  // A login link with an `iss` that is not the issuer says that it comes from another issuer, so the route refuses it
+  // with a 400: no login starts, and no cookie is set. A link with no `iss` is a normal login: the target is not used, so
+  // the browser lands on the home page, and `target_link_uri` never goes on to Auth0.
+  test('refuses a login link from another issuer with a 400, and starts no login', async () => {
     const site = await start();
     const jar = cookieJar();
     const link = { iss: 'https://other.auth0.local/', target_link_uri: `${APP_BASE_URL}/orders` };
 
-    const login = await site.get('/auth/login').query(link);
+    const refused = await site.get('/auth/login').query(link);
 
-    expect(login.status).toBe(302);
-    expect(new URL(login.get('Location') ?? '').searchParams.has('iss')).toBe(false);
-    expect(new URL(login.get('Location') ?? '').searchParams.has('target_link_uri')).toBe(false);
+    expect(refused.status).toBe(400);
+    expect(refused.get('Location')).toBeUndefined();
+    expect(refused.get('Set-Cookie')).toBeUndefined();
 
-    const callback = await join(site, jar, agentIdToken(), link);
+    const plain = await site.get('/auth/login').query({ target_link_uri: link.target_link_uri });
+
+    expect(plain.status).toBe(302);
+    expect(new URL(plain.get('Location') ?? '').searchParams.has('target_link_uri')).toBe(false);
+
+    const callback = await join(site, jar, agentIdToken(), { target_link_uri: link.target_link_uri });
 
     expect(callback.get('Location')).toBe(`${APP_BASE_URL}/`);
   });
