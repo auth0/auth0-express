@@ -73,7 +73,9 @@ export function sendBearerError(
   scopes?: string[],
   options: BearerErrorOptions = {}
 ): Response {
-  const scopeHeader = scopes ? `, scope="${scopes.join(' ')}"` : '';
+  // The scopes are set by the developer, and they are text in the header like the description: escaped, and a `?` for a
+  // character that Node refuses.
+  const scopeHeader = scopes ? `, scope="${quotedStringText(scopes.join(' '), false)}"` : '';
   const headerDescription = quotedStringText(errorDescription, options.fromRequest === true);
   return res
     .status(statusCode)

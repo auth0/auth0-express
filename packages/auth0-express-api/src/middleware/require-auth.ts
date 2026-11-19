@@ -60,7 +60,19 @@ export function requiresAuth(options: RequiresAuthOptions = {}) {
         return sendBearerError(res, 401, 'invalid_token', 'Invalid token');
       }
 
-      if (options.scopes && !validateScopes(token, options.scopes)) {
+      let scopesAllowed = true;
+
+      if (options.scopes) {
+        try {
+          scopesAllowed = validateScopes(token, options.scopes);
+        } catch {
+          // A `scope` claim that is neither a string nor a list cannot be read. Auth0 never issues one. As in 1.0.0, the
+          // token is answered as an invalid token, and the error handler of the app is not called.
+          return sendBearerError(res, 401, 'invalid_token', 'Invalid token');
+        }
+      }
+
+      if (!scopesAllowed) {
         return sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes');
       }
 

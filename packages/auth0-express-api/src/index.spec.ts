@@ -1595,6 +1595,33 @@ describe('the WWW-Authenticate header for a failed verification', () => {
   });
 });
 
+// 1.0.0 read the scopes of the token inside the `try` that answers a bad token, so a token whose `scope` claim is neither
+// a string nor a list (Auth0 never issues one) was answered 401, and it must not become a 500 from the error handler.
+test('should answer 401 invalid_token, and not call the error handler, for a token whose scope claim cannot be read', async () => {
+  const app = express();
+  const router = createAuth0Api({ domain: domain, audience: '<audience>' });
+  router.get('/test', requiresAuth({ scopes: 'orders:read' }), (_req, res) => {
+    res.json({ message: 'OK' });
+  });
+  app.use(router);
+  const errors: unknown[] = [];
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  app.use((error: unknown, _req: express.Request, res: express.Response, _next: express.NextFunction) => {
+    errors.push(error);
+    res.status(500).end();
+  });
+  const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+    scope: 42,
+  });
+
+  const res = await request(app).get('/test').set('authorization', `Bearer ${accessToken}`);
+
+  expect(errors).toEqual([]);
+  expect(res.status).toBe(401);
+  expect(res.headers['www-authenticate']).toBe('Bearer error="invalid_token", error_description="Invalid token"');
+  expect(res.body).toEqual({ error: 'invalid_token', error_description: 'Invalid token' });
+});
+
 // What `parseChallenge()` gives for the `Bearer` challenge of an invalid token.
 const challengeOf = (description: string) => ({
   scheme: 'Bearer',
@@ -1654,6 +1681,35 @@ describe('the answers that app-supplied text goes into', () => {
     expect(res.headers['www-authenticate']).toBe(
       'Bearer error="insufficient_scope", error_description="Insufficient scopes"'
     );
+    expect(res.body).toEqual({ error: 'insufficient_scope', error_description: 'Insufficient scopes' });
+  });
+
+  // The scopes are set by the developer, but they go into the header as text, so they are written like the other text:
+  // escaped, and with a `?` for a character that Node refuses. A scope that is a valid scope-token (RFC 6749) is
+  // unchanged.
+  test.each([
+    ['a double quote', 'read:"all"', 'read:"all"'],
+    ['a backslash', 'read:a\\b', 'read:a\\b'],
+    ['a character above U+00FF', 'read:\u20ac', 'read:?'],
+    ['a character outside the BMP', 'read:\u{1F600}', 'read:?'],
+  ])('should keep the 403 from scopesInclude() when a scope has %s, and write it as one quoted-string', async (_name, scope, written) => {
+    const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+      scope: 'other:scope',
+    });
+
+    const res = await request(appWith(requiresAuth(), scopesInclude(scope)))
+      .get('/test')
+      .set('authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(403);
+    expect(parseChallenge(res.headers['www-authenticate']!)).toEqual({
+      scheme: 'Bearer',
+      params: [
+        ['error', 'insufficient_scope'],
+        ['error_description', 'Insufficient scopes'],
+        ['scope', written],
+      ],
+    });
     expect(res.body).toEqual({ error: 'insufficient_scope', error_description: 'Insufficient scopes' });
   });
 
