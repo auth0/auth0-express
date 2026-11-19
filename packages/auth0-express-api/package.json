@@ -14,7 +14,8 @@
     "clean": "rm -rf ./dist",
     "lint": "eslint \"./**/*.ts*\"",
     "test": "vitest run",
-    "test:ci": "vitest --watch false --coverage"
+    "test:ci": "vitest --watch false --coverage",
+    "test:express4": "vitest run --config vitest.express4.config.ts"
   },
   "types": "./dist/index.d.ts",
   "main": "./dist/index.js",
