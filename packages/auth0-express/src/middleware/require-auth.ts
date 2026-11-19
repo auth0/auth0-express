@@ -2,6 +2,8 @@ import { Request, Response, NextFunction } from 'express';
 
 /**
  * Options for the requiresAuth middleware.
+ *
+ * @category Route Protection
  */
 export interface RequiresAuthOptions {
   /**
@@ -45,6 +47,8 @@ export interface RequiresAuthOptions {
  * **Enterprise Connect mode:** Do NOT use `requiresAuth()` when `enterpriseConnect: true`.
  * `getUser()` is blocked in EC mode and will throw `EnterpriseConnectNotSupportedError`.
  * Use your own session middleware (checking your app-owned session cookie) instead.
+ *
+ * @category Route Protection
  */
 export function requiresAuth(options?: RequiresAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {

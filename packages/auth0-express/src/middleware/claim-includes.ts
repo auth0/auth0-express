@@ -33,6 +33,8 @@ import { ClaimAuthOptions } from './claim-auth.js';
  *   res.send('Dashboard');
  * });
  * ```
+ *
+ * @category Claim Checks
  */
 export function claimIncludes(claim: string, values: unknown[], options?: ClaimAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {
