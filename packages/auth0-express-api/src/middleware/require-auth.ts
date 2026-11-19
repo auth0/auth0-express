@@ -28,24 +28,51 @@ function getToken(req: Request): string | undefined {
  */
 export function requiresAuth(options: RequiresAuthOptions = {}) {
   return async (req: Request, res: Response, next: NextFunction) => {
-    const apiClient = req.auth0?.client;
-
-    if (!apiClient) {
-      return next(
-        new Error('Auth0 ApiClient not found on request. Make sure the Auth0 Express API router is registered.')
-      );
-    }
-
-    const accessToken = getToken(req);
-
-    if (!accessToken) {
-      return res.status(401).header('WWW-Authenticate', 'Bearer').end();
-    }
-
+    // Express 4 ignores a rejected promise, so anything that throws while
+    // answering goes to `next()` instead.
     try {
-      const token = (await apiClient.verifyAccessToken({ accessToken })) as Token;
+      const apiClient = req.auth0?.client;
 
-      if (options.scopes && !validateScopes(token, options.scopes)) {
+      if (!apiClient) {
+        return next(
+          new Error('Auth0 ApiClient not found on request. Make sure the Auth0 Express API router is registered.')
+        );
+      }
+
+      const accessToken = getToken(req);
+
+      if (!accessToken) {
+        return res.status(401).header('WWW-Authenticate', 'Bearer').end();
+      }
+
+      let token: Token;
+
+      try {
+        token = (await apiClient.verifyAccessToken({ accessToken })) as Token;
+      } catch (error) {
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        if ((error as any).code === 'verify_access_token_error') {
+          // The message can hold text from the request, such as the name of an unknown `crit` entry of the token.
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          return sendBearerError(res, 401, 'invalid_token', (error as any).message, undefined, { fromRequest: true });
+        }
+
+        return sendBearerError(res, 401, 'invalid_token', 'Invalid token');
+      }
+
+      let scopesAllowed = true;
+
+      if (options.scopes) {
+        try {
+          scopesAllowed = validateScopes(token, options.scopes);
+        } catch {
+          // A `scope` claim that is neither a string nor a list cannot be read. Auth0 never issues one. As in 1.0.0, the
+          // token is answered as an invalid token, and the error handler of the app is not called.
+          return sendBearerError(res, 401, 'invalid_token', 'Invalid token');
+        }
+      }
+
+      if (!scopesAllowed) {
         return sendBearerError(res, 403, 'insufficient_scope', 'Insufficient scopes');
       }
 
@@ -57,15 +84,11 @@ export function requiresAuth(options: RequiresAuthOptions = {}) {
         writable: true,
         configurable: true,
       });
+      // Outside the verification `try`, so that an error thrown from here is not answered as a failed token. It goes to
+      // the outer catch, and so to `next(error)`.
       next();
     } catch (error) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      if ((error as any).code === 'verify_access_token_error') {
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-        return sendBearerError(res, 401, 'invalid_token', (error as any).message);
-      }
-
-      return sendBearerError(res, 401, 'invalid_token', 'Invalid token');
+      next(error);
     }
   };
 }
