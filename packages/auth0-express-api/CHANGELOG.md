@@ -1,5 +1,12 @@
 # Change Log
 
+## [v1.0.1](https://github.com/auth0/auth0-express/tree/auth0-express-api-v1.0.1) (2026-11-19)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-api-v1.0.0...auth0-express-api-v1.0.1)
+
+**Fixed**
+- fix(auth0-express-api): make WWW-Authenticate values header-safe [\#76](https://github.com/auth0/auth0-express/pull/76) ([@nandan-bhat](https://github.com/nandan-bhat))
+
+
 ## [v1.0.0](https://github.com/auth0/auth0-express/releases/tag/auth0-express-api-v1.0.0) (2026-10-08)
 
 The `@auth0/auth0-express-api` library enables protecting API endpoints in Express applications.
