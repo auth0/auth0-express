@@ -11,7 +11,7 @@
     "clean": "turbo run clean",
     "test": "turbo run test",
     "lint": "turbo run lint",
-    "docs": "npm run docs -w packages/auth0-express -w packages/auth0-express-api"
+    "docs": "turbo run docs"
   },
   "author": "",
   "license": "Apache-2.0",
