@@ -259,6 +259,9 @@ app.use(createAuth0({
   clientSecret: '<AUTH0_CLIENT_SECRET>',
   appBaseUrl: '<APP_BASE_URL>',
   sessionSecret: '<SESSION_SECRET>',
+  // The identifier of the API that the access token of the agent is for. Without it, Auth0 uses the default audience of
+  // your tenant, and the sign-in of the user of an agent fails unless that is the same API.
+  audience: '<AUTH0_AUDIENCE>',
   // Turns on Poppy. Reads poppy.json from the working directory, once, at startup.
   poppy: true,
 }));
@@ -280,7 +283,7 @@ app.get('/', async (req, res, next) => {
 });
 ```
 
-`requiresAuth()` answers a guest with `403` and never sends it to the login route, because a guest cannot sign in there, and the login cannot succeed while a guest is in the browser: the redirect would only send the guest to Auth0 and back to a `403` (`poppy_sign_in_required`). Pass `onGuest` to answer a guest your own way. The SDK never writes a guest and a person's session together: a guest join ends the session of a person, and while a guest is there, a person's login is refused with a `PoppyError` (see [Guard pages from guests](./EXAMPLES.md#guard-pages-from-guests)).
+`requiresAuth()` answers a guest with `403` and never sends it to the login route, because a login cannot sign a guest in as a user, so the redirect is no use (`poppy_sign_in_required`). Pass `onGuest` to answer a guest your own way. The SDK never writes a guest and a person's session together: a guest join ends the session of a person, and while a guest is there, a person's login is refused with a `PoppyError` (see [Guard pages from guests](./EXAMPLES.md#guard-pages-from-guests)).
 
 For the set-up, the discovery files, the kinds of visitor and going to production, see [Personal Agent Protocol (Poppy)](./EXAMPLES.md#personal-agent-protocol-poppy).
 

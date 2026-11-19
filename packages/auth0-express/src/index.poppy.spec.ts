@@ -881,16 +881,71 @@ describe('Renewal of a guest', () => {
     expect(await visitorOf(agent, jar)).toEqual(NONE);
   });
 
-  test('the same guest is refused while its access token is still good', async () => {
+  // The login route sends `prompt=none` on to Auth0, and the SDK remembers in the transaction that the login was silent.
+  test('the same guest refreshes its access token with a silent login while the token is still good, and keeps its deadline', async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    const setDate = fakeDate(Date.now());
+    setDate(1800);
+
+    const refreshed = await join(agent, jar, tenant, guestIdToken(), '?prompt=none');
+
+    expect(refreshed.callback.status).toBe(302);
+    expect(jar.names()).toEqual([GUEST_COOKIE]);
+    expect(await visitorOf(agent, jar)).toEqual(GUEST);
+    // The new token lasts an hour from now, so it is still good after the first one would have ended.
+    setDate(3700);
+    expect((await visit(agent, jar, '/guest-token')).body).toEqual({ accessToken: JOIN_ACCESS_TOKEN });
+    // The refresh did not move the end of the guest.
+    setDate(TWO_HOURS);
+    expect(await visitorOf(agent, jar)).toEqual(NONE);
+  });
+
+  test.each(['', '?prompt=login'])(
+    'the same guest is refused from a login that is not silent (%j) while its access token is still good',
+    async (query) => {
+      const agent = await serve(testApp());
+      const jar = cookieJar();
+      await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+      fakeDate(Date.now())(1800);
+
+      const again = await join(agent, jar, tenant, guestIdToken(), query);
+
+      expect(again.callback.status).toBe(403);
+      expect(again.callback.text).toContain('Log out to sign in as a person');
+      expect(await visitorOf(agent, jar)).toEqual(GUEST);
+    }
+  );
+
+  test("a person's silent login is refused while the token of the guest is still good", async () => {
     const agent = await serve(testApp());
     const jar = cookieJar();
     await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
     fakeDate(Date.now())(1800);
 
-    const again = await join(agent, jar, tenant, guestIdToken(), '?prompt=none');
+    const person = await join(agent, jar, tenant, humanIdToken('auth0|ana'), '?prompt=none');
 
-    expect(again.callback.status).toBe(403);
+    expect(person.callback.status).toBe(403);
+    expect(person.callback.text).toContain('Log out to sign in as a person');
     expect(await visitorOf(agent, jar)).toEqual(GUEST);
+  });
+
+  // The guest is renewed by any login once its token has expired, not only by a silent one.
+  test('the same guest renews its expired access token with a login that is not silent, and keeps its deadline', async () => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+    const setDate = fakeDate(Date.now());
+    setDate(3700);
+
+    const renewed = await join(agent, jar, tenant, guestIdToken());
+
+    expect(renewed.login.headers['location']).not.toContain('prompt=none');
+    expect(renewed.callback.status).toBe(302);
+    expect((await visit(agent, jar, '/guest-token')).body).toEqual({ accessToken: JOIN_ACCESS_TOKEN });
+    setDate(TWO_HOURS);
+    expect(await visitorOf(agent, jar)).toEqual(NONE);
   });
 
   test("a person's login is still refused after the token of the guest has expired", async () => {
@@ -1041,6 +1096,37 @@ describe('Anonymous sessions', () => {
     kind: 'anonymous',
     anonymous: expect.objectContaining({ sub: 'anon@test-session-id' }),
   };
+
+  // With `poppy`, one read of the visitor looks at the guest, the user and the anonymous session, and a store that fails
+  // is never read as empty. So a failing anonymous store turns a request that nobody signed in for into a 500, where
+  // without `poppy` it is a 401 or a redirect, because there only the session store is read. The docs say so.
+  test('a custom anonymous store that fails gives a 500 to a page for users, and not a 401', async () => {
+    const store = {
+      get: vi.fn().mockRejectedValue(new Error('anonymous store down')),
+      set: vi.fn(),
+      delete: vi.fn(),
+    };
+    const agent = await serve(testApp({ anonymousSessions: { store } }));
+
+    const res = await agent.get('/private').set('Accept', 'application/json');
+
+    expect(res.status).toBe(500);
+    expect(store.get).toHaveBeenCalled();
+  });
+
+  test('without poppy, a custom anonymous store that fails is not read by a page for users: it gives a 401', async () => {
+    const store = {
+      get: vi.fn().mockRejectedValue(new Error('anonymous store down')),
+      set: vi.fn(),
+      delete: vi.fn(),
+    };
+    const agent = await serve(testApp({ poppy: undefined, anonymousSessions: { store } }));
+
+    const res = await agent.get('/private').set('Accept', 'application/json');
+
+    expect(res.status).toBe(401);
+    expect(store.get).not.toHaveBeenCalled();
+  });
 
   test('an anonymous session makes the visitor anonymous', async () => {
     const { agent, jar } = await anonymousBrowser();

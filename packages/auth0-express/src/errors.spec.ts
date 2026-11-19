@@ -27,7 +27,7 @@ describe('sanitizePoppyHandlerError', () => {
       name: 'poppy_sign_in_required',
       code: PoppyErrorCode.SIGN_IN_REQUIRED,
       message:
-        "An agent's guest is in this browser, so only a signed-in agent, a new guest join, or the same guest renewing an expired access token can replace it. Log out to sign in as a person.",
+        "An agent's guest is in this browser, so only a signed-in agent, a new guest join, or the same guest renewing its access token can replace it. Log out to sign in as a person.",
     },
     {
       name: 'invalid_poppy_guest',

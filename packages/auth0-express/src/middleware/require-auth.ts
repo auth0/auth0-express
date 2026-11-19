@@ -18,8 +18,8 @@ export interface RequiresAuthOptions {
    *
    * A guest is never sent to the login route. A guest cannot sign in on your website: the person the agent acts for
    * signs in through the agent, and the agent then joins again. Auth0 can keep the anonymous session of the join for
-   * single sign-on, so the login route can bring back the same guest. The login cannot succeed while a guest is in the
-   * browser, so a redirect would only send the guest to Auth0 and back to a `403` of the callback.
+   * single sign-on, so the login route can bring back the same guest. A login cannot sign a guest in as a user, so a
+   * redirect is no use.
    *
    * Answer the request, or call `next()` to let the route run. Without this handler, the middleware answers a guest
    * with `403` and a short message, as JSON for an API client.
@@ -65,9 +65,8 @@ export interface RequiresAuthOptions {
 export function requiresAuth(options?: RequiresAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {
     try {
-      // A guest cannot sign in here: the login cannot succeed while a guest is in the browser, so a redirect would only
-      // send the guest to Auth0 and back to the `403` of the callback. `readUser()` is one read that tells a guest, a user
-      // and nobody apart, and it looks for the guest first (see there).
+      // A guest cannot sign in here: a login cannot sign a guest in as a user, so a redirect is no use. `readUser()` is
+      // one read that tells a guest, a user and nobody apart, and it looks for the guest first (see there).
       const { user, guest } = await readUser(req);
 
       // Check if this is an API request (wants JSON response)

@@ -88,11 +88,10 @@ export function createApp(options: Partial<Auth0Options> = {}): Express {
     res.status(201).json({ items });
   });
 
-  // Step 4. `requiresAuth()` looks for a user, and a guest is not a user, so it answers a guest with 403. It does not send a
-  // guest to the login page: a guest cannot sign in there, and the login cannot succeed while a guest is in the browser, so
-  // the guest would only go to Auth0 and come back to a 403. The SDK never writes a guest and a person's session
-  // together: a guest join ends the session of a person, and while a guest is there, a person's login is refused with
-  // a 403 (see the README of this example).
+  // Step 4. `requiresAuth()` looks for a user, and a guest is not a user, so it answers a guest with 403. It does not
+  // send a guest to the login page, because a login cannot sign a guest in as a user. The SDK never writes a guest and
+  // a person's session together: a guest join ends the session of a person, and while a guest is there, a person's
+  // login is refused with a 403 (see the README of this example).
   app.get('/orders', requiresAuth(), (_req, res) => {
     res.send(ordersPage());
   });
@@ -103,7 +102,7 @@ export function createApp(options: Partial<Auth0Options> = {}): Express {
 // The key of the cart of a visitor, or `undefined` when the visitor has no cart.
 // - An agent's browser uses `poppy.key`, as a guest and after its user signs in. The key comes from `act.sub`,
 //   `act.poppy_sid` and `act.poppy_user_id`, so it is the same in both states while the sign-in join has the same `act`,
-//   and then the cart survives the sign-in. When a member differs, the key is another one and the cart of the guest is
+//   and then the cart can survive the sign-in. When a member differs, the key is another one and the cart of the guest is
 //   not found: keep under it only what you can afford to lose. It is not the user, because a guest has none. It is not
 //   the id of the Poppy Session alone either, because two agents can pick the same id.
 // - A person who logged in on their own has no `poppy`, so the cart is under the account (`sub`).

@@ -112,7 +112,7 @@ describe.each(['production', 'development'] as const)('callback errors on a Popp
           env,
           'Forbidden',
           // The page of Express escapes the apostrophe, so the text starts after it.
-          's guest is in this browser, so only a signed-in agent, a new guest join, or the same guest renewing an expired access token can replace it. Log out to sign in as a person.'
+          's guest is in this browser, so only a signed-in agent, a new guest join, or the same guest renewing its access token can replace it. Log out to sign in as a person.'
         )
       );
       expect(keptCookies(second.callback)).toEqual([]);
