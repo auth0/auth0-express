@@ -210,4 +210,11 @@ export interface Auth0ApiOptions {
  * @see {@link https://personalagentprotocol.org/docs/1.0/spec Poppy 1.0 specification}
  * @beta
  */
-export type Auth0ApiPoppyOptions = PoppyOptions;
+export type Auth0ApiPoppyOptions = Omit<PoppyOptions, 'publicOrigin'> & {
+  /**
+   * The public origin of your API: an `https` origin with no path, for example `https://api.example.com`. Required: the
+   * router passes only the path of each request to the Session check, so the origin of the URL that an agent signed comes
+   * from here, and `Host` is never used. `createAuth0Api()` throws `InvalidConfigurationError` without it.
+   */
+  publicOrigin: string;
+};

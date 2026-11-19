@@ -3,7 +3,7 @@ import express from 'express';
 import { InvalidConfigurationError } from '@auth0/auth0-api-js';
 import type { ApiClient } from '@auth0/auth0-api-js';
 import { createAuth0Api } from './index.js';
-import type { Auth0ApiOptions } from './index.js';
+import type { Auth0ApiOptions, Auth0ApiPoppyOptions } from './index.js';
 import { isPoppyClient } from './poppy/poppy-clients.js';
 import { serve } from './test-utils/serve.js';
 
@@ -55,7 +55,10 @@ describe('createAuth0Api with the poppy option', () => {
     ['agents alone', { agents: ['https://agent.example/agent.json'] }],
     ['a publicOrigin that is undefined', { publicOrigin: undefined }],
   ])('should fail startup for %s, as the public origin is required', (_name, poppy) => {
-    const error = catchError(() => createAuth0Api({ domain, audience, poppy }));
+    // A JavaScript caller can leave it out, and the type refuses these, so the test says it is not what the type allows.
+    const error = catchError(() =>
+      createAuth0Api({ domain, audience, poppy: poppy as unknown as Auth0ApiPoppyOptions })
+    );
 
     expect(error).toBeInstanceOf(InvalidConfigurationError);
     expect(error.message).toBe(

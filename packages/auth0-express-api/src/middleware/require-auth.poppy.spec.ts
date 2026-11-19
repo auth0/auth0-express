@@ -835,6 +835,29 @@ describe('requiresAuth on a Poppy router', () => {
       expectNothingAdded(req, client);
     });
 
+    // api-js makes the text of its challenges safe, so this is the second layer: an error whose headers hold a control
+    // character or a character above U+00FF, from an older api-js or from any error that carries headers, must not make
+    // `res.set` throw and turn a 401 into a 500.
+    it('should make every character outside printable ASCII in a header a question mark', async () => {
+      const { recorded, run, verifyPoppyRequest } = setup();
+      const error = Object.assign(new VerifyAccessTokenError('The token has expired'), {
+        headers: {
+          'www-authenticate': ['Bearer error="a\r\nSet-Cookie: x=y"', 'DPoP error="\u20ac"'],
+          'retry-after': '5',
+        },
+      });
+      verifyPoppyRequest.mockRejectedValue(error);
+
+      await run();
+
+      expect(recorded.statusCode).toBe(401);
+      expect(recorded.headers['www-authenticate']).toEqual([
+        'Bearer error="a??Set-Cookie: x=y"',
+        'DPoP error="?"',
+      ]);
+      expect(recorded.headers['retry-after']).toBe('5');
+    });
+
     it('should send a Session error as 400 with its JSON body and no challenge', async () => {
       const { recorded, run, verifyPoppyRequest } = setup();
       verifyPoppyRequest.mockRejectedValue(new InvalidSessionError('claim_mismatch'));

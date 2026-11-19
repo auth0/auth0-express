@@ -34,3 +34,14 @@ describe('dpopChallenge', () => {
     );
   });
 });
+
+describe('the text of an error_description', () => {
+  it('should be cut at 256 characters in the DPoP challenge, before the escaping', () => {
+    // A quote at the cut: the escape must not be left without its character.
+    const text = `${'a'.repeat(255)}"${'b'.repeat(500)}`;
+    const challenge = dpopChallenge({ errorDescription: text });
+    const description = /error_description="((?:[^"\\]|\\.)*)"/.exec(challenge)?.[1] ?? '';
+
+    expect(description).toBe(`${'a'.repeat(255)}\\"`);
+  });
+});

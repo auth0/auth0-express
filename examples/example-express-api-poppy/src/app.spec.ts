@@ -1,4 +1,4 @@
-import { afterAll, afterEach, beforeAll, describe, expect, test } from 'vitest';
+import { afterAll, afterEach, beforeAll, describe, expect, test, vi } from 'vitest';
 import { createServer } from 'node:http';
 import type { IncomingMessage, Server } from 'node:http';
 import { setupServer } from 'msw/node';
@@ -73,6 +73,7 @@ const servers: Server[] = [];
 const unhandled: string[] = [];
 
 afterEach(async () => {
+  vi.unstubAllEnvs();
   expect(unhandled.splice(0), 'requests that no msw handler covers').toEqual([]);
   hits.discovery = 0;
   hits.jwks = 0;
@@ -100,7 +101,7 @@ async function serve(app: Express) {
 }
 
 // A new app for every test: new caches, an empty Session store and no carts. `poppy` replaces what the app would use.
-function start(poppy: Auth0ApiPoppyOptions = {}) {
+function start(poppy: Partial<Auth0ApiPoppyOptions> = {}) {
   return serve(
     createApp({
       publicOrigin: PUBLIC_ORIGIN,
@@ -159,11 +160,11 @@ function makeGuestToken() {
 
 // The access token of the web app that joined an agent to its user, which holds the Session in its `act` claim. `sub` is
 // a signed-in user, so only the agent decides what happens.
-function makeWebAppToken(agentId: string) {
+function makeWebAppToken(agentId: string, act: Record<string, unknown> = {}) {
   return new SignJWT({
     azp: 'web_app',
     scope: 'orders:write',
-    act: { sub: agentId, poppy_sid: 'sid_web_app', poppy_user_id: 'usr_test' },
+    act: { sub: agentId, poppy_sid: 'sid_web_app', poppy_user_id: 'usr_test', ...act },
   })
     .setProtectedHeader({ alg: 'RS256', kid: KID })
     .setIssuer(ISSUER)
@@ -267,6 +268,22 @@ describe('example-express-api-poppy', () => {
     expect(refused.status).toBe(403);
     expect(refused.body.error).toBe('agent_not_allowed');
     expect(accepted.status).toBe(200);
+  });
+
+  // An agent that is linked to an Auth0 agent has its ID in `act.sub` and no URL, and the `agents` option takes URLs only,
+  // so such an agent is never on the list and the app refuses it. The comment of `listedAgentsOnly()` says so.
+  test('refuses the token Session of an agent that is linked to an Auth0 agent, whose ID is not a URL', async () => {
+    const api = await start();
+    const linked = await makeWebAppToken('agt_3Lp9', {
+      sub_profile: 'ai_agent',
+      client_id: 'Jf3kPq9Xz2LmN8vTbR5sW1yCdE7hGaUo',
+      iss: ISSUER,
+    });
+
+    const res = await api.get('/api/cart').set('Authorization', `Bearer ${linked}`);
+
+    expect(res.status).toBe(403);
+    expect(res.body.error).toBe('agent_not_allowed');
   });
 
   test('answers an error with a JSON body that has no detail', async () => {
@@ -375,6 +392,9 @@ describe('createApp', () => {
   });
 
   test('does not start without a public origin', () => {
+    // The environment may set it, so the test takes it away.
+    vi.stubEnv('API_PUBLIC_ORIGIN', '');
+
     expect(() => createApp({ agents: [agent.cimdUrl] })).toThrow('Set API_PUBLIC_ORIGIN');
   });
 });

@@ -15,8 +15,9 @@ function agentsFromEnv(value: string | undefined): string[] | undefined {
 // The `agents` list filters the `Poppy-Session` header only. A Session that comes from the access token of a web app
 // (`source: 'token'`) names its agent in the `act` claim of the token, and the SDK does not compare that with `agents`.
 // So an agent that is not on the list could still reach a route through a web app that it joined. This app refuses it.
-// An agent that is linked to an Auth0 agent has the ID of that agent there, and not a URL: list that ID too, or the
-// app refuses it.
+// An agent that is linked to an Auth0 agent has the ID of that agent there (`agt_...`), and not a URL. The `agents`
+// option takes URLs only, so such an agent is never on the list, and this app refuses it. To accept one, compare its ID
+// with a list of your own in this function.
 function listedAgentsOnly(agents: string[]): RequestHandler {
   return (req, res, next) => {
     const poppy = req.auth0.poppy;
@@ -39,7 +40,7 @@ const answerError: ErrorRequestHandler = (error: { status?: unknown }, _req, res
 
 // `poppy` adds to the Poppy options below, or replaces them. The tests use it to pass the public origin and the test
 // agent.
-export function createApp(poppy?: Auth0ApiPoppyOptions): Express {
+export function createApp(poppy?: Partial<Auth0ApiPoppyOptions>): Express {
   const app = express();
 
   // The `poppy` option turns on support for Personal Agents:
@@ -53,7 +54,7 @@ export function createApp(poppy?: Auth0ApiPoppyOptions): Express {
   // - The Session store keeps a record of each Session, so that the SDK can refuse a Session that has ended. Without it,
   //   the app could not tell that a Session ended, and would keep serving its cart.
   // The domain and the audience come from AUTH0_DOMAIN and AUTH0_AUDIENCE.
-  const options: Auth0ApiPoppyOptions = {
+  const settings: Partial<Auth0ApiPoppyOptions> = {
     verifySession: true,
     // An empty value, as in `.env.example`, is no value.
     publicOrigin: process.env.API_PUBLIC_ORIGIN || undefined,
@@ -61,16 +62,18 @@ export function createApp(poppy?: Auth0ApiPoppyOptions): Express {
     sessionStore: new MemoryPoppySessionStore(),
     ...poppy,
   };
-  if (options.publicOrigin === undefined) {
+  const { publicOrigin, agents } = settings;
+  if (publicOrigin === undefined) {
     throw new Error('Set API_PUBLIC_ORIGIN to the https address that agents call, such as https://shop.example.com.');
   }
-  if (options.agents === undefined || options.agents.length === 0) {
+  if (agents === undefined || agents.length === 0) {
     throw new Error(
       'Set POPPY_AGENTS to the client metadata URLs of the agents this API accepts, separated by commas.'
     );
   }
+  const options: Auth0ApiPoppyOptions = { ...settings, publicOrigin, agents };
   app.use(createAuth0Api({ poppy: options }));
-  const accepted = listedAgentsOnly(options.agents);
+  const accepted = listedAgentsOnly(agents);
 
   // Carts live in memory, one for each Session. A real app keeps them in its database.
   // The key is `req.auth0.poppy.key`, which Poppy makes from the agent, the Session ID and the User ID. It is not the

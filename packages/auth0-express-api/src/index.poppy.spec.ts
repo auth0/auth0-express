@@ -921,6 +921,42 @@ describe('Poppy requests through createAuth0Api()', () => {
       expect(seen.auth0?.poppy).toBeUndefined();
     });
 
+    // The Session is in the header and the token is the agent's own, so `source` is `header`: the account check has to
+    // work there too, and not only for a Session that arrives in the `act` claim.
+    it('should run the route for a header Session with the access token of a signed-in user', async () => {
+      const { api } = await makeApp();
+      const token = await makeToken();
+      const sessionJwt = await session('GET', apiUrl('/account/cart'), { accessToken: token });
+
+      const res = await api.get('/account/cart').set('Authorization', `Bearer ${token}`).set(withVersion(sessionJwt));
+
+      expect(res.status).toBe(200);
+      expect(seen.auth0?.poppy).toMatchObject({ state: 'signed_in', source: 'header' });
+      expect(seen.auth0?.user?.sub).toBe('user_123');
+    });
+
+    it('should not let a header Session with the access token of a guest through, and call it signed out on a route without the option', async () => {
+      const { api } = await makeApp();
+      const token = await generateToken(domain, guestSub, audience, undefined, undefined, undefined, {
+        azp: agent.cimdUrl,
+        scope: 'orders:read orders:write',
+        sub_profile: 'user urn:auth0:anonymous_user',
+      });
+      const refusedJwt = await session('GET', apiUrl('/account/cart'), { accessToken: token });
+      const allowedJwt = await session('GET', apiUrl('/cart'), { accessToken: token });
+
+      const refused = await api
+        .get('/account/cart')
+        .set('Authorization', `Bearer ${token}`)
+        .set(withVersion(refusedJwt));
+      expectBareChallenge(refused);
+      expect(seen.runs).toBe(0);
+
+      const allowed = await api.get('/cart').set('Authorization', `Bearer ${token}`).set(withVersion(allowedJwt));
+      expect(allowed.status).toBe(200);
+      expect(seen.auth0?.poppy).toMatchObject({ state: 'signed_out', source: 'header' });
+    });
+
     it('should not let a Session without an access token through a route that sets requireSession too', async () => {
       const { api } = await makeApp();
       const sessionJwt = await session('GET', apiUrl('/account/cart'));
@@ -976,6 +1012,63 @@ describe('Poppy requests through createAuth0Api()', () => {
       expect(fromToken).toMatchObject({ source: 'token', agent: { id: 'agt_3Lp9' }, sessionId: 'sid_linked' });
       expect(fromToken?.key).not.toBe(fromHeader?.key);
       expect([...store.records.keys()].sort()).toEqual([fromHeader?.key, fromToken?.key].sort());
+    });
+  });
+
+  describe('HEAD and OPTIONS', () => {
+    // Express runs the handlers of a GET route for a HEAD request, so `req.method` is `HEAD` and the agent signs `HEAD`.
+    it('should verify a HEAD request on a GET route against a Session signed for HEAD', async () => {
+      const { api } = await makeApp();
+      const sessionJwt = await session('HEAD', apiUrl('/cart'));
+
+      const res = await api.head('/cart').set(withVersion(sessionJwt));
+
+      expect(res.status).toBe(200);
+      expect(seen.auth0?.poppy?.source).toBe('header');
+    });
+
+    it('should refuse a HEAD request whose Session is signed for GET', async () => {
+      const { api } = await makeApp();
+      const sessionJwt = await session('GET', apiUrl('/cart'));
+
+      const res = await api.head('/cart').set(withVersion(sessionJwt));
+
+      expect(res.status).toBe(400);
+      expect(seen.runs).toBe(0);
+    });
+
+    // Express answers an OPTIONS request itself for a path that has routes, and it does not run their handlers, so there
+    // is nothing to verify and the agent is not asked for anything.
+    it('should answer an OPTIONS request without running the route or fetching anything', async () => {
+      const { api } = await makeApp();
+
+      const res = await api.options('/cart');
+
+      expect(res.status).toBe(200);
+      expect(res.headers['allow']).toContain('GET');
+      expect(seen.runs).toBe(0);
+      expect(agentFetch).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('A Session issued after its delegation ends', () => {
+    it('should answer 400 invalid_session, and not run the route', async () => {
+      const shortLived = await createTestAgent({ delegationLifetimeSeconds: 5 });
+      const { api } = await makeApp({ agentMetadata: { fetch: shortLived.fetch } });
+      // 30 seconds ahead is inside the window for `iat`, and after the 5 seconds that the delegation lasts.
+      const sessionJwt = await shortLived.createSessionJwt({
+        aud: issuer,
+        htm: 'GET',
+        htu: apiUrl('/cart'),
+        iat: Math.floor(Date.now() / 1000) + 30,
+      });
+
+      const res = await api.get('/cart').set(withVersion(sessionJwt));
+
+      expect(res.status).toBe(400);
+      expect(res.body.error).toBe('invalid_session');
+      expect(res.body.error_description).toContain('delegation');
+      expect(seen.runs).toBe(0);
     });
   });
 
@@ -1146,6 +1239,42 @@ describe('Poppy requests through createAuth0Api()', () => {
       expect(seen.runs).toBe(0);
     });
 
+    // Without an `agents` list, any URL in a Session names an agent to load, so the SDK runs a few loads at a time for one
+    // host. The one that is turned away gets a short Retry-After, and the agent asks again.
+    it('should answer 503 with a Retry-After of 5 for a fifth agent on a host whose four loads are running', async () => {
+      const agents = await Promise.all(
+        [0, 1, 2, 3, 4].map((index) => createTestAgent({ cimdUrl: `https://busy.example/agent${index}.json` }))
+      );
+      let open: () => void = () => undefined;
+      const gate = new Promise<void>((resolve) => {
+        open = resolve;
+      });
+      // A host that answers only when the gate opens, so the four loads are still running when the fifth request comes.
+      const stalled = vi.fn<typeof fetch>(() => gate.then(() => new Response('{}', { status: 404 })));
+      const { api } = await makeApp({ agentMetadata: { fetch: stalled } });
+      const jwts = await Promise.all(
+        agents.map((busy) => busy.createSessionJwt({ aud: issuer, htm: 'GET', htu: apiUrl('/cart') }))
+      );
+      // supertest sends a request only when `then` is called, which is what starts these four.
+      const running = jwts.slice(0, 4).map((jwt) => api.get('/cart').set(withVersion(jwt)).then((res) => res));
+
+      try {
+        await vi.waitFor(() => expect(stalled).toHaveBeenCalledTimes(4), { timeout: 5000 });
+
+        const res = await api.get('/cart').set(withVersion(jwts[4] ?? ''));
+
+        expect(res.status).toBe(503);
+        expect(res.headers['retry-after']).toBe('5');
+        expect(res.body.error).toBe('temporarily_unavailable');
+        expect(stalled).toHaveBeenCalledTimes(4);
+        expect(seen.runs).toBe(0);
+      } finally {
+        // Also when an assertion fails, so the four gated requests do not hang until the time limit of the test.
+        open();
+        await Promise.all(running);
+      }
+    });
+
     it('should name the Bearer and the DPoP scheme in the 403 for a DPoP-bound token that lacks a scope', async () => {
       const { api } = await makeApp();
       const key = await makeDpopKey();
@@ -1193,6 +1322,32 @@ describe('Poppy requests through createAuth0Api()', () => {
       expect(res.headers['set-cookie']).toBeUndefined();
       for (const challenge of rawHeaders(res, 'www-authenticate')) {
         expect(challenge).toMatch(/^[\x20-\x7e]*$/);
+      }
+      expect(seen.runs).toBe(0);
+      expect(seen.error).toBeUndefined();
+    });
+
+    // The same value in a message can also end the quoted string and add a parameter of its own, and a very long one
+    // makes a very long header, so api-js escapes the first and cuts the second.
+    it.each([
+      ['a quote and a backslash', { crit: ['a", error="insufficient_scope\\'], 'a", error="insufficient_scope\\': true }],
+      ['a very long value', { crit: ['x'.repeat(5000)] }],
+      ['a character above U+00FF', { crit: ['x\u20AC'], 'x\u20AC': true }],
+    ])('should answer 401 with a challenge that a token with %s in its header cannot change', async (_name, extra) => {
+      const { api } = await makeApp();
+      const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+      const token = `${encode({ alg: 'RS256', typ: 'JWT', ...extra })}.${encode({ iss: issuer, aud: audience })}.c2ln`;
+
+      const res = await api.get('/profile').set('Authorization', `Bearer ${token}`);
+
+      expect(res.status).toBe(401);
+      const challenges = rawHeaders(res, 'www-authenticate');
+      expect(challenges.length).toBeGreaterThan(0);
+      for (const challenge of challenges) {
+        expect(challenge).toMatch(/^[\x20-\x7e]*$/);
+        expect(challenge.length).toBeLessThan(400);
+        // With the escaped characters taken out, the only `error` is the one that the SDK wrote.
+        expect((challenge.replace(/\\./g, '').match(/\berror="/g) ?? []).length).toBeLessThanOrEqual(1);
       }
       expect(seen.runs).toBe(0);
       expect(seen.error).toBeUndefined();

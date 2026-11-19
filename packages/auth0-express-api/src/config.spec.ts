@@ -225,7 +225,7 @@ describe('getConfig', () => {
   });
 
   it('should preserve poppy when provided', () => {
-    const poppy = { verifySession: true };
+    const poppy = { verifySession: true, publicOrigin: 'https://api.example.com' };
 
     const config = getConfig({ domain: 'test.auth0.com', audience: 'https://api.example.com', poppy });
 

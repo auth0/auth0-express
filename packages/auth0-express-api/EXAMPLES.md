@@ -793,7 +793,7 @@ Which one to use:
 - Two users who picked the same Session ID have two keys, because the User ID is part of the key.
 - `version` is the `Poppy-Version` of a Session from the header, and absent for a Session from a token.
 - `agent.poppyAgentId` is the Agent ID, when the agent sent one.
-- `state` is `'signed_in'` when a verified access token for the user's account came with the Session, and `'signed_out'` when it did not: the request had only the `Poppy-Session` header, or the Session comes from the access token of a guest in a web app (see [Guests in a web app](#guests-in-a-web-app)). When it is `'signed_in'`, `req.auth0.user.sub` is the account.
+- `state` is `'signed_in'` when a verified access token for the user's account came with the Session, and `'signed_out'` when it did not: the request had only the `Poppy-Session` header, or the access token of the request is the access token of a guest in a web app: the Session came from the `Poppy-Session` header and the guest token is in `Authorization`, or the Session came from the `act` claim of that token (see [Guests in a web app](#guests-in-a-web-app)). Then `req.auth0.user` is set for a guest token, and its `sub` is not an account. `requireAccount` is the gate for a route that needs an account: it also refuses a guest token whose `sub_profile` is a list of words, which `state` does not look at, because Auth0 sends a string. When it is `'signed_in'`, `req.auth0.user.sub` is the account.
 - `source` is where the Session came from: `'header'` for the `Poppy-Session` header, and `'token'` for the `act` claim of a web app's access token, whose `poppy_*` members are beta claims that Auth0 issues.
 
 `req.auth0.user` is set only when the request has a verified access token. A token is always there on a route that has `scopes` or does not set `requireSession`. On a `requireSession` route without `scopes`, a Session alone passes, so check `req.auth0.user` before you use it.
@@ -819,7 +819,7 @@ app.post(
 );
 ```
 
-`requireAccount` is off by default, because a route that serves guests, such as a cart, should let them in. With it on, a guest is answered with `401` and the sign-in challenges that name the `scopes` of the route, before the scopes are checked, as a guest cannot fix a missing scope without signing in. A route without `scopes` answers a guest with a plain `401` that has a challenge for each scheme (on a `requireSession` route this is the 401, not the 400 `invalid_session`). A request with a Session and no access token does not pass either, even when the route sets `requireSession`.
+`requireAccount` is off by default, because a route that serves guests, such as a cart, should let them in. With it on, a guest is answered with `401` and the sign-in challenges that name the `scopes` of the route, before the scopes are checked, as a guest cannot fix a missing scope without signing in. A route without `scopes` answers a guest with a plain `401` that has a challenge for each scheme (on a `requireSession` route this is the 401, not the 400 `invalid_session`). That is the answer that the specification defines for a request that needs the account of the user and has none ([API errors](https://personalagentprotocol.org/docs/1.0/spec#apis), section 7): a `401` with no error code, which a Personal Agent handles as `insufficient_scope` and answers by having its user sign in. A client that is not a Personal Agent, and that refreshes its token on every `401`, gets the same guest token back, so such a client should not call a route with `requireAccount` with a guest token. A request with a Session and no access token does not pass either, even when the route sets `requireSession`.
 
 What `requireAccount` refuses, and what it does not:
 
@@ -848,7 +848,7 @@ If you need another answer, read `req.auth0.poppy?.state` yourself: it is `'sign
 | `invalid_session` | 400 | The JSON body `{"error":"invalid_session","error_description":"..."}`. No `WWW-Authenticate`. |
 | `session_ended` | 400 | The JSON body `{"error":"session_ended","error_description":"..."}`. |
 | `version_unsupported` | 400 | The JSON body `{"error":"version_unsupported","error_description":"..."}`. |
-| `temporarily_unavailable` | 503 | `Retry-After: 30`, or `Retry-After: 5` when the SDK already runs 32 loads of agent metadata (only without `agents`), and the JSON body `{"error":"temporarily_unavailable","error_description":"..."}`. |
+| `temporarily_unavailable` | 503 | `Retry-After: 30`, or `Retry-After: 5` when the SDK already runs the most loads of agent metadata that it allows, for all agents or for the host of this one (only without `agents`), and the JSON body `{"error":"temporarily_unavailable","error_description":"..."}`. |
 | Anything else | 500 | The SDK sends nothing. It calls `next(error)` with the message `The request could not be verified.`, a `status` of 500, and the original error as `cause`. Your error handler answers. |
 
 - `invalid_session` means that a Session check failed. The `error_description` says which one, for you, so do not match on its text. A new Session does not fix it, so the agent stops sending the request until it fixes the cause.

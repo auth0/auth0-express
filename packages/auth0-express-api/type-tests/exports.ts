@@ -1,6 +1,8 @@
 import { expectTypeOf } from 'vitest';
 import { toHttpErrorResponse } from '../src/index.js';
 import type {
+  Auth0ApiOptions,
+  Auth0ApiPoppyOptions,
   HttpErrorResponse,
   InvalidSessionError,
   InvalidSessionReason,
@@ -21,3 +23,11 @@ expectTypeOf<PoppySession['state']>().toEqualTypeOf<PoppySessionState>();
 expectTypeOf<PoppySession['source']>().toEqualTypeOf<PoppySessionSource>();
 expectTypeOf<PoppySession['agent']>().toEqualTypeOf<PoppyAgent>();
 expectTypeOf<InvalidSessionError['reason']>().toEqualTypeOf<InvalidSessionReason>();
+
+// The `poppy` option needs `publicOrigin`: the router throws without it, so the type says so before the app runs.
+expectTypeOf<Auth0ApiPoppyOptions['publicOrigin']>().toEqualTypeOf<string>();
+// The option that `createAuth0Api()` takes is the same type, so a consumer is told at compile time too.
+expectTypeOf<NonNullable<Auth0ApiOptions['poppy']>>().toEqualTypeOf<Auth0ApiPoppyOptions>();
+// @ts-expect-error `publicOrigin` is required.
+const withoutPublicOrigin: Auth0ApiPoppyOptions = { verifySession: true };
+void withoutPublicOrigin;

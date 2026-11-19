@@ -328,10 +328,12 @@ const ANONYMOUS_SUBJECT_PROFILE = 'urn:auth0:anonymous_user';
 
 /**
  * Whether the claims of a verified access token are the ones of a guest, an anonymous user: `sub_profile` lists
- * `urn:auth0:anonymous_user` (as a string of words, or as a list), or `sub` starts with `anon_poppy@`. These are the two
- * markers that `@auth0/auth0-api-js` reads. It reads them only for a token that holds a Poppy Session, so a token that
- * carries the markers and no Session would reach the route as an account without this check. Only the claims of the
- * token itself are read, never `act`.
+ * `urn:auth0:anonymous_user`, or `sub` starts with `anon_poppy@`. These are the two markers that `@auth0/auth0-api-js`
+ * reads, and Auth0 sends `sub_profile` as a string of words. This check also reads a list of words, which api-js does
+ * not, so it is the stricter of the two for that token and `requireAccount` refuses it. api-js reads the markers only
+ * for a token that holds a Poppy Session, or that comes with a `Poppy-Session` header, so a token that carries the
+ * markers and no Session would reach the route as an account without this check. Only the claims of the token itself are
+ * read, never `act`.
  */
 function isGuestToken(claims: Token): boolean {
   const profile: unknown = claims.sub_profile;

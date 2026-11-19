@@ -19,6 +19,18 @@ export function printable(value: string): string {
   return value.replace(/[^\x20-\x7e]/g, '?');
 }
 
+/** The longest `error_description` that the `DPoP` challenge carries, in characters. api-js cuts the ones it writes at the same length. */
+export const MAX_ERROR_DESCRIPTION_LENGTH = 256;
+
+/**
+ * The text of an `error_description` for the `DPoP` challenge, cut at {@link MAX_ERROR_DESCRIPTION_LENGTH} characters. It
+ * can be a message that quotes a value of the client, such as a `crit` name of a token, and a token can carry kilobytes
+ * of it. The `Bearer` challenge of `sendBearerError()` does its own cut, for text from the request.
+ */
+export function shortened(text: string): string {
+  return text.slice(0, MAX_ERROR_DESCRIPTION_LENGTH);
+}
+
 /** A quoted string of RFC 9110 (section 5.6.4): printable ASCII, with a backslash before `\` and `"`. */
 function quoted(value: string): string {
   return `"${printable(value).replaceAll('\\', '\\\\').replaceAll('"', '\\"')}"`;
@@ -31,7 +43,7 @@ function quoted(value: string): string {
 export function dpopChallenge(params: ChallengeParams = {}): string {
   const attributes = [
     params.error === undefined ? undefined : `error=${quoted(params.error)}`,
-    params.errorDescription === undefined ? undefined : `error_description=${quoted(params.errorDescription)}`,
+    params.errorDescription === undefined ? undefined : `error_description=${quoted(shortened(params.errorDescription))}`,
     params.scopes === undefined ? undefined : `scope=${quoted(params.scopes.join(' '))}`,
     `algs="${DPOP_ALGORITHMS}"`,
   ].filter((attribute) => attribute !== undefined);
