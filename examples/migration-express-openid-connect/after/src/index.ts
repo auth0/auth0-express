@@ -17,11 +17,6 @@ const absoluteDuration = Number.isFinite(parsedAbsoluteDuration) ? parsedAbsolut
 // absoluteDuration) and expire instead of persisting after the SDK considers them expired.
 const sessionStore = redisUrl ? await createRedisSessionStore(redisUrl, absoluteDuration) : undefined;
 
-// Auth0 sends the backchannel logout token as application/x-www-form-urlencoded.
-// Express 5 does not parse request bodies by default, so mount a parser before the
-// Auth0 router or `POST /auth/backchannel-logout` would see an undefined `req.body`.
-app.use(express.urlencoded({ extended: false }));
-
 app.use(
   createAuth0({
     // domain, clientId, clientSecret, appBaseUrl, sessionSecret and audience are read from the
