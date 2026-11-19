@@ -24,13 +24,15 @@ export interface ClaimAuthOptions {
 }
 
 /**
- * Sends an RFC 6750 compliant error response with WWW-Authenticate header.
+ * Sends an RFC 6750 style error response with a WWW-Authenticate header.
  *
  * @param res - Express response object
  * @param statusCode - HTTP status code (401 or 403)
  * @param error - OAuth error code
  * @param errorDescription - Human-readable error description
  * @param scopes - Optional array of required scopes (for insufficient_scope errors)
+ * @param headerSafe - Whether to write the description into the header as a
+ *   quoted-string of printable ASCII, for text that can come from the request
  * @returns Response object
  */
 export function sendBearerError(
@@ -38,14 +40,21 @@ export function sendBearerError(
   statusCode: number,
   error: string,
   errorDescription: string,
-  scopes?: string[]
+  scopes?: string[],
+  headerSafe = false
 ): Response {
   const scopeHeader = scopes ? `, scope="${scopes.join(' ')}"` : '';
+  // With `headerSafe` the text can come from the request, so it is cut down to
+  // printable ASCII (anything else becomes `?`), and `\` and `"` are escaped so
+  // that it stays inside the quoted-string.
+  const headerDescription = headerSafe
+    ? errorDescription.replace(/[^\x20-\x7e]/gu, '?').replace(/["\\]/g, '\\$&')
+    : errorDescription.replaceAll('"', '\\"');
   return res
     .status(statusCode)
     .header(
       'WWW-Authenticate',
-      `Bearer error="${error.replaceAll('"', '\\"')}", error_description="${errorDescription.replaceAll('"', '\\"')}"${scopeHeader}`
+      `Bearer error="${error.replaceAll('"', '\\"')}", error_description="${headerDescription}"${scopeHeader}`
     )
     .json({
       error: error,

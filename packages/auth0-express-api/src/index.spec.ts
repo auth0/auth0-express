@@ -1,10 +1,21 @@
-import { expect, test, afterAll, afterEach, beforeAll } from 'vitest';
+import { expect, test, afterAll, afterEach, beforeAll, describe, vi } from 'vitest';
 import { setupServer } from 'msw/node';
-import { http, HttpResponse } from 'msw';
+import { http, HttpResponse, type HttpHandler } from 'msw';
+import * as jose from 'jose';
 import { generateToken, jwks } from './test-utils/tokens.js';
+import { parseChallenge } from './test-utils/www-authenticate.js';
 import express from 'express';
 import request from 'supertest';
-import { createAuth0Api, isConnectionExchangeError, MissingClientAuthError, requiresAuth } from './index.js';
+import {
+  claimCheck,
+  claimEquals,
+  claimIncludes,
+  createAuth0Api,
+  isConnectionExchangeError,
+  MissingClientAuthError,
+  requiresAuth,
+  scopesInclude,
+} from './index.js';
 
 const domain = 'auth0.local';
 let mockOpenIdConfiguration = {
@@ -1291,4 +1302,446 @@ test('should throw missing client auth for a profile exchange with a client id b
   expect(error).toBeInstanceOf(MissingClientAuthError);
   expect(error).toHaveProperty('code', 'missing_client_auth_error');
   expect(res.body.message).toContain('client secret or client assertion signing key must be provided');
+});
+
+// A token with exactly this header and payload, and a signature that never
+// verifies, for rejections that come before the signature is checked.
+const encodePart = (part: unknown) =>
+  Buffer.from(typeof part === 'string' ? part : JSON.stringify(part)).toString('base64url');
+const craftToken = (header: unknown, payload: unknown = { sub: 'user_123' }) =>
+  `${encodePart(header)}.${encodePart(payload)}.${encodePart('<signature>')}`;
+
+const nowInSeconds = () => Math.floor(Date.now() / 1000);
+
+describe('the WWW-Authenticate header for a failed verification', () => {
+  // What 1.0.0 sent, written out here so the comparison does not depend on the
+  // code it checks.
+  const asSentBy1_0_0 = (message: string) =>
+    `Bearer error="invalid_token", error_description="${message.replaceAll('"', '\\"')}"`;
+
+  const discoveryUri = `https://${domain}/.well-known/openid-configuration`;
+  const jwksUri = `https://${domain}/.well-known/jwks.json`;
+
+  const validToken = () => generateToken(domain, 'user_123', '<audience>');
+  const validClaims = () => ({
+    sub: 'user_123',
+    aud: '<audience>',
+    iss: `https://${domain}/`,
+    iat: nowInSeconds(),
+    exp: nowInSeconds() + 3600,
+  });
+
+  let otherKey: jose.GenerateKeyPairResult;
+
+  beforeAll(async () => {
+    otherKey = await jose.generateKeyPair('RS256');
+  });
+
+  // The reasons api-js, jose and oauth4webapi give for rejecting a token, each
+  // driven for real through the route.
+  const rejections: Array<{
+    reason: string;
+    token: () => string | Promise<string>;
+    handlers?: () => HttpHandler[] | Promise<HttpHandler[]>;
+    message: string;
+  }> = [
+    {
+      reason: 'the wrong audience',
+      token: () => generateToken(domain, 'user_123', '<invalid_audience>'),
+      message: 'unexpected "aud" claim value',
+    },
+    {
+      reason: 'no audience',
+      token: () => generateToken(domain, 'user_123'),
+      message: 'missing required "aud" claim',
+    },
+    {
+      reason: 'the wrong issuer',
+      token: () => generateToken(domain, 'user_123', '<audience>', 'https://invalid-issuer.local'),
+      message: 'unexpected "iss" claim value',
+    },
+    {
+      reason: 'no issuer',
+      token: () => generateToken(domain, 'user_123', '<audience>', false),
+      message: 'missing required "iss" claim',
+    },
+    {
+      reason: 'an expired token',
+      token: () =>
+        generateToken(domain, 'user_123', '<audience>', undefined, nowInSeconds() - 7200, nowInSeconds() - 3600),
+      message: '"exp" claim timestamp check failed',
+    },
+    {
+      reason: 'a token that is not valid yet',
+      token: () =>
+        generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+          nbf: nowInSeconds() + 3600,
+        }),
+      message: '"nbf" claim timestamp check failed',
+    },
+    {
+      reason: 'no exp',
+      token: () => generateToken(domain, 'user_123', '<audience>', undefined, undefined, false),
+      message: 'missing required "exp" claim',
+    },
+    {
+      reason: 'no iat',
+      token: () => generateToken(domain, 'user_123', '<audience>', undefined, false),
+      message: 'missing required "iat" claim',
+    },
+    {
+      reason: 'an exp that is not a number',
+      token: () => generateToken(domain, 'user_123', '<audience>', undefined, undefined, false, { exp: 'tomorrow' }),
+      message: '"exp" claim must be a number',
+    },
+    {
+      reason: 'a DPoP-bound token sent as Bearer',
+      token: () =>
+        generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+          cnf: { jkt: '<thumbprint>' },
+        }),
+      message: 'DPoP-bound token requires the DPoP authentication scheme, not Bearer',
+    },
+    {
+      reason: 'a symmetric algorithm',
+      token: () => craftToken({ alg: 'HS256', typ: 'JWT' }, validClaims()),
+      message: 'unsupported algorithm (symmetric algorithms are not supported)',
+    },
+    {
+      reason: 'an algorithm that is not allowed',
+      token: () => craftToken({ alg: 'PS256' }, validClaims()),
+      message: '"alg" (Algorithm) Header Parameter value not allowed',
+    },
+    {
+      reason: 'the none algorithm',
+      token: () => craftToken({ alg: 'none' }, validClaims()),
+      message: '"alg" (Algorithm) Header Parameter value not allowed',
+    },
+    {
+      reason: 'no algorithm',
+      token: () => craftToken({ typ: 'JWT' }, validClaims()),
+      message: 'JWS "alg" (Algorithm) Header Parameter missing or invalid',
+    },
+    {
+      reason: 'a signature from another key',
+      token: () => new jose.SignJWT(validClaims()).setProtectedHeader({ alg: 'RS256' }).sign(otherKey.privateKey),
+      message: 'signature verification failed',
+    },
+    {
+      reason: 'a payload changed after signing',
+      token: async () => {
+        const [header, , signature] = (await validToken()).split('.');
+        return `${header}.${encodePart({ ...validClaims(), sub: 'user_456' })}.${signature}`;
+      },
+      message: 'signature verification failed',
+    },
+    {
+      reason: 'a signature that is not base64url',
+      token: async () => `${(await validToken()).split('.').slice(0, 2).join('.')}.!!!`,
+      message: 'Failed to base64url decode the signature',
+    },
+    {
+      reason: 'a value that is not a JWT',
+      token: () => 'not-a-jwt',
+      message: 'Invalid Token or Protected Header formatting',
+    },
+    {
+      reason: 'a JWE-shaped value',
+      token: () => `${craftToken({ alg: 'RS256' })}.${encodePart('<tag>')}.${encodePart('<tag>')}`,
+      message: 'Only JWTs using Compact JWS serialization can be decoded',
+    },
+    {
+      reason: 'no payload',
+      token: () => `${encodePart({ alg: 'RS256' })}..${encodePart('<signature>')}`,
+      message: 'JWTs must contain a payload',
+    },
+    {
+      reason: 'a payload that is not base64url',
+      token: () => `${encodePart({ alg: 'RS256' })}.!!!.${encodePart('<signature>')}`,
+      message: 'Failed to base64url decode the payload',
+    },
+    {
+      reason: 'a payload that is not JSON',
+      token: () => craftToken({ alg: 'RS256' }, 'not json'),
+      message: 'Failed to parse the decoded payload as JSON',
+    },
+    {
+      reason: 'a payload that is not an object',
+      token: () => craftToken({ alg: 'RS256' }, []),
+      message: 'Invalid JWT Claims Set',
+    },
+    {
+      reason: 'a crit that is not an array',
+      token: () => craftToken({ alg: 'RS256', crit: 'b64' }, validClaims()),
+      message: '"crit" (Critical) Header Parameter MUST be an array of non-empty strings when present',
+    },
+    {
+      reason: 'a crit name that is not recognized',
+      token: () => craftToken({ alg: 'RS256', crit: ['exp'] }, validClaims()),
+      message: 'Extension Header Parameter "exp" is not recognized',
+    },
+    {
+      reason: 'a crit b64 with no b64',
+      token: () => craftToken({ alg: 'RS256', crit: ['b64'] }, validClaims()),
+      message: 'Extension Header Parameter "b64" is missing',
+    },
+    {
+      reason: 'a b64 that is not a boolean',
+      token: () => craftToken({ alg: 'RS256', crit: ['b64'], b64: 'yes' }, validClaims()),
+      message: 'The "b64" (base64url-encode payload) Header Parameter must be a boolean',
+    },
+    {
+      reason: 'a kid with no key',
+      token: () => craftToken({ alg: 'RS256', kid: '<unknown>' }, validClaims()),
+      message: 'no applicable key found in the JSON Web Key Set',
+    },
+    {
+      reason: 'more than one matching key',
+      handlers: async () => {
+        const otherJwk = await jose.exportJWK(otherKey.publicKey);
+        return [http.get(jwksUri, () => HttpResponse.json({ keys: [...jwks, otherJwk] }))];
+      },
+      token: validToken,
+      message: 'multiple matching keys found in the JSON Web Key Set',
+    },
+    {
+      reason: 'a JWKS request that fails',
+      handlers: () => [http.get(jwksUri, () => new HttpResponse(null, { status: 500 }))],
+      token: validToken,
+      message: 'JWKS request failed',
+    },
+    {
+      reason: 'a JWKS endpoint that cannot be reached',
+      handlers: () => [http.get(jwksUri, () => HttpResponse.error())],
+      token: validToken,
+      message: 'JWKS request failed',
+    },
+    {
+      reason: 'a JWKS response that is not JSON',
+      handlers: () => [http.get(jwksUri, () => HttpResponse.text('not json'))],
+      token: validToken,
+      message: 'Failed to parse the JSON Web Key Set HTTP response as JSON',
+    },
+    {
+      reason: 'a malformed JWKS',
+      handlers: () => [http.get(jwksUri, () => HttpResponse.json({}))],
+      token: validToken,
+      message: 'JSON Web Key Set malformed',
+    },
+    {
+      reason: 'a discovery request that fails',
+      handlers: () => [http.get(discoveryUri, () => new HttpResponse(null, { status: 500 }))],
+      token: validToken,
+      message: '"response" is not a conform Authorization Server Metadata response (unexpected HTTP status code)',
+    },
+    {
+      reason: 'discovery metadata with no jwks_uri',
+      handlers: () => [http.get(discoveryUri, () => HttpResponse.json({ issuer: `https://${domain}/` }))],
+      token: validToken,
+      message: 'missing "jwks_uri" in discovery metadata',
+    },
+    {
+      reason: 'discovery metadata for another issuer',
+      handlers: () => [
+        http.get(discoveryUri, () =>
+          HttpResponse.json({ ...mockOpenIdConfiguration, issuer: 'https://another.local/' })
+        ),
+      ],
+      token: validToken,
+      message: '"response" body "issuer" property does not match the expected value',
+    },
+  ];
+
+  test.each(rejections)('should send what 1.0.0 sent for $reason', async ({ token, handlers, message }) => {
+    if (handlers) {
+      server.use(...(await handlers()));
+    }
+
+    const app = express();
+    app.use(express.json());
+
+    const router = createAuth0Api({
+      domain: domain,
+      audience: '<audience>',
+    });
+
+    router.get('/test', requiresAuth(), async (req, res) => {
+      res.json({ message: 'OK' });
+    });
+
+    app.use(router);
+
+    const res = await request(app)
+      .get('/test')
+      .set('authorization', `Bearer ${await token()}`);
+
+    expect(res.status).toBe(401);
+    expect(res.body).toEqual({ error: 'invalid_token', error_description: message });
+    // Printable ASCII with no backslash, the text for which both must agree.
+    expect(message).toMatch(/^[\x20-\x5b\x5d-\x7e]+$/);
+    expect(res.headers['www-authenticate']).toBe(asSentBy1_0_0(message));
+  });
+});
+
+// Node writes and reads header values as Latin-1, so comparing the strings
+// compares the bytes.
+describe('the answers that app-supplied text goes into', () => {
+  const appWith = (...middleware: express.RequestHandler[]) => {
+    const app = express();
+    app.use(express.json());
+
+    const router = createAuth0Api({
+      domain: domain,
+      audience: '<audience>',
+    });
+
+    router.get('/test', ...middleware, async (req, res) => {
+      res.json({ message: 'OK' });
+    });
+
+    app.use(router);
+
+    return app;
+  };
+
+  test('should keep the 403 from scopesInclude() with non-ASCII scope names', async () => {
+    const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+      scope: 'lire:messages',
+    });
+
+    const res = await request(appWith(requiresAuth(), scopesInclude('lire:messages écrire:messages')))
+      .get('/test')
+      .set('authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(403);
+    expect(res.headers['www-authenticate']).toBe(
+      'Bearer error="insufficient_scope", error_description="Insufficient scopes", scope="lire:messages écrire:messages"'
+    );
+    expect(res.body).toEqual({ error: 'insufficient_scope', error_description: 'Insufficient scopes' });
+  });
+
+  test('should keep the 403 from requiresAuth() with non-ASCII scopes', async () => {
+    const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+      scope: 'lire:messages',
+    });
+
+    const res = await request(appWith(requiresAuth({ scopes: 'écrire:messages' })))
+      .get('/test')
+      .set('authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(403);
+    expect(res.headers['www-authenticate']).toBe(
+      'Bearer error="insufficient_scope", error_description="Insufficient scopes"'
+    );
+    expect(res.body).toEqual({ error: 'insufficient_scope', error_description: 'Insufficient scopes' });
+  });
+
+  // 1.0.0 escapes only `"` in this text, and that is unchanged.
+  const errorMessage = 'Réservé aux "administrateurs" (voir C:\\équipe)';
+
+  test.each([
+    ['claimEquals()', claimEquals('rôle', 'administrateur', { errorMessage })],
+    ['claimIncludes()', claimIncludes('rôles', ['administrateur'], { errorMessage })],
+    ['claimCheck()', claimCheck(() => false, { errorMessage })],
+  ])('should keep the 401 from %s with a non-ASCII error message', async (_name, middleware) => {
+    const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+      rôle: 'lecteur',
+      rôles: ['lecteur'],
+    });
+
+    const res = await request(appWith(requiresAuth(), middleware))
+      .get('/test')
+      .set('authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toBe(
+      'Bearer error="invalid_token", error_description="Réservé aux \\"administrateurs\\" (voir C:\\équipe)"'
+    );
+    expect(res.body).toEqual({ error: 'invalid_token', error_description: errorMessage });
+  });
+
+  test('should keep the 401 from claimEquals() with a default message naming a non-ASCII claim', async () => {
+    const accessToken = await generateToken(domain, 'user_123', '<audience>', undefined, undefined, undefined, {
+      rôle: 'lecteur',
+    });
+
+    const res = await request(appWith(requiresAuth(), claimEquals('rôle', 'administrateur')))
+      .get('/test')
+      .set('authorization', `Bearer ${accessToken}`);
+
+    expect(res.status).toBe(401);
+    expect(res.headers['www-authenticate']).toBe(
+      `Bearer error="invalid_token", error_description="Unexpected 'rôle' value"`
+    );
+    expect(res.body).toEqual({ error: 'invalid_token', error_description: "Unexpected 'rôle' value" });
+  });
+});
+
+describe('in a router mounted on a path', () => {
+  const mountedApp = (...before: express.RequestHandler[]) => {
+    const app = express();
+    const api = express.Router();
+
+    api.use(createAuth0Api({ domain: domain, audience: '<audience>' }));
+    api.get('/me', ...before, requiresAuth(), async (req, res) => {
+      res.json({ sub: req.auth0.user?.sub });
+    });
+    app.use('/api', api);
+
+    const errors: Array<Error & { code?: string }> = [];
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    app.use((error: Error, req: express.Request, res: express.Response, next: express.NextFunction) => {
+      errors.push(error);
+      if (!res.headersSent) {
+        res.status(500).end();
+      }
+    });
+
+    return { app, errors };
+  };
+
+  test('should answer with a header that parses when the message holds text from the token', async () => {
+    const { app, errors } = mountedApp();
+    // jose names an unrecognized `crit` entry in its message, and checks it
+    // before the signature, so anyone can choose this text.
+    const name = 'x"y\\z\r\nX-Injected: yes \u20ac';
+
+    const res = await request(app)
+      .get('/api/me')
+      .set('authorization', `Bearer ${craftToken({ alg: 'RS256', crit: [name] })}`);
+
+    expect(errors).toEqual([]);
+    expect(res.status).toBe(401);
+    expect(res.headers['x-injected']).toBeUndefined();
+    expect(parseChallenge(res.headers['www-authenticate']!)).toEqual({
+      scheme: 'Bearer',
+      params: [
+        ['error', 'invalid_token'],
+        ['error_description', 'Extension Header Parameter "x"y\\z??X-Injected: yes ?" is not recognized'],
+      ],
+    });
+    expect(res.body).toEqual({
+      error: 'invalid_token',
+      error_description: `Extension Header Parameter "${name}" is not recognized`,
+    });
+  });
+
+  // CI installs Express 5 only. This test also passes against the 1.0.0 source there,
+  // and only fails on Express 4. The mock-based tests in require-auth.spec.ts are the
+  // ones that guard the Express 4 process exit in CI.
+  test('should pass an error thrown while answering to the app error handler', async () => {
+    // Stands in for a middleware, such as a timeout, that answered first.
+    const { app, errors } = mountedApp((req, res, next) => {
+      res.status(503).end();
+      next();
+    });
+
+    const res = await request(app)
+      .get('/api/me')
+      .set('authorization', `Bearer ${await generateToken(domain, 'user_123', '<invalid_audience>')}`);
+
+    expect(res.status).toBe(503);
+    await vi.waitFor(() => expect(errors).toHaveLength(1));
+    expect(errors[0]?.code).toBe('ERR_HTTP_HEADERS_SENT');
+  });
 });

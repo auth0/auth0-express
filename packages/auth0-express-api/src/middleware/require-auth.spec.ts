@@ -1,7 +1,9 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+import { validateHeaderValue } from 'node:http';
 import { NextFunction, Request, Response } from 'express';
-import type { ApiClient } from '@auth0/auth0-api-js';
+import { VerifyAccessTokenError, type ApiClient } from '@auth0/auth0-api-js';
 import { requiresAuth } from './require-auth.js';
+import { parseChallenge } from '../test-utils/www-authenticate.js';
 
 describe('requiresAuth', () => {
   let mockNext: ReturnType<typeof vi.fn>;
@@ -239,6 +241,80 @@ describe('requiresAuth', () => {
 
       expect(req.auth0!.token).toBeUndefined();
       expect(req.auth0!.user).toBeUndefined();
+    });
+
+    const printableAscii = String.fromCharCode(...Array.from({ length: 0x7f - 0x20 }, (_, i) => 0x20 + i));
+
+    // The message can carry text from the request, such as a `crit` name from
+    // the token's header.
+    it.each([
+      ['every printable ASCII character', printableAscii, printableAscii],
+      ['a carriage return', 'bad\rtoken', 'bad?token'],
+      ['a line feed', 'bad\ntoken', 'bad?token'],
+      ['a CRLF and a header line', 'bad\r\nSet-Cookie: a=b', 'bad??Set-Cookie: a=b'],
+      ['other control characters', 'a\0b\tc\x1bd\x1fe\x7ff\x85g', 'a?b?c?d?e?f?g'],
+      ['a non-ASCII character', 'caf\u00e9', 'caf?'],
+      ['a character above U+00FF', 'costs \u20ac5', 'costs ?5'],
+      ['a character outside the BMP', 'smile \u{1F600}', 'smile ?'],
+      ['a lone surrogate', 'half \ud800', 'half ?'],
+      ['a double quote', 'say "hi"', 'say "hi"'],
+      ['a backslash', 'C:\\keys\\jwks', 'C:\\keys\\jwks'],
+      ['a trailing backslash', 'ends with \\', 'ends with \\'],
+      ['a backslash before a double quote', 'a\\"b', 'a\\"b'],
+    ])('should write a header that parses for a message with %s', async (_label, message, decoded) => {
+      verifyAccessToken.mockRejectedValue(new VerifyAccessTokenError(message));
+      const req = createMockRequest('Bearer <token>');
+      const res = createMockResponse();
+
+      await requiresAuth()(req as Request, res as Response, mockNext as NextFunction);
+
+      expect(res.status).toHaveBeenCalledWith(401);
+      expect(res.header).toHaveBeenCalledTimes(1);
+      const [name, value] = vi.mocked(res.header!).mock.calls[0] as [string, string];
+      expect(name).toBe('WWW-Authenticate');
+      expect(() => validateHeaderValue(name, value)).not.toThrow();
+      expect(value).toMatch(/^[\x20-\x7e]+$/);
+      expect(parseChallenge(value)).toEqual({
+        scheme: 'Bearer',
+        params: [
+          ['error', 'invalid_token'],
+          ['error_description', decoded],
+        ],
+      });
+      // JSON can carry any text, so the body keeps the message as it was.
+      expect(res.json).toHaveBeenCalledWith({ error: 'invalid_token', error_description: message });
+      expect(mockNext).not.toHaveBeenCalled();
+    });
+  });
+
+  // Express 4 ignores the promise a middleware returns, so a rejection is
+  // unhandled, and that ends the process under Node's default settings.
+  describe('when writing the response throws', () => {
+    const failure = new Error('<cannot write the response>');
+
+    it.each([
+      ['no token is present', 'header', undefined],
+      ['verification fails', 'header', 'verification'],
+      ['verification fails', 'json', 'verification'],
+      ['a required scope is missing', 'header', 'scope'],
+      ['a required scope is missing', 'json', 'scope'],
+    ] as const)('should pass the error to next() when %s and res.%s() throws', async (_label, method, outcome) => {
+      if (outcome === 'verification') {
+        verifyAccessToken.mockRejectedValue(new VerifyAccessTokenError('"exp" claim timestamp check failed'));
+      } else if (outcome === 'scope') {
+        verifyAccessToken.mockResolvedValue({ sub: 'user_123', scope: 'read:messages' });
+      }
+      const middleware = requiresAuth(outcome === 'scope' ? { scopes: 'write:messages' } : {});
+      const req = createMockRequest(outcome ? 'Bearer <token>' : undefined);
+      const res = createMockResponse();
+      vi.mocked(res[method]!).mockImplementation(() => {
+        throw failure;
+      });
+
+      await expect(middleware(req as Request, res as Response, mockNext as NextFunction)).resolves.toBeUndefined();
+
+      expect(mockNext).toHaveBeenCalledTimes(1);
+      expect(mockNext).toHaveBeenCalledWith(failure);
     });
   });
 });
