@@ -47,7 +47,7 @@
     "vitest": "^5.0.0"
   },
   "dependencies": {
-    "@auth0/auth0-server-js": "file:../../vendor/auth0-server-js-1.17.0-poppy-ca2e793.tgz",
+    "@auth0/auth0-server-js": "^1.18.0-beta.0",
     "cookie-parser": "^1.4.7",
     "jose": "^6.0.8"
   },

@@ -15,7 +15,8 @@ export const CIMD_URL = 'https://agent.example/agent.json';
 export const SESSION_ID = 'Yx2b7Qd_Kp8mR3vT1nWc4A';
 export const USER_ID = 'usr_Q7c1vK';
 export const AGENT_ID = 'travel_agent';
-export const SESSION_KEY = '3X_qiM4THChkGSbMHW5cwViMXCkP6myL_fqSvIz33h0';
+// base64url(SHA-256(`${SESSION_ID}\n${USER_ID}`)): the key of the Beta is made from the Session ID and the User ID only.
+export const SESSION_KEY = 'KJAyOMePfAmSzuCOvR3I3NVhlxO4-4XprIyLkAWHvvY';
 export const GUEST_SUB = 'anon_poppy@z4eHq6gTjlgaMSjrplb3j5j3kb3hEDz9hZx8mgdxQLg';
 export const GUEST_SUB_PROFILE = 'user urn:auth0:anonymous_user';
 export const JOIN_ACCESS_TOKEN = 'at_join';

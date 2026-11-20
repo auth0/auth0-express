@@ -60,8 +60,8 @@ const SESSION_COOKIE = '__a0_session.0';
 const ANONYMOUS_COOKIE = '__a0_anon.0';
 
 // The context of a guest mirrors its ID token: `sub`, `sub_profile` and the whole `act`. A guest has no scopes. A join that
-// signs in has the same key only when its `act` is the same, because the key comes from `act.sub`, `act.poppy_sid` and
-// `act.poppy_user_id`, and not from the state.
+// signs in has the same key when its `act.poppy_sid` and `act.poppy_user_id` are the same, because the key comes from
+// those two and not from the agent or the state.
 const GUEST_CONTEXT: PoppyAgentContext = {
   kind: 'agent',
   state: 'guest',
@@ -386,13 +386,12 @@ describe('Sign-in', () => {
     expect((await visit(agent, jar, '/private')).status).toBe(200);
   });
 
-  // The key is a hash of `act.sub`, `act.poppy_sid` and `act.poppy_user_id`. The SDK does not compare the join that signs in
-  // with the guest, because Auth0 issues the Poppy Session and its members can differ. A member that differs gives another
+  // The key is a hash of `act.poppy_sid` and `act.poppy_user_id`. The SDK does not compare the join that signs in with the
+  // guest, because Auth0 issues the Poppy Session and its members can differ. One of those two that differs gives another
   // key, so data kept under the key of the guest is not found.
   test.each([
     ['act.poppy_user_id', { ...act, poppy_user_id: 'usr_Z9wQ2e' }],
     ['act.poppy_sid', { ...act, poppy_sid: 'Zk3pL9sA_x7VbN2cQ8wTdE' }],
-    ['act.sub', { ...act, sub: 'https://other-agent.example/agent.json' }],
   ])('a signed-in join with another %s replaces the guest, and the key is another one', async (_member, otherAct) => {
     const agent = await serve(testApp());
     const jar = cookieJar();
@@ -408,6 +407,23 @@ describe('Sign-in', () => {
     expect(visitor).toEqual(userVisitor('auth0|ana', expect.objectContaining({ state: 'signed_in', act: otherAct })));
     expect(visitor.poppy?.key).toEqual(expect.any(String));
     expect(visitor.poppy?.key).not.toBe(SESSION_KEY);
+  });
+
+  // The agent is not part of the key, so a join that names the agent another way (the ID of a linked Auth0 agent in
+  // `act.sub`, or a `poppy_agent_id`) keeps the key of the guest, and so does the cart that is kept under it.
+  test.each([
+    ['act.sub', { ...act, sub: 'agt_3Lp9' }],
+    ['act.poppy_agent_id', { ...act, poppy_agent_id: AGENT_ID }],
+  ])('a signed-in join with another %s replaces the guest, and the key stays', async (_member, otherAct) => {
+    const agent = await serve(testApp());
+    const jar = cookieJar();
+    await join(agent, jar, tenant, guestIdToken(), AGENT_LINK);
+
+    await join(agent, jar, tenant, agentIdToken('auth0|ana', { act: otherAct }), AGENT_LINK);
+
+    const visitor = (await visitorOf(agent, jar)) as Extract<PoppyVisitor, { kind: 'user' }>;
+    expect(visitor).toEqual(userVisitor('auth0|ana', expect.objectContaining({ state: 'signed_in', act: otherAct })));
+    expect(visitor.poppy?.key).toBe(SESSION_KEY);
   });
 });
 
