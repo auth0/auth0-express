@@ -723,7 +723,8 @@ describe('Poppy requests through createAuth0Api()', () => {
       const firstKey = seen.auth0?.poppy?.key;
       const other = await api.get('/cart').set(withVersion(second));
 
-      // A Session is found by agent, `sid` and User ID (spec 5.3), so the second User starts a Session of their own.
+      // A Session is found by `sid` and User ID in this Beta (spec 5.3 also uses the `client_id`), so the second User
+      // starts a Session of their own.
       expect(accepted.status).toBe(200);
       expect(other.status).toBe(200);
       expect(seen.auth0?.poppy?.key).not.toBe(firstKey);
@@ -969,8 +970,9 @@ describe('Poppy requests through createAuth0Api()', () => {
   });
 
   describe('Token Session of a linked agent', () => {
-    // The token of an agent that is linked to an Auth0 agent names it by its ID in `act.sub`, and holds the URL of the
-    // agent nowhere. So the key of a Session that arrives in the token is not the key of the same Session in the header.
+    // The token of an agent that is linked to an Auth0 agent names it by its ID in `act.sub`, and the header names it
+    // by the URL of its client metadata. The key is made from the Session ID and the User ID only, so both paths give
+    // the Session one key and one record.
     const linkedAct = {
       sub: 'agt_3Lp9',
       sub_profile: 'ai_agent',
@@ -982,8 +984,10 @@ describe('Poppy requests through createAuth0Api()', () => {
 
     class RecordingStore extends PoppySessionStore {
       readonly records = new Map<string, PoppySessionRecord>();
+      readonly reads: string[] = [];
 
       async get(key: string) {
+        this.reads.push(key);
         return this.records.get(key);
       }
 
@@ -995,9 +999,7 @@ describe('Poppy requests through createAuth0Api()', () => {
       }
     }
 
-    // This test pins a known limit, not a wish: Auth0 puts no URL of the agent in the token yet. When it does, and
-    // `@auth0/auth0-api-js` keys the token Session by it, the two keys become equal. Flip the assertions then.
-    it('should give the same Session two keys, one from the header and one from the token, and keep two records', async () => {
+    it('should give the same Session one key from the header and from the token, and keep one record', async () => {
       const store = new RecordingStore();
       const { api } = await makeApp({ sessionStore: store });
       const sessionJwt = await session('GET', apiUrl('/cart'), { sid: 'sid_linked' });
@@ -1008,10 +1010,13 @@ describe('Poppy requests through createAuth0Api()', () => {
       await api.get('/cart').set('Authorization', `Bearer ${token}`).expect(200);
       const fromToken = seen.auth0?.poppy;
 
+      // The agent differs between the two paths (the URL, then the ID of the Auth0 agent), and the key does not.
       expect(fromHeader).toMatchObject({ source: 'header', agent: { id: agent.cimdUrl }, sessionId: 'sid_linked' });
       expect(fromToken).toMatchObject({ source: 'token', agent: { id: 'agt_3Lp9' }, sessionId: 'sid_linked' });
-      expect(fromToken?.key).not.toBe(fromHeader?.key);
-      expect([...store.records.keys()].sort()).toEqual([fromHeader?.key, fromToken?.key].sort());
+      expect(fromToken?.key).toBe(fromHeader?.key);
+      expect([...store.records.keys()]).toEqual([fromHeader?.key]);
+      // The token request looked the Session up under that key and found the record of the header request.
+      expect(store.reads).toEqual([fromHeader?.key, fromHeader?.key]);
     });
   });
 

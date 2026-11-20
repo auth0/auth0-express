@@ -786,8 +786,8 @@ Which one to use:
 
 `req.auth0.poppy` is a `PoppySession`:
 
-- `key` is an opaque key that is unique for each agent, Session ID and User ID. Key your Session data by it.
-- `sessionId` is the Session ID (`sid`) that the agent chose. Two agents can pick the same one.
+- `key` is an opaque key that is unique for each Session ID and User ID. The agent is not part of it. Key your Session data by it.
+- `sessionId` is the Session ID (`sid`) that the agent chose. Two agents can pick the same one, and two users of one agent can too.
 - `userId` is the User ID that the agent gave its user for your API. It is pseudonymous, and it is not the account. When `state` is `'signed_in'`, the account is `req.auth0.user.sub`.
 - `agent.id` is the agent. For a Session from the `Poppy-Session` header it is the URL of the client metadata of the agent, which is its `client_id`. For a Session from an access token it is `act.sub`: the same URL, unless the agent is linked to an Auth0 agent, when it is the ID of that agent and not a URL.
 - Two users who picked the same Session ID have two keys, because the User ID is part of the key.
@@ -798,9 +798,9 @@ Which one to use:
 
 `req.auth0.user` is set only when the request has a verified access token. A token is always there on a route that has `scopes` or does not set `requireSession`. On a `requireSession` route without `scopes`, a Session alone passes, so check `req.auth0.user` before you use it.
 
-**Keys.** Key your data by `req.auth0.poppy.key`, never by `sessionId` alone, because two agents can pick the same Session ID. The key stays the same when the user signs in, so a cart that an agent filled while signed out is still there afterwards. The `sessionStore` is for something else: it lets the SDK see that a Session has ended (see [Session records](#session-records)).
+**Keys.** Key your data by `req.auth0.poppy.key`, never by `sessionId` alone, because the Sessions of two users can have the same Session ID. The key is made from the Session ID and the User ID only. It does not hold the agent, so a Session has the same key whether it arrives in the `Poppy-Session` header or in the `act` claim of a web app's token, as long as Auth0 puts the Session ID and the User ID in the token unchanged. For an agent that is linked to an Auth0 agent, the token names the agent by an ID and not by its URL, so an agent in the key would give one Session two keys. The key stays the same when the user signs in, so a cart that an agent filled while signed out is still there afterwards. The `sessionStore` is for something else: it lets the SDK see that a Session has ended (see [Session records](#session-records)).
 
-**Linked agents have no shared key.** An agent that is linked to an Auth0 agent is named by its client metadata URL in the `Poppy-Session` header, but by the ID of the Auth0 agent in the `act` claim of a web app's token, which holds no URL. So the same Session has one `key` from the header and another from the token. The data that an agent saved under one is not found under the other: for example, a linked agent fills a cart while signed out, the user joins your web app, and the web app sees an empty cart, with a second Session record in your store. Ending a Session has the same limit: ending the record under the header key (see [Session records](#session-records)) refuses the header path only, and the same Session keeps working through the token of the web app, under the other key. Until Auth0 puts the URL in the token, key the data of a linked agent by something that both paths share, and end both.
+Four things follow from a key without the agent. Two agents that send the same Session ID and the same User ID share one key and one record in your store, and the SDK cannot tell them apart. It cannot check how an agent made a Session ID, and a Session JWT is signed, not encrypted, so anyone who can read one has the Session ID and the User ID. So treat the key as a name for your data and not as a secret, and not as proof of which agent sent the request. If you need the agent, read `agent.id`, and compare it only with another value from the same path: for a linked agent it is the URL in the header and the ID of the Auth0 agent in the token. And the key is a Beta key: it may change in a later release, and then every key changes with it, so do not keep it in a place that you cannot migrate.
 
 **Limits.** On a router with `poppy`, `scopesInclude()` and the claim middlewares answer with a `Bearer` and a `DPoP` challenge too, and both carry the error (`invalid_token` or `insufficient_scope`), because the router also accepts DPoP-bound tokens. `scopesInclude()` and the claim middlewares read only `req.auth0.user`, which exists only with an access token. After a `requireSession` route, a signed-out agent gets 403 `insufficient_scope` from `scopesInclude()`, and 401 `invalid_token` from the claim middlewares. So put the scopes of an agent route in `requiresAuth({ scopes })`, where a signed-out agent gets the sign-in challenge.
 
@@ -884,7 +884,7 @@ app.use(poppyErrorHandler);
 
 ### Session records
 
-A Session is more than a verified header. [Spec 5.3](https://personalagentprotocol.org/docs/1.0/spec#session-verification), step 4, finds a Session by the agent, the Session ID and the User ID: an unknown combination starts a signed-out Session, and a known one continues it. The Agent ID is kept with the Session but is not compared. [Spec 5.5](https://personalagentprotocol.org/docs/1.0/spec#ending-sessions) lets you remember ended Sessions and answer them with `session_ended`. Both need a record of each Session. Without records, the SDK verifies the header and returns the Session, and nothing more: it cannot tell a new Session from a continuing one, or that the Session ended. Keep the records in a store that the SDK calls, or run the two checks yourself.
+A Session is more than a verified header. [Spec 5.3](https://personalagentprotocol.org/docs/1.0/spec#session-verification), step 4, finds a Session by the `client_id` of the agent, the Session ID and the User ID: an unknown combination starts a signed-out Session, and a known one continues it. The SDK cannot use the `client_id` on every path yet (see **Keys** in [Protect routes for agents](#protect-routes-for-agents)), so in this Beta it finds a Session by the Session ID and the User ID, and another agent that sends the same two values continues the same Session. The Agent ID is kept with the Session but is not compared. [Spec 5.5](https://personalagentprotocol.org/docs/1.0/spec#ending-sessions) lets you remember ended Sessions and answer them with `session_ended`. Both need a record of each Session. Without records, the SDK verifies the header and returns the Session, and nothing more: it cannot tell a new Session from a continuing one, or that the Session ended. Keep the records in a store that the SDK calls, or run the two checks yourself.
 
 **The store contract.** Extend `PoppySessionStore` on top of your own storage, and pass an instance as the `sessionStore` option of `poppy`. The SDK has no built-in store, no expiry and no clean-up. The class has two methods:
 
@@ -1020,7 +1020,7 @@ export class SqlPoppySessionStore extends PoppySessionStore {
 }
 ```
 
-**Without a store.** If your Sessions already live in your own database, run the checks yourself, right after `requiresAuth()` on a route that sets `requireSession`. They are the checks that a store runs, with the same errors: a new Session is saved, and a Session that ended is refused. Throw `new SessionEndedError()` from the middleware or the route, and the error handler from [Error responses](#error-responses) answers it with 400 `session_ended`. The key holds the agent, the Session ID and the User ID, so there is no other User ID to compare.
+**Without a store.** If your Sessions already live in your own database, run the checks yourself, right after `requiresAuth()` on a route that sets `requireSession`. They are the checks that a store runs, with the same errors: a new Session is saved, and a Session that ended is refused. Throw `new SessionEndedError()` from the middleware or the route, and the error handler from [Error responses](#error-responses) answers it with 400 `session_ended`. The key holds the Session ID and the User ID, so there is no other User ID to compare.
 
 ```ts
 import type { RequestHandler } from 'express';
@@ -1036,7 +1036,7 @@ export const checkSession: RequestHandler = (req, _res, next) => {
   const known = sessions.get(poppy.key);
 
   if (!known) {
-    // An unknown combination of agent, Session ID and User ID starts a signed-out Session.
+    // An unknown combination of Session ID and User ID starts a signed-out Session.
     sessions.set(poppy.key, { userId: poppy.userId, poppyAgentId: poppy.agent.poppyAgentId });
   } else if (known.ended) {
     // A known one continues its Session, unless the Session has ended.

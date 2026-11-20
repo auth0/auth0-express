@@ -337,7 +337,7 @@ describe('example-express-api-poppy', () => {
       .set(withVersion(await session('GET', '/api/cart', { sid, sub: 'usr_other' })));
     const first = await api.get('/api/cart').set(withVersion(await session('GET', '/api/cart', { sid })));
 
-    // A Session is found by agent, Session ID and User ID, so the other user has a cart of their own.
+    // A Session is found by Session ID and User ID, so the other user has a cart of their own.
     expect(other.status).toBe(200);
     expect(other.body).toEqual({ items: [] });
     expect(first.body.items).toHaveLength(1);

@@ -76,10 +76,10 @@ export function createApp(poppy?: Partial<Auth0ApiPoppyOptions>): Express {
   const accepted = listedAgentsOnly(agents);
 
   // Carts live in memory, one for each Session. A real app keeps them in its database.
-  // The key is `req.auth0.poppy.key`, which Poppy makes from the agent, the Session ID and the User ID. It is not the
-  // Session ID alone, because two agents, or two users of one agent, can pick the same one. The User ID is the
-  // pseudonymous one of the agent, which a signed-out request has too, and not the account. The key does not change when
-  // the user signs in, so the cart survives the sign-in.
+  // The key is `req.auth0.poppy.key`, which Poppy makes from the Session ID and the User ID. It is not the Session ID
+  // alone, because the Sessions of two users can have the same one. The agent is not part of it, so it is a name for
+  // the cart and not a secret. The User ID is the pseudonymous one of the agent, which a signed-out request has too,
+  // and not the account. The key does not change when the user signs in, so the cart survives the sign-in.
   const carts = new Map<string, string[]>();
 
   // `requireSession` lets a request through with a Session and no access token, as from an agent whose user has not
