@@ -1,5 +1,12 @@
 # Change Log
 
+## [v1.1.0-beta.0](https://github.com/auth0/auth0-express/tree/auth0-express-api-v1.1.0-beta.0) (2026-11-20)
+[Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-api-v1.0.1...auth0-express-api-v1.1.0-beta.0)
+
+**Added**
+- feat(auth0-express-api): add personal agent protocol (POPPY) support [\#74](https://github.com/auth0/auth0-express/pull/74) ([@nandan-bhat](https://github.com/nandan-bhat))
+
+
 ## [v1.0.1](https://github.com/auth0/auth0-express/tree/auth0-express-api-v1.0.1) (2026-11-19)
 [Full Changelog](https://github.com/auth0/auth0-express/compare/auth0-express-api-v1.0.0...auth0-express-api-v1.0.1)
 
