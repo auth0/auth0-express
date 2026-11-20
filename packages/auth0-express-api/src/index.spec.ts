@@ -1878,3 +1878,54 @@ describe('in a router mounted on a path', () => {
     expect(errors[0]?.code).toBe('ERR_HTTP_HEADERS_SENT');
   });
 });
+
+// What a hostile client can put into the header of a JWT. jose checks `crit` before the signature, and its message holds
+// the client's own text, so a CR and an LF reach the message of the error without any key or valid token.
+function hostileToken(): string {
+  const encode = (value: object) => Buffer.from(JSON.stringify(value)).toString('base64url');
+  const header = { alg: 'RS256', typ: 'JWT', crit: ['x\r\nSet-Cookie: a=b'], 'x\r\nSet-Cookie: a=b': true };
+  return `${encode(header)}.${encode({ iss: `https://${domain}/`, aud: '<audience>' })}.c2ln`;
+}
+
+test('should answer 401, and not crash, for a JWT whose header holds a CR and an LF', async () => {
+  // On Express 4 a rejected handler promise ends the process, and `res.header` throws for a control character.
+  const app = express();
+  const router = createAuth0Api({ domain: domain, audience: '<audience>' });
+  router.get('/test', requiresAuth(), (_req, res) => {
+    res.json({ message: 'OK' });
+  });
+  app.use(router);
+
+  const res = await request(app).get('/test').set('authorization', `Bearer ${hostileToken()}`);
+
+  expect(res.status).toBe(401);
+  expect(res.headers['set-cookie']).toBeUndefined();
+  expect(res.headers['www-authenticate']).toMatch(/^Bearer error="invalid_token", error_description="[\x20-\x7e]*"$/);
+  expect(res.body.error).toBe('invalid_token');
+});
+
+test('should name only the Bearer scheme in the challenges of a router without poppy', async () => {
+  // A router without poppy does not accept DPoP, so its errors must not offer it.
+  const app = express();
+  const router = createAuth0Api({ domain: domain, audience: '<audience>' });
+  router.get('/scopes', requiresAuth(), scopesInclude('orders:write'), (_req, res) => {
+    res.json({ message: 'OK' });
+  });
+  router.get('/claim', requiresAuth(), claimEquals('tier', 'gold'), (_req, res) => {
+    res.json({ message: 'OK' });
+  });
+  app.use(router);
+  const accessToken = await generateToken(domain, 'user_123', '<audience>');
+
+  const scopes = await request(app).get('/scopes').set('authorization', `Bearer ${accessToken}`);
+  const claim = await request(app).get('/claim').set('authorization', `Bearer ${accessToken}`);
+
+  expect(scopes.status).toBe(403);
+  expect(scopes.headers['www-authenticate']).toBe(
+    'Bearer error="insufficient_scope", error_description="Insufficient scopes", scope="orders:write"'
+  );
+  expect(claim.status).toBe(401);
+  expect(claim.headers['www-authenticate']).toBe(
+    'Bearer error="invalid_token", error_description="Missing \'tier\' claim"'
+  );
+});

@@ -15,6 +15,8 @@ function stripProtocol(url: string | undefined): string | undefined {
  * - AUTH0_CLIENT_SECRET: Auth0 application client secret (optional)
  * - AUTH0_CLIENT_ASSERTION_SIGNING_KEY: Private key for client assertion (optional)
  *
+ * The `poppy` option is passed through as given. It has no environment variable.
+ *
  * @param config - Partial configuration object
  * @returns Complete Auth0ApiOptions configuration
  * @throws Error if required fields (domain, audience) are missing
@@ -28,6 +30,7 @@ export function getConfig(config: Partial<Auth0ApiOptions> = {}): Auth0ApiOption
     clientAssertionSigningKey: config.clientAssertionSigningKey || process.env.AUTH0_CLIENT_ASSERTION_SIGNING_KEY,
     clientAssertionSigningAlg: config.clientAssertionSigningAlg,
     customFetch: config.customFetch,
+    poppy: config.poppy,
   } as Auth0ApiOptions;
 
   if (!mergedConfig.domain) {

@@ -1,5 +1,5 @@
 export { createAuth0Api } from './router.js';
-export type { Auth0ApiOptions, RequiresAuthOptions, Token } from './types.js';
+export type { Auth0ApiOptions, Auth0ApiPoppyOptions, RequiresAuthOptions, Token } from './types.js';
 
 export { requiresAuth } from './middleware/require-auth.js';
 export { claimEquals } from './middleware/claim-equals.js';
@@ -48,4 +48,38 @@ export type {
   OnBehalfOfTokenOptions,
   OnBehalfOfTokenResult,
   TokenExchangeProfileResult,
+} from '@auth0/auth0-api-js';
+
+// The beta Poppy API (Personal Agent Protocol 1.0), re-exported so an app that
+// serves Personal Agents needs no direct dependency on `@auth0/auth0-api-js`.
+// Values, so `instanceof` and `extends` work: `PoppySessionStore` is the class a
+// custom Session store extends, the errors are the ones an app can catch or
+// throw (`InvalidSessionError`, `SessionEndedError`, `VersionUnsupportedError`,
+// `SignInRequiredError` and `PoppyUnavailableError` for a request, and
+// `InvalidConfigurationError` from `createAuth0Api()` for a bad option), and
+// `toHttpErrorResponse()` turns an error into the response the specification
+// asks for. The test agent is not here, it is on the
+// `@auth0/auth0-express-api/testing` entry point.
+export {
+  InvalidConfigurationError,
+  InvalidSessionError,
+  PoppySessionStore,
+  PoppyUnavailableError,
+  SessionEndedError,
+  SignInRequiredError,
+  toHttpErrorResponse,
+  VersionUnsupportedError,
+} from '@auth0/auth0-api-js';
+
+// Beta Poppy API types, re-exported for the same reason: the verified Session and
+// the types of its members, the record a Session store keeps, the reason of an
+// `InvalidSessionError` and the response `toHttpErrorResponse()` returns.
+export type {
+  HttpErrorResponse,
+  InvalidSessionReason,
+  PoppyAgent,
+  PoppySession,
+  PoppySessionRecord,
+  PoppySessionSource,
+  PoppySessionState,
 } from '@auth0/auth0-api-js';

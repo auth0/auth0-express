@@ -29,6 +29,7 @@ Jump straight to the capability you need.
 | [Authorization with claims](#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Custom token / user type](#custom-types) | Type your custom claims via module augmentation |
 | [Custom `fetch`](./EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
+| [Personal Agents (Poppy, beta)](#personal-agents-poppy-beta) | Verify Personal Agent Protocol 1.0 Sessions with `requiresAuth` |
 
 ## Getting Started
 
@@ -138,6 +139,37 @@ app.get(
 
 > [!IMPORTANT]
 > The above is to protect API routes by the means of a bearer token, and not server-side rendering routes using a session. 
+
+#### Personal Agents (Poppy, beta)
+
+A Personal Agent is software that acts for a user, and it sends a signed `Poppy-Session` header (a Poppy Session) with every request to your API. The `poppy` option turns on support for such agents, as a beta of [Poppy 1.0](https://personalagentprotocol.org/docs/1.0/spec), so the SDK's API can change before it is final. A signed-out agent sends a Poppy Session only, and a signed-in agent sends a Poppy Session and an access token. Without the option, nothing changes.
+
+```ts
+import { createAuth0Api, requiresAuth } from '@auth0/auth0-express-api';
+import type { PoppySessionStore } from '@auth0/auth0-express-api';
+
+// Your store of Session records. See "Session records" in EXAMPLES.md.
+declare const sessionStore: PoppySessionStore;
+
+app.use(
+  createAuth0Api({
+    domain: '<AUTH0_DOMAIN>',
+    audience: '<AUTH0_AUDIENCE>',
+    poppy: { verifySession: true, publicOrigin: 'https://api.example.com', sessionStore },
+  })
+);
+
+const carts = new Map<string, string[]>();
+
+// A Session alone is enough here, so an agent whose user has not signed in can use this route.
+app.get('/cart', requiresAuth({ poppy: { requireSession: true } }), (req, res) => {
+  res.json({ items: carts.get(req.auth0.poppy!.key) ?? [] });
+});
+```
+
+`publicOrigin` is required: set it to the public origin of your API, such as `https://api.example.com`, or `createAuth0Api()` throws. If a `poppy` option is invalid, `createAuth0Api()` throws at startup ([Configure the router](./EXAMPLES.md#configure-the-router) lists the options). Pass a `sessionStore`: without one, the SDK keeps no record of a Session, so it cannot refuse a Session that has ended ([spec 5.5](https://personalagentprotocol.org/docs/1.0/spec#ending-sessions)). Key your data by `req.auth0.poppy.key` either way: it is made from the Session ID and the User ID, so two users who picked the same Session ID have two keys. The agent is not part of the key, and the key may change in a later Beta release.
+
+See [Personal Agents (Poppy)](./EXAMPLES.md#personal-agents-poppy) for the options, the routes, the error responses, Session records, registered agents and testing.
 
 
 ## Feedback

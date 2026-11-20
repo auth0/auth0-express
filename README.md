@@ -51,6 +51,7 @@ Jump straight to the capability you need.
 | [Authorization with claims](./packages/auth0-express-api/README.md#authorization-with-claims) | Restrict routes with `claimEquals`, `claimIncludes`, `claimCheck` |
 | [Custom token / user type](./packages/auth0-express-api/README.md#custom-types) | Type your custom claims via module augmentation |
 | [Custom `fetch`](./packages/auth0-express-api/EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
+| [Personal Agents (Poppy, beta)](./packages/auth0-express-api/README.md#personal-agents-poppy-beta) | Verify Personal Agent Protocol 1.0 Sessions with `requiresAuth` |
 
 ## Running Examples
 
@@ -59,6 +60,7 @@ The following examples can be found in the examples directory:
 - [Express Web App Example](./examples/example-express-web/README.md)
 - [Express Web App Example with Personal Agents (Poppy)](./examples/example-express-web-poppy/README.md)
 - [Express API Example](./examples/example-express-api/README.md)
+- [Express API Example with Personal Agents (Poppy)](./examples/example-express-api-poppy/README.md)
 - [Express Web App Calling an API Example](./examples/example-express-web-call-api/README.md)
 - [Express Stateful Sessions Example](./examples/example-express-stateful-sessions/README.md)
 

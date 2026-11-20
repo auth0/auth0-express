@@ -1,4 +1,6 @@
 import { Request, Response } from 'express';
+import { isPoppyClient } from '../poppy/poppy-clients.js';
+import { dpopChallenge } from '../poppy/challenges.js';
 
 /**
  * Type for a function that checks claims and returns true if authorized.
@@ -36,6 +38,12 @@ export interface BearerErrorOptions {
    * characters. The JSON body is not changed.
    */
   fromRequest?: boolean;
+  /**
+   * Whether to send the `DPoP` challenge too. A router with the `poppy` option accepts `DPoP` access tokens as well as
+   * `Bearer` ones, so its errors name both. By default it is `true` when the request went through such a router, which
+   * `res.req` tells, and `false` otherwise, as a router without `poppy` accepts `Bearer` only.
+   */
+  dpop?: boolean;
 }
 
 /** The most characters of text from the request that the header carries. */
@@ -77,12 +85,12 @@ export function sendBearerError(
   // character that Node refuses.
   const scopeHeader = scopes ? `, scope="${quotedStringText(scopes.join(' '), false)}"` : '';
   const headerDescription = quotedStringText(errorDescription, options.fromRequest === true);
+  const bearer = `Bearer error="${error.replaceAll('"', '\\"')}", error_description="${headerDescription}"${scopeHeader}`;
+  const dpop = options.dpop ?? isPoppyClient(res.req?.auth0?.client);
+
   return res
     .status(statusCode)
-    .header(
-      'WWW-Authenticate',
-      `Bearer error="${error.replaceAll('"', '\\"')}", error_description="${headerDescription}"${scopeHeader}`
-    )
+    .header('WWW-Authenticate', dpop ? [bearer, dpopChallenge({ error, errorDescription, scopes })] : bearer)
     .json({
       error: error,
       error_description: errorDescription,

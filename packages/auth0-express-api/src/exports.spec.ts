@@ -1,4 +1,5 @@
 import { describe, it, expect } from 'vitest';
+import * as apiJs from '@auth0/auth0-api-js';
 import * as sdk from './index.js';
 import { getCurrentActor, getDelegationChain, InvalidRequestError } from './index.js';
 import type { Token } from './index.js';
@@ -8,10 +9,17 @@ describe('public exports', () => {
   it('should export exactly the documented value surface', () => {
     expect(Object.keys(sdk).sort()).toEqual([
       'AuthError',
+      'InvalidConfigurationError',
       'InvalidRequestError',
+      'InvalidSessionError',
       'MissingClientAuthError',
+      'PoppySessionStore',
+      'PoppyUnavailableError',
+      'SessionEndedError',
+      'SignInRequiredError',
       'TokenExchangeError',
       'VerifyAccessTokenError',
+      'VersionUnsupportedError',
       'claimCheck',
       'claimEquals',
       'claimIncludes',
@@ -21,6 +29,7 @@ describe('public exports', () => {
       'isConnectionExchangeError',
       'requiresAuth',
       'scopesInclude',
+      'toHttpErrorResponse',
     ]);
   });
 
@@ -58,6 +67,32 @@ describe('public exports', () => {
     // So the likely change is that this test stays green and the guard widens to
     // accept `token_exchange_error` as well, without consumers changing anything.
     expect('TokenForConnectionError' in sdk).toBe(false);
+  });
+
+  it('should re-export the Poppy values of @auth0/auth0-api-js', () => {
+    // Identity, not just presence: `instanceof` and `extends` only work across the
+    // package boundary when these are the very classes and function api-js exports.
+    const names = [
+      'InvalidConfigurationError',
+      'InvalidSessionError',
+      'PoppySessionStore',
+      'PoppyUnavailableError',
+      'SessionEndedError',
+      'SignInRequiredError',
+      'toHttpErrorResponse',
+      'VersionUnsupportedError',
+    ] as const;
+
+    for (const name of names) {
+      // Rules out `undefined === undefined`, which a missing export would give.
+      expect(apiJs[name]).toBeTypeOf('function');
+      expect(sdk[name]).toBe(apiJs[name]);
+    }
+  });
+
+  it('should not export the test agent', () => {
+    // The test agent is only on the `./testing` entry point.
+    expect('createTestAgent' in sdk).toBe(false);
   });
 });
 
