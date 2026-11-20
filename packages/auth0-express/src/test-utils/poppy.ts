@@ -152,8 +152,13 @@ function failed(res: Response, error: unknown) {
  * An Express app with the Auth0 router at `mount` (the root by default) and three routes under the same prefix:
  * `GET /visitor`, `GET /user` and `GET /private`. The app has no cookie parser of its own.
  */
-export function poppyApp(extra?: Partial<Auth0Options>, mount = ''): Express {
+export function poppyApp(extra?: Partial<Auth0Options>, mount = '', settings: Record<string, unknown> = {}): Express {
   const app = express();
+  // Before the router is mounted: Express 4 builds its query middleware when the router is first created, so a setting
+  // such as `query parser` that is made afterwards does not apply.
+  for (const [name, value] of Object.entries(settings)) {
+    app.set(name, value);
+  }
   const router = createAuth0(poppyAuth0Options(extra));
 
   if (mount) {

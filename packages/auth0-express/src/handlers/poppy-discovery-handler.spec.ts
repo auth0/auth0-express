@@ -142,7 +142,8 @@ describe('Poppy discovery routes', () => {
       const res = await agent.options(path).set('Cookie', cookies);
 
       expect(res.status).toBe(200);
-      expect(res.headers['allow']).toBe('GET, HEAD');
+      // Express 4 writes `GET,HEAD` and Express 5 writes `GET, HEAD`, so the methods are compared, not the spaces.
+      expect(res.headers['allow']?.split(',').map((method) => method.trim())).toEqual(['GET', 'HEAD']);
       expect(setCookieLines(res)).toEqual([]);
     });
 

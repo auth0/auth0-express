@@ -432,9 +432,8 @@ describe('the login route of an app with the poppy option', () => {
     ] as const)(
       'never reads iss[] or target_link_uri[] as the issuer or the target, with the %s query parser',
       async (parser, sentOn) => {
-        const app = poppyApp();
-        app.set('query parser', parser);
-        const agent = await serve(app);
+        // The parser is set before the router is mounted: Express 4 ignores it afterwards.
+        const agent = await serve(poppyApp(undefined, '', { 'query parser': parser }));
 
         const result = await login(agent, `?iss[]=${enc(ISS)}&target_link_uri[]=${enc(CART)}&a[b]=c`);
 

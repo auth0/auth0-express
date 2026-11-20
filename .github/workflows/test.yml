@@ -85,6 +85,11 @@ jobs:
         env:
           EXPRESS_4_ENTRY: ${{ runner.temp }}/express-4/node_modules/express/index.js
 
+      - name: Test auth0-express on Express 4
+        run: npm run test:express4 -w @auth0/auth0-express
+        env:
+          EXPRESS_4_ENTRY: ${{ runner.temp }}/express-4/node_modules/express/index.js
+
   lint:
     name: Lint
     runs-on: ubuntu-latest
