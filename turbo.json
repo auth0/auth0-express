@@ -15,6 +15,9 @@
         "dependsOn": [
           "^lint"
         ]
+      },
+      "docs": {
+        "cache": false
       }
     }
   }

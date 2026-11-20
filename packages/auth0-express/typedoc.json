@@ -1,0 +1,19 @@
+{
+    "entryPoints": ["src/index.ts"],
+    "tsconfig": "tsconfig.build.json",
+    "out": "../../docs/auth0-express",
+    "includeVersion": true,
+    "excludeTags": ["@category"],
+    "gitRevision": "main",
+    "categorizeByGroup": false,
+    "navigationLinks": {
+        "All packages": "https://auth0.github.io/auth0-express/"
+    },
+    "navigation": {
+        "includeCategories": false,
+        "includeGroups": false,
+        "includeFolders": false,
+        "compactFolders": false,
+        "excludeReferences": true
+    }
+}
