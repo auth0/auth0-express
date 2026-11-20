@@ -32,6 +32,21 @@ export class ExpressCookieHandler implements CookieHandler<StoreOptions> {
 
   deleteCookie(name: string, storeOptions?: StoreOptions, options?: CookieSerializeOptions): void {
     const { response } = storeOptions ?? getRequestContext();
-    response.clearCookie(name, options ? { path: options.path, domain: options.domain } : undefined);
+
+    // A browser ignores a `Set-Cookie` that has a `__Host-` or `__Secure-` name and no `Secure` attribute, and that
+    // includes the header that clears the cookie. So `secure` goes along with `path` and `domain`, and so do `httpOnly`
+    // and `sameSite`, which a cookie of the same name was set with. `maxAge` and `expires` do not: Express sets them.
+    response.clearCookie(
+      name,
+      options
+        ? {
+            path: options.path,
+            domain: options.domain,
+            secure: options.secure,
+            httpOnly: options.httpOnly,
+            sameSite: options.sameSite,
+          }
+        : undefined
+    );
   }
 }

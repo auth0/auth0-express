@@ -1,7 +1,8 @@
 import { Request, Response, NextFunction } from 'express';
 import { createRouteUrl, toSafeRedirect } from '../utils.js';
 import { resolveAppBaseUrl } from '../app-base-url.js';
-import { sanitizeHandlerError } from '../errors.js';
+import { IssuerValidationError, type PoppyLoginInitiation } from '@auth0/auth0-server-js';
+import { refusedIssuerError, sanitizeHandlerError, sanitizePoppyHandlerError } from '../errors.js';
 import { Auth0Options } from '../index.js';
 
 // Block both Object.prototype own-property names and commonly abused
@@ -73,19 +74,54 @@ export async function handleLogin(req: Request, res: Response, options: Auth0Opt
 
     const query = req.query as Record<string, unknown>;
     const dangerousReturnTo = query.returnTo as string | undefined;
-    const sanitizedReturnTo = toSafeRedirect(dangerousReturnTo || '/', appBaseUrl);
+    let sanitizedReturnTo = toSafeRedirect(dangerousReturnTo || '/', appBaseUrl);
+    let disallowedParams = ['returnTo'];
+
+    if (options.poppy) {
+      // An agent's browser is expected to arrive here with `iss` and `target_link_uri` (OpenID Connect Core 1.0, section
+      // 4), and anyone can send a browser here with any query. This check comes first, before anything writes a cookie.
+      // A request with no `iss` is a normal login. A request with an `iss` that is not the issuer says that it comes from
+      // another issuer, so it is refused with a `400` and the login does not start. `target_link_uri` is given back as
+      // `returnTo` only when `iss` is the issuer and the target is a page of this app, and a target that cannot be used is
+      // ignored. Its `authorizationParams` are not used, because they are not filtered like the ones below.
+      // https://openid.net/specs/openid-connect-core-1_0.html#ThirdPartyInitiatedLogin
+      // The URL is built from the query alone. `req.originalUrl` is the whole URL when a client sends a request target in
+      // absolute form (`GET http://host/path`), and a host that the URL parser refuses would make `new URL()` throw.
+      const queryStart = req.originalUrl.indexOf('?');
+      const loginUrl = new URL(appBaseUrl);
+      loginUrl.search = queryStart === -1 ? '' : req.originalUrl.slice(queryStart);
+
+      let initiation: PoppyLoginInitiation;
+
+      try {
+        initiation = req.auth0.client.poppy.parseLoginInitiation(loginUrl, { appOrigin: loginUrl.origin });
+      } catch (error) {
+        if (error instanceof IssuerValidationError) {
+          next(refusedIssuerError(error));
+          return;
+        }
+
+        throw error;
+      }
+
+      // A `returnTo` in the query that was accepted comes first, then the target, then the value that is used today.
+      const acceptedReturnTo = dangerousReturnTo ? sanitizedReturnTo : undefined;
+      sanitizedReturnTo = acceptedReturnTo ?? initiation.returnTo ?? sanitizedReturnTo;
+      // `iss` and `target_link_uri` are for this route. They never go on to /authorize.
+      disallowedParams = ['returnTo', 'iss', 'target_link_uri'];
+    }
 
     const authorizationUrl = await req.auth0.client.startInteractiveLogin({
       pushedAuthorizationRequests: options.pushedAuthorizationRequests,
       appState: { returnTo: sanitizedReturnTo },
       authorizationParams: {
-        ...filterAuthorizationParams(query, ['returnTo']),
+        ...filterAuthorizationParams(query, disallowedParams),
         redirect_uri: redirectUri.toString(),
       },
     });
 
     res.redirect(authorizationUrl.href);
   } catch (error) {
-    next(sanitizeHandlerError(error));
+    next(options.poppy ? sanitizePoppyHandlerError(error) : sanitizeHandlerError(error));
   }
 }

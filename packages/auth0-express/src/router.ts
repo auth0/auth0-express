@@ -6,6 +6,8 @@ import { handleLogin } from './handlers/login-handler.js';
 import { handleCallback } from './handlers/callback-handler.js';
 import { handleLogout } from './handlers/logout-handler.js';
 import { handleBackchannelLogout, parseBackchannelLogoutBody } from './handlers/backchannel-logout-handler.js';
+import { handlePoppyDiscovery, POPPY_DISCOVERY_PATHS } from './handlers/poppy-discovery-handler.js';
+import { markPoppyClient } from './poppy/enabled.js';
 import { runWithContext } from './store/request-context.js';
 import { getConfig } from './config.js';
 import './types/express.js';
@@ -15,6 +17,11 @@ import './types/express.js';
  *
  * This is the main entry point for the Auth0 Express SDK. It configures
  * authentication routes and attaches the Auth0 client to the request object.
+ *
+ * With the `poppy` option, it reads `poppy.json` once, here, and throws `InvalidConfigurationError` when the
+ * file cannot be read or the Poppy config is invalid. The discovery files are served at `/.well-known/...` of the
+ * router's mount point, so with `poppy` set, mount the router at the root of the site. The router logs one warning, on
+ * the first request through a sub-path that is not for one of the two files.
  *
  * @param opts - Configuration options for Auth0 authentication
  * @returns Express Router configured with Auth0 authentication
@@ -43,6 +50,19 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   const options = getConfig(opts);
   const router = Router();
 
+  // Initialize auth0Client
+  const auth0Client = createServerClientInstance(options);
+  if (options.poppy) {
+    markPoppyClient(auth0Client);
+  }
+
+  const shouldMountRoutes = options.mountRoutes ?? true;
+
+  // Poppy discovery files: served before any cookie or session handling, and only at the root of the site.
+  if (options.poppy && shouldMountRoutes) {
+    router.get(POPPY_DISCOVERY_PATHS, handlePoppyDiscovery(auth0Client));
+  }
+
   // Cookie parsing
   router.use(cookieParser());
 
@@ -51,11 +71,21 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
     runWithContext({ request, response }, () => next());
   });
 
-  // Initialize auth0Client
-  const auth0Client = createServerClientInstance(options);
+  // Agents fetch the discovery files at the root of the host. The router cannot know its mount path when it is created,
+  // but a request can tell it, so it warns once, on the first request that comes through a sub-path. The text is fixed
+  // and holds no value of the request, because the mount path can hold route parameters.
+  let warnedAboutSubPath = false;
 
   // Attach to request
   router.use((req: Request, res: Response, next: NextFunction) => {
+    if (options.poppy && shouldMountRoutes && req.baseUrl && !warnedAboutSubPath) {
+      warnedAboutSubPath = true;
+      console.warn(
+        '[Auth0] Poppy: the router is mounted under a sub-path, so it serves the discovery files under that path. ' +
+          'Agents fetch them at the root of the host. Mount the router at the root of the site.'
+      );
+    }
+
     req.auth0 = { client: auth0Client };
     req.app.locals.auth0Client = auth0Client;
     req.app.locals.auth0ClientOptions = options;
@@ -65,8 +95,6 @@ export function createAuth0(opts: Partial<Auth0Options> = {}): Router {
   });
 
   // Mount routes
-  const shouldMountRoutes = options.mountRoutes ?? true;
-
   if (shouldMountRoutes) {
     const routes = {
       login: options.routes?.login ?? '/auth/login',

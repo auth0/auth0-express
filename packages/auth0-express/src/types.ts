@@ -3,6 +3,10 @@ import type {
   AnonymousStore,
   DiscoveryCacheOptions,
   DomainResolver,
+  PoppyConfig,
+  PoppyGuestCookieOptions,
+  PoppyGuestStore,
+  PoppyProtectedResource,
   SessionConfiguration,
   SessionStore,
   UserClaims,
@@ -19,6 +23,16 @@ export type {
   DiscoveryCacheOptions,
   DomainResolver,
   GetAnonymousAccessTokenOptions,
+  PoppyActClaim,
+  PoppyAgentContext,
+  PoppyConfig,
+  PoppyConfigIssue,
+  PoppyContext,
+  PoppyGuestCookieOptions,
+  PoppyGuestData,
+  PoppyGuestStore,
+  PoppyProtectedResource,
+  PoppyVisitor,
   UserClaims,
 } from '@auth0/auth0-server-js';
 
@@ -62,6 +76,57 @@ export interface AnonymousSessionsOptions {
    * mounted under that same path.
    */
   cookie?: AnonymousCookieOptions;
+}
+
+/**
+ * Options for Poppy (Personal Agent Protocol).
+ *
+ * @beta
+ */
+export interface PoppyOptions {
+  /**
+   * The parsed `poppy.json` file that `auth0 poppy config` writes, as it is. When set, no file is read and `configPath` is ignored.
+   */
+  config?: PoppyConfig;
+  /**
+   * Where to read `poppy.json` from: a path, or a `file:` URL object. A relative path is resolved against
+   * `process.cwd()` once, when `createAuth0()` runs, so an app that starts from another folder must set this.
+   * @default 'poppy.json'
+   */
+  configPath?: string | URL;
+  /**
+   * Custom guest store (e.g. Redis-backed). A guest is an agent's browser that joined without signing in, and it
+   * is kept apart from the user session.
+   * When provided, the built-in `StatelessPoppyGuestStore` is not created and `cookie` is ignored.
+   *
+   * Every call of the store gets `{ request, response }` as its last argument, the Express request and response of the
+   * browser. The store must use them to tell one browser from another: key the record on an id that your server issued
+   * to this browser (an opaque random value in a cookie that you set on `response`), never on `identifier` alone, which
+   * is the same for every visitor. Otherwise the first guest becomes the guest of the whole site. Keep a record no
+   * longer than its `expiresAt`, return `undefined` for a record that cannot be used, and let a `jose` `ERR_JWT_EXPIRED`
+   * error through. See the server-js documentation for a complete example.
+   */
+  guestStore?: PoppyGuestStore<StoreOptions>;
+  /**
+   * Cookie attributes for the guest cookie.
+   * Only applies when using the built-in store (i.e. `guestStore` is not set).
+   * The guest cookie does not follow `sessionConfiguration.cookie`. Its defaults are `sameSite: 'lax'`,
+   * `secure: true` and `path: '/'`.
+   */
+  cookie?: PoppyGuestCookieOptions;
+  /**
+   * The longest an agent's session on your website lasts, in seconds. A whole number above 30, because a session
+   * ends 30 seconds before its deadline. The session can end sooner because of the `exp` or the `session_expiry` of
+   * the ID token. The SDK does not see the end of the agent's Poppy Session, so it does not end the session then.
+   * @default 7200 (two hours)
+   */
+  agentSessionMaxAge?: number;
+  /**
+   * Your own values for the `oauth-protected-resource` document that your website serves
+   * ({@link https://www.rfc-editor.org/rfc/rfc9728#section-2 RFC 9728, section 2}). A member you give is served
+   * as it is. A member you leave out is inferred from the config.
+   */
+  protectedResource?: PoppyProtectedResource;
 }
 
 /**
@@ -225,6 +290,8 @@ export interface Auth0Options {
   /**
    * Whether to mount the default routes for login, logout, callback and backchannel logout.
    * Routes: /auth/login, /auth/callback, /auth/logout, /auth/backchannel-logout
+   * With `poppy` set, `mountRoutes: false` also turns off the two Poppy discovery files
+   * (`/.well-known/poppy.json` and `/.well-known/oauth-protected-resource`).
    * @default true
    */
   mountRoutes?: boolean;
@@ -276,6 +343,40 @@ export interface Auth0Options {
    * ```
    */
   anonymousSessions?: true | AnonymousSessionsOptions;
+
+  /**
+   * Enable Poppy (Personal Agent Protocol) support, so that an agent can browse your website
+   * ({@link https://personalagentprotocol.org/docs/spec#web-browsing section 6 of the specification}).
+   * Set to `true` to use all defaults (the same as `{}`), or provide an options object. Without it, nothing
+   * changes.
+   *
+   * When set, `req.auth0.client.poppy` becomes available. `createAuth0()` reads `poppy.json` once, at
+   * startup, unless you pass the parsed file as `config`. A guest, which is an agent's browser that joined
+   * without signing in, is kept in its own cookie, apart from the user session. The cookie is encrypted with the
+   * same `sessionSecret` (when using the built-in store).
+   *
+   * It needs a static string `domain`. A domain resolver and `enterpriseConnect` are not supported with `poppy`: both
+   * are startup errors.
+   *
+   * @beta
+   * @example
+   * ```typescript
+   * // Read poppy.json from the working directory
+   * app.use(createAuth0({ sessionSecret: '...', poppy: true }));
+   *
+   * // Read it from another place
+   * app.use(createAuth0({
+   *   sessionSecret: '...',
+   *   poppy: { configPath: './config/poppy.json' },
+   * }));
+   *
+   * // Pass the parsed file, and read no file
+   * app.use(createAuth0({ sessionSecret: '...', poppy: { config: poppyConfig } }));
+   *
+   * // In a route: const visitor = await req.auth0.client.poppy.getVisitor();
+   * ```
+   */
+  poppy?: true | PoppyOptions;
 
   /**
    * Put the SDK in Enterprise Connect mode. Auth0 acts as a pure SSO relay;

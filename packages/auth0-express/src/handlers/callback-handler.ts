@@ -1,7 +1,7 @@
 import { Request, Response, NextFunction } from 'express';
 import { createRouteUrl } from '../utils.js';
 import { resolveAppBaseUrl } from '../app-base-url.js';
-import { sanitizeHandlerError } from '../errors.js';
+import { sanitizeHandlerError, sanitizePoppyHandlerError } from '../errors.js';
 import { Auth0Options } from '../types.js';
 
 export async function handleCallback(req: Request, res: Response, options: Auth0Options, next: NextFunction): Promise<void> {
@@ -29,6 +29,6 @@ export async function handleCallback(req: Request, res: Response, options: Auth0
 
     res.redirect(appState?.returnTo ?? appBaseUrl);
   } catch (error) {
-    next(sanitizeHandlerError(error));
+    next(options.poppy ? sanitizePoppyHandlerError(error) : sanitizeHandlerError(error));
   }
 }

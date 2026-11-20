@@ -37,6 +37,7 @@ Jump straight to the capability you need.
 | [Multiple Custom Domains (MCD)](./packages/auth0-express/EXAMPLES.md#multiple-custom-domains-mcd) | Resolve the Auth0 domain per request |
 | [Custom `fetch`](./packages/auth0-express/EXAMPLES.md#configuring-a-customfetch-implementation) | Swap in your own fetch (proxies, retries, instrumentation) |
 | [Discovery cache](./packages/auth0-express/EXAMPLES.md#discovery-cache) | Control caching of OIDC discovery metadata |
+| [Personal Agents (Poppy, beta)](./packages/auth0-express/README.md#personal-agents-poppy-beta) | Let a Personal Agent's browser join your site as a guest or a signed-in user |
 
 ### `@auth0/auth0-express-api` — APIs
 
@@ -56,6 +57,7 @@ Jump straight to the capability you need.
 The following examples can be found in the examples directory:
 
 - [Express Web App Example](./examples/example-express-web/README.md)
+- [Express Web App Example with Personal Agents (Poppy)](./examples/example-express-web-poppy/README.md)
 - [Express API Example](./examples/example-express-api/README.md)
 - [Express Web App Calling an API Example](./examples/example-express-web-call-api/README.md)
 - [Express Stateful Sessions Example](./examples/example-express-stateful-sessions/README.md)

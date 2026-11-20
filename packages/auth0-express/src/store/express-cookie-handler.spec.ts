@@ -103,7 +103,8 @@ describe('ExpressCookieHandler', () => {
       expect(storeOptions.response.clearCookie).toHaveBeenCalledWith('session', undefined);
     });
 
-    it('forwards only path and domain to clearCookie, ignoring other cookie attributes', () => {
+    // A browser ignores the clearing header of a `__Host-` cookie when it has no `Secure`, so `secure` must go on.
+    it('forwards path, domain, secure, httpOnly and sameSite to clearCookie, and not maxAge', () => {
       const handler = new ExpressCookieHandler();
       const storeOptions = createStoreOptions();
 
@@ -112,12 +113,16 @@ describe('ExpressCookieHandler', () => {
         domain: 'example.com',
         maxAge: 3600,
         secure: true,
+        httpOnly: true,
         sameSite: 'lax',
       });
 
       expect(storeOptions.response.clearCookie).toHaveBeenCalledWith('session', {
         path: '/app',
         domain: 'example.com',
+        secure: true,
+        httpOnly: true,
+        sameSite: 'lax',
       });
     });
   });
