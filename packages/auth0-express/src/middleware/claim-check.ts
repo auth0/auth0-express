@@ -37,6 +37,8 @@ import { ClaimAuthOptions, ClaimCheckFunction } from './claim-auth.js';
  *   res.send('Beta features');
  * });
  * ```
+ *
+ * @category Claim Checks
  */
 export function claimCheck(checkFn: ClaimCheckFunction, options?: ClaimAuthOptions) {
   return async (req: Request, res: Response, next: NextFunction) => {

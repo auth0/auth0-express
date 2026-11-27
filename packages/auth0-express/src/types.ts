@@ -24,6 +24,8 @@ export type {
 
 /**
  * Options for anonymous sessions. All anonymous session configuration is nested here.
+ *
+ * @category Anonymous Sessions
  */
 export interface AnonymousSessionsOptions {
   /**
@@ -70,6 +72,8 @@ export interface AnonymousSessionsOptions {
  * res.redirect() (or equivalent) before the promise resolves.
  *
  * Required when `enterpriseConnect: true`.
+ *
+ * @category Enterprise Connect
  */
 export type EnterpriseConnectCallbackHook = (
   req: Request,
@@ -96,6 +100,8 @@ export type EnterpriseConnectCallbackHook = (
  *   }
  * }
  * ```
+ *
+ * @category Configuration
  */
 export interface StoreOptions {
   /** Express request object */
@@ -125,6 +131,8 @@ export interface StoreOptions {
  *   sessionSecret: process.env.SESSION_SECRET
  * };
  * ```
+ *
+ * @category Getting Started
  */
 export interface Auth0Options {
   /**
