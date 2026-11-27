@@ -12,11 +12,11 @@
     "build": "tsc --project tsconfig.build.json",
     "build:watch": "tsc --project tsconfig.build.json --watch",
     "clean": "rm -rf ./dist",
+    "docs": "typedoc && typedoc --options typedoc.cjs",
     "lint": "eslint \"./**/*.ts*\"",
     "test": "vitest run",
     "test:express4": "vitest run --config vitest.express4.config.ts",
-    "test:ci": "vitest --watch false --coverage",
-    "docs": "typedoc"
+    "test:ci": "vitest --watch false --coverage"
   },
   "types": "./dist/index.d.ts",
   "main": "./dist/index.js",

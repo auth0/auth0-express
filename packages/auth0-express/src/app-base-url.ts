@@ -5,6 +5,8 @@ const HTTP_PROTOCOLS = new Set(['http:', 'https:']);
 
 /**
  * Checks if a string is a valid HTTP or HTTPS URL.
+ *
+ * @category Utilities
  */
 export function isUrl(value: string): boolean {
   try {
@@ -80,6 +82,8 @@ export function inferBaseUrlFromRequest(req: Request): string | null {
  *   matching origin is returned, otherwise an error is thrown.
  *
  * @throws {InvalidConfigurationError} When the base URL cannot be resolved.
+ *
+ * @category Utilities
  */
 export function resolveAppBaseUrl(appBaseUrl: string | string[] | undefined, req?: Request): string {
   const staticAppBaseUrl = typeof appBaseUrl === 'string' ? appBaseUrl : undefined;
