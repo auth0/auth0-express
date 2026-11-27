@@ -15,6 +15,8 @@ Two SDKs — pick the one that matches your application:
 - [`@auth0/auth0-express`](./packages/auth0-express/README.md) — for server-rendered **web apps** where users log in. Authenticates with a browser session cookie and handles login, logout, callback, and session management.
 - [`@auth0/auth0-express-api`](./packages/auth0-express-api/README.md) — for **APIs** / resource servers consumed by SPAs, mobile, or services. Authenticates with an `Authorization: Bearer <access_token>` and authorizes by scopes and claims.
 
+The API reference for both packages is published at [auth0.github.io/auth0-express](https://auth0.github.io/auth0-express/).
+
 ## Features
 
 Jump straight to the capability you need.
